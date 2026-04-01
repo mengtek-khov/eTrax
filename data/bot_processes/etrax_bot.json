@@ -1,0 +1,44 @@
+{
+  "bot_id": "eTrax Bot",
+  "created_at": "2026-03-02T06:42:01.575958+00:00",
+  "flows": {
+    "main": {
+      "start_module": null,
+      "transitions": {}
+    }
+  },
+  "module_registry": {
+    "menu_main": {
+      "items": [
+        "one",
+        "two",
+        "three"
+      ],
+      "parse_mode": null,
+      "title": "Main Menu",
+      "type": "menu"
+    },
+    "send_welcome": {
+      "parse_mode": null,
+      "text_template": "Welcome to our bot, {user_first_name}. here is testing only",
+      "type": "send_message"
+    }
+  },
+  "scenarios": {
+    "on_menu": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "menu_main"
+    },
+    "on_start": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "send_welcome"
+    }
+  },
+  "token_ref": {
+    "bot_id": "eTrax Bot"
+  },
+  "updated_at": "2026-03-02T08:33:26.343999+00:00",
+  "version": 1
+}

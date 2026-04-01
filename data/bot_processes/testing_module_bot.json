@@ -1,0 +1,77 @@
+{
+  "bot_id": "Testing Module Bot",
+  "command_menu": {
+    "command_modules": {
+      "help": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Command /help received."
+          }
+        ],
+        "text_template": "Command /help received."
+      },
+      "start": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}"
+          }
+        ],
+        "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}"
+      }
+    },
+    "commands": [
+      {
+        "command": "help",
+        "description": "Help"
+      }
+    ]
+  },
+  "created_at": "2026-03-04T03:31:10.901581+00:00",
+  "flows": {
+    "main": {
+      "start_module": null,
+      "transitions": {}
+    }
+  },
+  "module_registry": {
+    "menu_main": {
+      "items": [
+        "Get Help",
+        "Contact Support"
+      ],
+      "parse_mode": null,
+      "title": "Main Menu",
+      "type": "menu"
+    },
+    "send_welcome": {
+      "parse_mode": null,
+      "text_template": "Welcome to our bot, {user_first_name}.",
+      "type": "send_message"
+    }
+  },
+  "scenarios": {
+    "on_menu": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "menu_main"
+    },
+    "on_start": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "send_welcome"
+    }
+  },
+  "token_ref": {
+    "bot_id": "Testing Module Bot"
+  },
+  "updated_at": "2026-03-09T09:26:00+00:00",
+  "version": 1
+}

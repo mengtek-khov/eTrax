@@ -1,0 +1,189 @@
+{
+  "bot_id": "Payment Module",
+  "command_menu": {
+    "callback_modules": {
+      "checkout_paynow": {
+        "currency": "USD",
+        "deep_link_prefix": "abamobilebank://",
+        "description_template": "{cart_lines}",
+        "empty_text_template": "Your cart is empty.",
+        "merchant_ref_prefix": "cart",
+        "module_type": "payway_payment",
+        "open_button_text": "Open ABA Mobile",
+        "parse_mode": "HTML",
+        "payment_limit": 5,
+        "pipeline": [
+          {
+            "currency": "USD",
+            "deep_link_prefix": "abamobilebank://",
+            "description_template": "{cart_lines}",
+            "empty_text_template": "Your cart is empty.",
+            "merchant_ref_prefix": "cart",
+            "module_type": "payway_payment",
+            "open_button_text": "Open ABA Mobile",
+            "parse_mode": "HTML",
+            "payment_limit": 5,
+            "return_url": "https://84fa27f60de2.ngrok-free.app/paymentRespond",
+            "text_template": "<b>Ready To Pay</b>\r\nAmount: ${cart_total_price}\r\nTap below to open ABA Mobile or continue in the browser.",
+            "title_template": "Stationery cart for {user_first_name}",
+            "web_button_text": "Open Web Checkout"
+          }
+        ],
+        "return_url": "https://84fa27f60de2.ngrok-free.app/paymentRespond",
+        "text_template": "<b>Ready To Pay</b>\r\nAmount: ${cart_total_price}\r\nTap below to open ABA Mobile or continue in the browser.",
+        "title_template": "Stationery cart for {user_first_name}",
+        "web_button_text": "Open Web Checkout"
+      }
+    },
+    "command_modules": {
+      "checkout": {
+        "empty_text_template": "Your cart is empty.",
+        "module_type": "checkout",
+        "parse_mode": "HTML",
+        "pay_button_text": "Pay Now",
+        "pay_callback_data": "checkout_paynow",
+        "pipeline": [
+          {
+            "empty_text_template": "Your cart is empty.",
+            "module_type": "checkout",
+            "parse_mode": "HTML",
+            "pay_button_text": "Pay Now",
+            "pay_callback_data": "checkout_paynow",
+            "text_template": "<b>Your Cart</b>\r\n{cart_lines}\r\n\r\n<b>Total: ${cart_total_price}</b>"
+          }
+        ],
+        "text_template": "<b>Your Cart</b>\r\n{cart_lines}\r\n\r\n<b>Total: ${cart_total_price}</b>"
+      },
+      "start": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Welcome to our bot, {user_first_name}."
+          }
+        ],
+        "text_template": "Welcome to our bot, {user_first_name}."
+      },
+      "stationery": {
+        "module_type": "send_message",
+        "parse_mode": "HTML",
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": "HTML",
+            "text_template": "<b>Stationery Shop</b>\r\nChoose items below and adjust the quantity with the cart buttons."
+          },
+          {
+            "hide_caption": false,
+            "max_qty": 20,
+            "min_qty": 0,
+            "module_type": "cart_button",
+            "parse_mode": "HTML",
+            "photo_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Spiral-bound%20notebooks.JPG",
+            "price": "4.50",
+            "product_key": "spiral_notebook",
+            "product_name": "Spiral Notebook",
+            "quantity": 0,
+            "text_template": "<b>{product_name}</b>\r\nPrice: ${price}\r\nQty: {cart_quantity}\r\nTotal: ${cart_total_price}"
+          },
+          {
+            "hide_caption": false,
+            "max_qty": 30,
+            "min_qty": 0,
+            "module_type": "cart_button",
+            "parse_mode": "HTML",
+            "photo_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Typical%20ball%20point%20pen.jpg",
+            "price": "1.20",
+            "product_key": "ballpoint_pen",
+            "product_name": "Ballpoint Pen",
+            "quantity": 0,
+            "text_template": "<b>{product_name}</b>\r\nPrice: ${price}\r\nQty: {cart_quantity}\r\nTotal: ${cart_total_price}"
+          },
+          {
+            "hide_caption": false,
+            "max_qty": 25,
+            "min_qty": 0,
+            "module_type": "cart_button",
+            "parse_mode": "HTML",
+            "photo_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Sticky%20Notes.jpg",
+            "price": "2.00",
+            "product_key": "sticky_notes",
+            "product_name": "Sticky Notes Pack",
+            "quantity": 0,
+            "text_template": "<b>{product_name}</b>\r\nPrice: ${price}\r\nQty: {cart_quantity}\r\nTotal: ${cart_total_price}"
+          }
+        ],
+        "text_template": "<b>Stationery Shop</b>\r\nChoose items below and adjust the quantity with the cart buttons."
+      },
+      "welcome": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "welcome {user_first_name}"
+          }
+        ],
+        "text_template": "welcome {user_first_name}"
+      }
+    },
+    "commands": [
+      {
+        "command": "stationery",
+        "description": "Stationery Shop"
+      },
+      {
+        "command": "checkout",
+        "description": "Checkout"
+      },
+      {
+        "command": "welcome",
+        "description": "Welcome"
+      }
+    ]
+  },
+  "created_at": "2026-03-10T02:43:08.169518+00:00",
+  "flows": {
+    "main": {
+      "start_module": null,
+      "transitions": {}
+    }
+  },
+  "module_registry": {
+    "menu_main": {
+      "items": [
+        "Get Help",
+        "Contact Support",
+        "Stationery Shop"
+      ],
+      "parse_mode": null,
+      "title": "Main Menu",
+      "type": "menu"
+    },
+    "send_welcome": {
+      "parse_mode": null,
+      "text_template": "Welcome to our bot, {user_first_name}.",
+      "type": "send_message"
+    }
+  },
+  "scenarios": {
+    "on_menu": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "menu_main"
+    },
+    "on_start": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "send_welcome"
+    }
+  },
+  "token_ref": {
+    "bot_id": "Payment Module"
+  },
+  "updated_at": "2026-03-11T08:17:41.416827+00:00",
+  "version": 1
+}

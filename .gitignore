@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+
+.pytest_cache/
+.mypy_cache/
+
+output/
+
+data/token.key
+data/tokens.json
+data/profile_log.json
+data/cart_state.json
+data/update_offsets.json
