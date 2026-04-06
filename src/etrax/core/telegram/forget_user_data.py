@@ -6,6 +6,7 @@ from typing import Any
 from ..flow import ModuleOutcome
 from .contracts import CartStateStore, UserProfileStore
 from .share_contact import ContactRequestStore
+from .share_location import LocationRequestStore
 
 _PROFILE_CONTEXT_KEYS_TO_CLEAR = (
     "contact_phone_number",
@@ -14,6 +15,18 @@ _PROFILE_CONTEXT_KEYS_TO_CLEAR = (
     "contact_user_id",
     "contact_vcard",
     "contact_is_current_user",
+    "location_latitude",
+    "location_longitude",
+    "location_horizontal_accuracy",
+    "location_live_period",
+    "location_heading",
+    "location_proximity_alert_radius",
+    "location_history_by_day",
+    "location_breadcrumb_points",
+    "location_breadcrumb_by_day",
+    "location_breadcrumb_count",
+    "location_breadcrumb_total_distance_meters",
+    "location_breadcrumb_active",
     "last_command",
     "last_callback_data",
 )
@@ -42,6 +55,19 @@ _RESERVED_PROFILE_KEYS = {
     "last_callback_data",
     "contact_shared_at",
     "contact_is_current_user",
+    "location_latitude",
+    "location_longitude",
+    "location_horizontal_accuracy",
+    "location_live_period",
+    "location_heading",
+    "location_proximity_alert_radius",
+    "location_history_by_day",
+    "location_breadcrumb_points",
+    "location_breadcrumb_by_day",
+    "location_breadcrumb_count",
+    "location_breadcrumb_total_distance_meters",
+    "location_breadcrumb_active",
+    "location_shared_at",
 }
 
 _PROTECTED_CONTEXT_KEYS = {
@@ -90,11 +116,13 @@ class ForgetUserDataModule:
         cart_state_store: CartStateStore,
         profile_store: UserProfileStore,
         contact_request_store: ContactRequestStore | None = None,
+        location_request_store: LocationRequestStore | None = None,
         config: ForgetUserDataConfig | None = None,
     ) -> None:
         self._cart_state_store = cart_state_store
         self._profile_store = profile_store
         self._contact_request_store = contact_request_store
+        self._location_request_store = location_request_store
         self._config = config or ForgetUserDataConfig()
 
     def execute(self, context: dict[str, Any]) -> ModuleOutcome:
@@ -117,6 +145,17 @@ class ForgetUserDataModule:
                 is not None
             )
 
+        cleared_pending_location_request = False
+        if self._location_request_store is not None:
+            cleared_pending_location_request = (
+                self._location_request_store.pop_pending(
+                    bot_id=bot_id,
+                    chat_id=chat_id,
+                    user_id=user_id,
+                )
+                is not None
+            )
+
         context_updates = {
             self._config.context_result_key: {
                 "bot_id": bot_id,
@@ -125,6 +164,7 @@ class ForgetUserDataModule:
                 "cleared_profile": True,
                 "cleared_cart": True,
                 "cleared_pending_contact_request": cleared_pending_contact_request,
+                "cleared_pending_location_request": cleared_pending_location_request,
             },
             "profile": {},
             "start_returning_user": False,

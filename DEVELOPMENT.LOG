@@ -5,11 +5,9 @@
   - Ask user when instructions are unclear or conflicting.
   - Keep coding style consistent.
   - Suggest better approaches when beneficial.
-
 [2026-03-02]
 - Added architecture rule to AGENTS.md:
   - Implement Python code as reusable modules with clean interfaces for integration with other frameworks (e.g., Frappe).
-
 [2026-03-02]
 - Request: scaffold project as reusable Python module that can run standalone and integrate with frameworks later (e.g., Frappe).
 - Architecture decisions:
@@ -35,13 +33,11 @@
 - Verification:
   - Standalone smoke test passed via Python one-liner loading src and querying ETX-001.
   - py -3 -m pytest -q failed because pytest is not installed in current environment.
-
 [2026-03-02]
 - User decision: keep runtime standalone for now (Windows environment).
 - Integration strategy updated:
   - Preserve standalone-first architecture.
   - Prioritize Frappe adapter compatibility before adding other framework adapters.
-
 [2026-03-02]
 - Discussed modular workflow idea: modules A/B/C/D composed per client-specific sequence.
 - Key design recommendation:
@@ -49,20 +45,17 @@
   - Store allowed transitions explicitly (e.g., A->[B,D], B->[C,A], C->[D], D->[]).
   - Provide a validator to check whether a requested path is valid before runtime execution.
   - Keep each module with a strict input/output contract so connections are predictable.
-
 [2026-03-02]
 - Requirement clarified: some modules must run multiple times in a single process.
 - Flow-engine implication:
   - Allow repeated nodes/cycles in execution paths.
   - Add safety controls (max_steps, per-module max_visits, and explicit stop conditions) to prevent infinite loops.
-
 [2026-03-02]
 - Clarified implementation strategy when no real modules exist yet:
   - Build the flow engine first as framework-agnostic core infrastructure.
   - Define module contract/interface (execute + metadata) and transition graph schema.
   - Use placeholder/mock modules for early validation and tests.
   - Integrate real modules later by implementing the same contract.
-
 [2026-03-02]
 - Implemented standalone-first reusable flow engine in core to support client-custom module sequences before real modules exist.
 - New core components:
@@ -82,10 +75,8 @@
   - py -3 -m compileall src tests passed.
   - Runtime smoke test passed: loop flow produced history ('A','A','A','D'), stop_reason='done', counter=3.
   - Full pytest run still not executed because pytest package is not installed in current environment.
-
 [2026-03-02]
 - Documentation refinement: updated README flow example to include explicit ModuleC for clearer transition intent in sample graph.
-
 [2026-03-02]
 - Product goal clarified by user:
   - Build a drag-and-drop website builder experience similar to WordPress page builders.
@@ -94,7 +85,6 @@
   - Keep current modular flow engine as backend orchestration core.
   - Add a builder domain (page schema, element registry, layout tree/graph, config validation).
   - Provide standalone-first UI/API layer now; keep adapters ready for future framework integration (Frappe priority).
-
 [2026-03-02]
 - Requirement correction:
   - Use the same drag/drop-like modular composition logic, but not for website building.
@@ -102,14 +92,12 @@
 - Implementation alignment:
   - Keep flow engine + module registry approach.
   - Define domain-specific module types and payload schemas based on target business use case.
-
 [2026-03-02]
 - Domain finalized by user: Telegram bot builder.
 - Alignment updates:
   - AGENTS.md updated with domain priority for modular Telegram bot workflows.
   - README updated to position project as standalone Telegram bot builder with composable module flows.
   - Added Telegram-specific direction notes (capability blocks, transition config, repeat loops).
-
 [2026-03-02]
 - Next-step planning for Telegram bot token configuration with Frappe-backed storage:
   - Create a core TokenStore interface (framework-agnostic).
@@ -118,7 +106,6 @@
   - Implement Frappe adapter repository for DB persistence.
   - Keep standalone fallback adapter (file/inmemory) for Windows runtime.
   - Add masking and access controls for token read operations.
-
 [2026-03-02]
 - User request: build standalone web UI to configure Telegram bot token, with design ready for Frappe DB storage later.
 - Implemented core token management domain:
@@ -152,10 +139,8 @@
   - Token-service smoke test passed using fake cipher + JSON store.
   - CLI tracking command (new and legacy forms) passed in smoke tests.
   - Token UI launch currently blocked in this environment because `cryptography` is not installed.
-
 [2026-03-02]
 - CLI refinement: `token-ui` command now catches runtime setup errors and prints user-friendly message instead of traceback.
-
 [2026-03-02]
 - Fixed direct-run import issue for standalone token UI.
 - Problem: running `src/etrax/standalone/token_ui.py` directly caused `ModuleNotFoundError: No module named etrax` because `src` was not on `sys.path`.
@@ -165,30 +150,25 @@
   - Added `main()` and `if __name__ == "__main__"` entrypoint with friendly runtime error output.
 - Verification:
   - `py -3 src\etrax\standalone\token_ui.py --help` now works.
-
 [2026-03-02]
 - Runtime guidance for Windows shell:
   - `python` command not available in current PowerShell environment.
   - Use Python launcher command `py -3 ...` instead.
   - For this project, prefer `py -3 -m etrax token-ui` (package mode) or `py -3 src\etrax\standalone\token_ui.py` (direct script mode).
-
 [2026-03-02]
 - Clarification: `bot_id` in token configuration is an internal identifier key, not required to be Telegram username.
 - Recommendation:
   - Use a stable internal id (e.g., `support-bot`, `sales-bot-th`) or Telegram numeric bot id from `getMe`.
   - Avoid relying only on username as primary key because usernames can change.
-
 [2026-03-02]
 - Testing guide shared for standalone token UI:
   - Install deps, run token UI, save/revoke token via browser, verify encrypted storage file.
   - Recommended commands use `py -3` for current Windows environment.
-
 [2026-03-02]
 - Clarified tracking response data source:
   - Tracking payload currently comes from in-memory seeded demo events.
   - Source wiring: `src/etrax/app/container.py` -> `InMemoryTrackingEventRepository(seed_demo_events())`.
   - Demo event values defined in `src/etrax/adapters/inmemory/repository.py` (`ETX-001`, status `In Transit`, location `Bangkok Hub`).
-
 [2026-03-02]
 - User request: create a reusable send message module.
 - Implemented Telegram send-message module architecture (standalone-first, framework-agnostic):
@@ -219,7 +199,6 @@
   - `py -3 -m compileall src tests` passed.
   - Runtime smoke test passed for `SendTelegramMessageModule` with fake resolver/gateway.
   - Full pytest run still pending in this environment (pytest package not installed).
-
 [2026-03-02]
 - User request: test behavior where user clicks `/start` and bot sends welcome message.
 - Implemented start-welcome pipeline:
@@ -245,7 +224,6 @@
   - Smoke test passed for `StartWelcomeHandler` (`/start` handled = True).
   - CLI help verified for `start-welcome`.
   - Full pytest run remains pending because pytest is not installed in this environment.
-
 [2026-03-02]
 - User request: when adding bot token, auto-render a dedicated file per token/bot for later custom module composition.
 - Implemented per-bot process scaffold generation:
@@ -268,7 +246,6 @@
   - `py -3 -m compileall src tests` passed.
   - Smoke test confirmed scaffold file creation (`support-bot.json`) and payload content.
   - CLI help confirmed `token-ui` includes `--bot-config-dir`.
-
 [2026-03-02]
 - User request: add Run button in config UI and support hot reload when config/module updates.
 - Implemented UI runtime controls:
@@ -298,12 +275,10 @@
 - Clarification of hot reload scope in this implementation:
   - Hot reload applies to bot process configuration/module registry changes in bot config JSON files.
   - Python source code changes to module implementations still require process restart.
-
 [2026-03-02]
 - User reported runtime error without traceback context.
 - Action: requested exact command + full traceback to diagnose accurately.
 - Provided immediate capture steps and likely quick fixes (missing deps/path/runtime config).
-
 [2026-03-02]
 - User request: print runtime errors to terminal (not only UI).
 - Implemented terminal error output:
@@ -314,13 +289,11 @@
 - Validation:
   - Compiled updated files successfully.
   - Token UI still starts and `--help` works.
-
 [2026-03-02]
 - Runtime fix for missing bot config file on Run.
 - Problem: existing token records created before scaffold feature caused error `bot config file not found`.
 - Fix: updated `src/etrax/standalone/bot_runtime_manager.py` to auto-call `JsonBotProcessScaffoldStore.ensure(bot_id)` before loading config each runtime cycle.
 - Effect: missing `data/bot_processes/<bot_id>.json` now auto-generated at runtime start.
-
 [2026-03-02]
 - User request: reduce runtime error message spam.
 - Updated `src/etrax/standalone/bot_runtime_manager.py` with log throttling:
@@ -329,7 +302,6 @@
   - Different/new error messages still log immediately.
   - Successful poll cycle clears error log memory so future errors are visible again.
 - Verification: file compiles successfully.
-
 [2026-03-02]
 - UI refinement requested: remove Runtime column in Configured Bots and keep Action buttons on one line.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -338,14 +310,12 @@
   - Added action-cell/action-row CSS using flex nowrap to keep Run/Stop/Revoke on one line where space allows.
   - Removed inline button-form styles in favor of class-based layout.
 - Verification: `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
-
 [2026-03-02]
 - Clarified Run/Stop behavior in UI:
   - They are separate actions (not one toggle button).
   - `Run` starts runtime if stopped; if already running, returns `already running`.
   - `Stop` stops runtime if running; if already stopped, returns `not running`.
 - Future option: replace with single toggle button driven by runtime status.
-
 [2026-03-02]
 - UI refinement: replaced separate Run/Stop action buttons with single status-driven toggle button.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -355,7 +325,6 @@
   - `Revoke` remains a separate button.
   - Added `warn` button style for Stop state.
 - Verification: `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
-
 [2026-03-02]
 - User request: add Config button to open setup page for module/module config per bot token.
 - Implemented dedicated setup page in token UI:
@@ -382,7 +351,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py src\\etrax\\__main__.py` passed.
   - `py -3 src\\etrax\\standalone\\token_ui.py --help` passed.
-
 [2026-03-02]
 - User request: keep runtime persistent until explicit stop and move runtime control to dedicated config page.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -395,7 +363,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py src\\etrax\\__main__.py` passed.
   - `py -3 src\\etrax\\standalone\\token_ui.py --help` passed.
-
 [2026-03-02]
 - User correction: keep runtime control (`Run` / `Stop`) in both places: Configured Bots list and dedicated Config page.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -405,7 +372,6 @@
   - Main list runtime actions now include `next=/` redirect consistency.
 - Updated `README.md` to reflect dual control locations.
 - Verification: `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
-
 [2026-03-02]
 - User request: add menu setup module.
 - Implemented menu-module support across scaffold, config UI, and runtime:
@@ -429,7 +395,6 @@
   - `py -3 -m compileall src tests` passed.
   - Menu resolver smoke test passed (generated numbered menu text).
   - `py -3 src\\etrax\\standalone\\token_ui.py --help` passed.
-
 [2026-03-02]
 - Clarification from user: menu should be dynamic bot menu buttons (not only text).
 - Implemented dynamic Telegram button support for menu modules:
@@ -453,7 +418,6 @@
   - `py -3 -m compileall src tests` passed.
   - Smoke test confirmed menu resolver now outputs reply_markup keyboard for configured items.
   - `py -3 src\\etrax\\standalone\\token_ui.py --help` passed.
-
 [2026-03-02]
 - User request: UI hot reload on module/code update.
 - Implemented UI hot reload mode in `src/etrax/standalone/token_ui.py`:
@@ -469,7 +433,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py src\\etrax\\__main__.py` passed.
   - `token_ui.py --help` and `python -m etrax token-ui --help` show new hot reload flags.
-
 [2026-03-02]
 - User issue: menu was not inline button.
 - Updated menu rendering to inline keyboard:
@@ -482,7 +445,6 @@
 - Verification:
   - `py -3 -m compileall src tests` passed.
   - Smoke check confirms `resolve_menu_send_config(...).static_reply_markup` now returns inline keyboard payload.
-
 [2026-03-02]
 - User clarification: wanted Telegram command menu (`/` commands list), not inline buttons.
 - Updated runtime command-menu behavior in `src/etrax/standalone/bot_runtime_manager.py`:
@@ -516,7 +478,6 @@
   - Smoke check passed for both:
     - `resolve_command_menu(payload)` command list output
     - `resolve_menu_send_config(payload, bot_id).text_template` slash-command list output.
-
 [2026-03-02]
 - User request: restart command-menu setup on dedicated config page with direct control to add/remove commands and enable/disable menu.
 - Updated dedicated config page in `src/etrax/standalone/token_ui.py`:
@@ -545,7 +506,6 @@
     - added tests for hiding default `/start` and `/menu`
     - added tests for explicit custom command list
   - `README.md` updated for dedicated command menu controls.
-
 [2026-03-02]
 - User request: temporarily remove `Start Module (/start)` and `Menu Module (/menu)` sections from dedicated config page.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -558,7 +518,6 @@
   - Removed now-unused `_build_module_config` helper.
 - Updated docs:
   - `README.md` now states module editor sections are temporarily hidden and command menu settings remain configurable.
-
 [2026-03-04]
 - User request: when saving config, remove Telegram menu commands that are not in current config.
 - Updated `src/etrax/standalone/bot_runtime_manager.py`:
@@ -574,7 +533,6 @@
   - On `/config/save`, UI now immediately calls Telegram `setMyCommands` with resolved `command_menu` payload.
   - This applies removals/additions right away on save (without waiting for runtime poll cycle).
   - Sync issues are shown as `info` status and printed to terminal; config is still saved.
-
 [2026-03-04]
 - User request: change color on runtime toggle button (`Run` / `Stop`).
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -583,7 +541,6 @@
     - `toggle-stop` (red)
   - Dedicated config page runtime toggle button now uses same state classes/colors.
   - Replaced old `warn` style usage for runtime toggle.
-
 [2026-03-04]
 - User request: add an aside panel on dedicated config page to print full runtime error.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -593,7 +550,6 @@
   - Introduced responsive two-column layout (`config-layout`) that collapses to one column on small screens.
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
-
 [2026-03-04]
 - User request: make save result more noticeable in UI.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -604,7 +560,6 @@
   - Updated status HTML renderer:
     - adds semantic label prefix (`Saved`, `Success`, `Error`, `Notice`)
     - outputs `role='status'` and `aria-live='polite'` for better visibility/accessibility.
-
 [2026-03-04]
 - User request: each command should have its own dedicated process-module setup panel, including default `/start`; adding a command should add a dedicated command setup panel.
 - Updated runtime routing in `src/etrax/standalone/bot_runtime_manager.py`:
@@ -634,7 +589,6 @@
     - added tests for per-command module config resolution
     - added fallback-template test for custom command without explicit module setup
   - `README.md` updated to document per-command process-module setup panels.
-
 [2026-03-04]
 - User request: remove `/menu` from default included commands.
 - Updated defaults:
@@ -645,7 +599,6 @@
 - Updated tests/docs:
   - `tests/test_bot_runtime_manager.py` expectations updated for new default behavior.
   - `README.md` now states default inclusion: `/start` on, `/menu` off.
-
 [2026-03-04]
 - User request: allow multiple modules per command and chain them.
 - Updated runtime in `src/etrax/standalone/bot_runtime_manager.py`:
@@ -671,7 +624,6 @@
     - adjusted per-command module config assertions for pipeline output
     - added pipeline-resolution test
   - `README.md` updated with chain-step syntax and multi-step per-command behavior.
-
 [2026-03-04]
 - User request: in Module Setup, load module list and support add/remove/reorder.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -690,14 +642,12 @@
 - Verification:
   - `py -3 -m compileall src tests` passed.
   - Smoke check: command pipeline resolves and preserves module order.
-
 [2026-03-04]
 - User request: increase UI container width to around 1200px or full-width with margins.
 - Updated `src/etrax/standalone/token_ui.py`:
   - Increased container width in both standalone pages (`/` and `/config`) to:
     - `width: min(1280px, calc(100% - 32px))`
   - Keeps responsive side margins while giving wider desktop layout.
-
 [2026-03-04]
 - User report: `Add Module` / `Add Command` buttons do nothing in dedicated config page.
 - Root cause identified in `src/etrax/standalone/token_ui.py`:
@@ -711,7 +661,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - Rendered `<script>` extracted from `_render_config_page(...)` and validated with Node parser (`new Function(script)`), result: `JS_OK`.
-
 [2026-03-04]
 - User request: add `Edit` button on module list.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -720,7 +669,6 @@
     - if selected row is not first, selected step is swapped to top and fields are updated.
     - editor focus jumps to relevant field (`text template` for `send_message`, `menu title` for `menu`).
   - Added helper `focusPrimaryEditor(...)` for consistent edit-focus behavior.
-
 [2026-03-04]
 - User request: when clicking `Edit`, load that module setup into editor.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -733,7 +681,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - Rendered config page script parse check via Node (`new Function(script)`) passed: `JS_OK`.
-
 [2026-03-04]
 - User request: Command Setup should be 3 parts:
   1) command info (`command name`, `command description`)
@@ -756,7 +703,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - Rendered config page JavaScript parse check via Node (`new Function(script)`) passed: `JS_OK`.
-
 [2026-03-04]
 - User request: remove dedicated `/menu Process Module Setup`; use Custom Commands for `/menu` later if needed.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -771,7 +717,6 @@
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - Rendered config page check confirms menu setup panel removed (`False`, `False`).
   - Rendered script parse check via Node passed: `JS_OK`.
-
 [2026-03-04]
 - User request: apply 3-part Command Setup pattern to Default Bot Command Menu.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -791,7 +736,6 @@
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - Rendered page checks confirm new `/start` 3-part structure and hidden editor behavior.
   - Rendered script parse check via Node passed: `JS_OK`.
-
 [2026-03-04]
 - User request: remove `Include /menu command` and `/menu Description (optional)` from `Default Bot Command Menu`.
 - Updated `src/etrax/standalone/token_ui.py`:
@@ -810,7 +754,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - Rendered page checks confirm removed fields are absent and JS is valid (`JS_OK`).
-
 [2026-03-04]
 - User request:
   - Module Type must be selected when adding a new module.
@@ -836,7 +779,6 @@
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - Rendered checks confirm typed add controls, locked module type UI, type-specific field markers, and valid JS (`JS_OK`).
-
 [2026-03-04]
 - User request: translate standalone config UI to Vue.js.
 - Migration approach (standalone-first, no Node build step):
@@ -870,7 +812,6 @@
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - `node --check src\\etrax\\standalone\\config_vue.js` passed.
   - Rendered page check confirms Vue mount wiring exists and legacy command template block removed.
-
 [2026-03-04]
 - User request: vendor Vue runtime locally (remove CDN dependency).
 - Updated assets/runtime wiring:
@@ -888,17 +829,16 @@
   - `node --check src\\etrax\\standalone\\config_vue.js` passed.
   - Vendored runtime exists: `src\\etrax\\standalone\\vendor\\vue.global.prod.js` (162235 bytes).
   - Rendered config page contains `/vue-runtime.js` and no longer contains `unpkg.com/vue`.
-
 [2026-03-05]
 - Cleanup request: remove files not used by current runtime logic.
 - Analysis result: all Python source modules under src/etrax are referenced by current runtime paths and/or tests; no safe dead source module identified for deletion.
 - Removed generated artifacts only: all __pycache__ folders and .pyc files under src/ and tests/.
-
 [2026-03-05]
 - Feature: added inline button module support to current Telegram runtime logic.
 - Updated src/etrax/standalone/bot_runtime_manager.py:
   - Added new module type handling: inline_button for scenario modules (module_registry) and command modules (command_menu.command_modules).
-  - Added inline keyboard parser/validator helpers that build Telegram eply_markup.inline_keyboard.
+  - Added inline keyboard parser/validator helpers that build Telegram 
+eply_markup.inline_keyboard.
   - Supported button layouts as flat list ([{...}, {...}]) or row layout ([[{...}, {...}], [{...}]]).
   - Validation rules: each button requires 	ext and exactly one action key (url or callback_data).
 - Added tests in 	ests/test_bot_runtime_manager.py:
@@ -970,11 +910,9 @@
   - py -3 -m compileall src tests passed.
 - Cleanup:
   - removed generated __pycache__ and .pyc artifacts after compile verification.
-
 [2026-03-06]
 - User request: separate module logic and Vue templates so each module is isolated and editable without conflicting with others.
 - Refactor completed: module-centric frontend architecture.
-
 - Added new frontend module system files:
   - `src/etrax/standalone/vue_modules/module_system.js`
     - introduced shared module registry (`window.EtraxModuleSystem`)
@@ -997,14 +935,12 @@
     - isolated `menu` defaults, parse/format logic, row label, and editor template.
   - `src/etrax/standalone/vue_modules/inline_button_module.js`
     - isolated `inline_button` defaults, parse/format logic, row label, and editor template.
-
 - Rewrote `src/etrax/standalone/config_vue.js`:
   - removed mixed per-module logic from app core.
   - now consumes `EtraxModuleSystem` APIs only.
   - Vue app core keeps generic editor/workflow state management.
   - module-specific UI is rendered via registry-provided template snippets.
   - module add options are dynamically sourced from registered modules.
-
 - Updated standalone server wiring in `src/etrax/standalone/token_ui.py`:
   - added local JS routes for module files:
     - `/module-system.js`
@@ -1017,7 +953,6 @@
     1. `/vue-runtime.js`
     2. module system + module files
     3. `/config-vue.js`
-
 - Isolation result:
   - each module now owns its own:
     - default step shape
@@ -1025,7 +960,6 @@
     - row labeling
     - Vue editor template section
   - editing one module file no longer requires touching other module templates/logic.
-
 - Verification:
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
   - `node --check` passed for:
@@ -1035,7 +969,6 @@
     - `src\\etrax\\standalone\\vue_modules\\inline_button_module.js`
     - `src\\etrax\\standalone\\config_vue.js`
   - rendered config page check confirms all module script URLs are present.
-
 [2026-03-06]
 - User request: inline_button module UI should match module list behavior (add, remove, edit, reorder).
 - Completed inline_button CRUD behavior wiring in Vue app shell:
@@ -1123,7 +1056,6 @@
 - Note: Telegram `sendMessage` does not support inline image elements; image sending still requires a separate media-capable module/API path.
   - `node --check src\\etrax\\standalone\\vue_modules\\inline_button_module.js` passed.
   - `py -3 -m compileall src\\etrax\\standalone\\token_ui.py` passed.
-
 [2026-03-06]
 - User report: UI crashes when adding `inline_button` module.
 - Root cause identified in `src/etrax/standalone/config_vue.js`:
@@ -1145,7 +1077,6 @@
       `updateInlineButtonDraftField`.
 - Verification:
   - `node --check src\\etrax\\standalone\\config_vue.js` passed.
-
 [2026-03-09]
 - Added standalone `send_photo` module support for bot process Module Setup.
 - Runtime and transport changes:
@@ -1305,7 +1236,6 @@
 - Tests added:
   - `tests/test_send_message_module.py` now verifies `{bot_name}` resolves from configured `bot_id`
   - `tests/test_send_photo_module.py` now verifies `{bot_name}` resolves from configured `bot_id`
-
 2026-03-09
 - Investigating standalone config save failure:
   - user-facing error: `command /start chain step 1: inline_button requires text and buttons json`
@@ -1333,7 +1263,6 @@
   - `node --check src\etrax\standalone\config_vue.js` passed
   - `py -3 -m pytest -q tests\test_token_ui.py` could not run because `pytest` is not installed in the active interpreter
   - direct Python round-trip assertions for `_pipeline_to_chain_steps()` and `_parse_chain_steps()` passed
-
 2026-03-09
 - New feature request:
   - add a `share_contact` module
@@ -1379,7 +1308,6 @@
     - `_handle_update()` invalid-contact rejection and valid-contact continuation
     - `token_ui` share-contact chain-step round-trip
   - `pytest` is still unavailable in the active interpreter, so test files were not executed through `pytest`
-
 2026-03-09
 - New feature request:
   - log any Telegram user information available from bot interactions into a persistent profile log
@@ -1412,7 +1340,6 @@
     - last command/callback persistence across later updates
     - share_contact request still increments profile activity
   - sandbox prevented writing to system temp during one manual check, so verification was rerun successfully against a workspace file
-
 2026-03-09
 - Sample stationery catalog requested for existing bot config.
 - Implemented in `data/bot_processes/testing_module_bot.json`:
@@ -1427,7 +1354,6 @@
 - Notes:
   - prices are sample catalog values, not synchronized with any real store backend
   - this is remote-image based; no local image assets were downloaded into the repo
-
 2026-03-09
 - Stationery sample catalog moved to `data/bot_processes/testing_module.json`.
 - Updated:
@@ -1435,7 +1361,6 @@
   - removed the duplicate stationery sample from `data/bot_processes/testing_module_bot.json` so the user-requested config is the only active copy
 - Verification target:
   - both bot-process JSON files should parse cleanly after the move
-
 2026-03-09
 - Added reusable `checkout` module for standalone Telegram cart flows.
 - Implemented:
@@ -1459,7 +1384,6 @@
 - Notes:
   - `Pay Now` is intentionally a configurable callback target so payment handling can be attached as a normal callback module later
   - checkout currently sends a refreshed summary message after a remove action instead of editing the old Telegram message in place
-
 2026-03-09
 - Tightened checkout availability rules.
 - Implemented:
@@ -1471,7 +1395,6 @@
     - runtime validation now rejects checkout-enabled bot configs that do not define any cart products
 - Reason:
   - checkout without cart products is a broken flow, so availability is now gated in both UI and backend validation layers
-
 2026-03-09
 - Added PayWay payment-link support connected to checkout `Pay Now`.
 - Implemented:
@@ -1510,16 +1433,16 @@
 - [2026-03-10 11:21:08] Added initial Frappe persistence adapters for Telegram runtime state: `FrappeUserProfileLogStore` stores profile snapshots in `eTrax User Profile` using a `profile_json` payload, and `FrappeCartStateStore` stores cart quantities in `eTrax Cart Item`. Refactored `BotRuntimeManager` to accept injected cart/profile/scaffold stores while preserving the existing JSON-backed defaults. Added focused tests for both Frappe adapters and the runtime dependency-injection path; `py -3 -m compileall src tests` passed, but `pytest` could not run because it is not installed in the active interpreter.
 - [2026-03-10 11:33:54] Added a dedicated Frappe migration guide at `docs/FRAPPE_MIGRATION.md` and linked it from the README. The guide documents the current standalone architecture, what is already portable, what is still standalone-coupled, the recommended phased migration path into Frappe, required DocTypes, storage and runtime integration steps, UI-porting options, and a full migration checklist. Verified touched Python files still compile.
 - [2026-03-10 11:55:03] Split standalone runtime responsibilities out of `bot_runtime_manager.py` into focused helper files to reduce edit conflicts and make module-specific changes easier to locate. Added `runtime_config_resolver.py` for config-to-runtime resolution, `runtime_module_factory.py` for executable module construction, `runtime_update_router.py` for update dispatch/profile logging/contact flow handling, `runtime_support.py` for offsets/config path/command-menu sync helpers, and `runtime_contracts.py` for shared runtime typing contracts. Kept `bot_runtime_manager.py` as the lifecycle/polling entrypoint and re-export shell so existing imports continue to work. Verified with `py -3 -m compileall src tests`, direct `py_compile`, and a compatibility import check for the existing exported helper names.
-
 [2026-03-10 12:05:00] Began module-centric runtime refactor groundwork: added standalone runtime_modules package with per-module resolve/build/callback logic for send_message/menu, inline_button, send_photo, share_contact, cart_button, checkout, payway_payment; added runtime_module_registry for step-config dispatch; rewired runtime_config_resolver, runtime_module_factory, and runtime_update_router to call module-specific handlers.
-
-[2026-03-10 12:55:00] Continued module-isolation runtime refactor completion: removed duplicate return path in untime_update_router and fixed module registry bootstrap by correcting runtime-module spec/function ordering (payway/inline_button/share_contact) to prevent import-time NameError. Updated untime_modules/inline_button_module.py to use core SendInlineButtonConfig + SendTelegramInlineButtonModule, and added that config type to untime_contracts.py + untime_module_registry._supported_runtime_config_types. _register_module_spec now tolerates duplicate config_type registration only when build handlers are equivalent, enabling safe alias-style module types. Verified with py -3 -m compileall src and registry smoke-check snippets for send_message and inline_button step resolution (SendMessageConfig and SendInlineButtonConfig).
-
-[2026-03-10 13:10:00] Cleanup pass: removed generated Python cache artifacts only (__pycache__ directories and .pyc files) across src/ and 	ests/ to reduce workspace noise. No source Python modules were removed because current import graph is module-driven and dynamic (untime_modules discovery) plus optional runners/adapters are still actively available by command/config paths. Ran py -3 -m compileall src successfully after cleanup.
-
+[2026-03-10 12:55:00] Continued module-isolation runtime refactor completion: removed duplicate return path in 
+untime_update_router and fixed module registry bootstrap by correcting runtime-module spec/function ordering (payway/inline_button/share_contact) to prevent import-time NameError. Updated 
+untime_modules/inline_button_module.py to use core SendInlineButtonConfig + SendTelegramInlineButtonModule, and added that config type to 
+untime_contracts.py + 
+untime_module_registry._supported_runtime_config_types. _register_module_spec now tolerates duplicate config_type registration only when build handlers are equivalent, enabling safe alias-style module types. Verified with py -3 -m compileall src and registry smoke-check snippets for send_message and inline_button step resolution (SendMessageConfig and SendInlineButtonConfig).
+[2026-03-10 13:10:00] Cleanup pass: removed generated Python cache artifacts only (__pycache__ directories and .pyc files) across src/ and 	ests/ to reduce workspace noise. No source Python modules were removed because current import graph is module-driven and dynamic (
+untime_modules discovery) plus optional runners/adapters are still actively available by command/config paths. Ran py -3 -m compileall src successfully after cleanup.
 [2026-03-13]
 - Preparing /start welcome/back-message behavior. Will add optional profile-aware logic in StartWelcomeHandler and wire it into the legacy start-welcome runner so repeat /start users receive a different message template.
-
 [2026-03-13]
 - Implemented profile-aware /start flow in src/etrax/core/telegram_start.py.
   - StartWelcomeConfig now has welcome_back_template defaulting to Welcome back, {user_first_name}..
@@ -1532,17 +1455,17 @@
 [2026-03-13]
 - Fixed CLI wiring gap: `python -m etrax start-welcome` now accepts `--welcome-back-template` and passes it into `run_start_welcome_bot(...)`.
 - Also made `run_start_welcome_bot(..., welcome_back_template=...)` optional with a default, while still applying the same effective fallback default (`Welcome back, {user_first_name}.`).
-
 [2026-03-13]
-- Added backward-compatible /start return-message resolution in src/etrax/standalone/runtime_config_resolver.py for legacy/older command configs: fallback to esolve_start_send_config when no start module exists and read start_returning_text_template from legacy welcome_back_template key if present.
+- Added backward-compatible /start return-message resolution in src/etrax/standalone/runtime_config_resolver.py for legacy/older command configs: fallback to 
+esolve_start_send_config when no start module exists and read start_returning_text_template from legacy welcome_back_template key if present.
 - Updated src/etrax/standalone/token_ui.py to persist welcome_back_template as a compatibility alias for start_returning_text_template and to read either key when loading command module values.
 - This supports repeated /start welcome text selection for existing bot configs that were not yet migrated to the newer command-menu /start schema.
-
-
 [2026-03-13]
 - Added hard default for start returning text in command resolver when no start_returning_text_template/welcome_back_template is present: Welcome back, {user_first_name}., so legacy configs immediately get separate second-start message behavior.
-[2026-03-13] Fixed runtime config resolver signature mismatch: esolve_runtime_step_config now accepts optional start_returning_text_template and forwards it through _invoke_with_supported_kwargs, resolving unexpected keyword errors when /start command pipelines invoke start-returning message templates.
-[2026-03-13] Added callback-chain continuation wiring for callback-style runtime modules. cart_button and checkout modules now declare equires_continuation, receive continuation_modules, and their core classes store/expose them. Runtime callback handlers for cart/checkout now run module continuations after callback action so subsequent steps execute only after interaction instead of every step running in one command pass.
+[2026-03-13] Fixed runtime config resolver signature mismatch: 
+esolve_runtime_step_config now accepts optional start_returning_text_template and forwards it through _invoke_with_supported_kwargs, resolving unexpected keyword errors when /start command pipelines invoke start-returning message templates.
+[2026-03-13] Added callback-chain continuation wiring for callback-style runtime modules. cart_button and checkout modules now declare 
+equires_continuation, receive continuation_modules, and their core classes store/expose them. Runtime callback handlers for cart/checkout now run module continuations after callback action so subsequent steps execute only after interaction instead of every step running in one command pass.
 [2026-03-13] Fixed callback continuation over-eager execution in inline/sending modules.\n- Added continuation-aware routing for inline_button and send_photo runtime modules by setting requires_continuation=True and passing continuation_modules from runtime_factory into core modules.\n- Extended core SendTelegramInlineButtonModule/SendTelegramPhotoModule to store continuation_modules and expose callback_data_keys for runtime callback matching.\n- Added callback fallback registry in bot_runtime_manager and runtime_update_router so unmatched callback_query data can execute continuation pipelines attached to callback-producing modules, preventing subsequent command modules from running immediately.\n- This addresses the regression where callback-capable modules executed subsequent modules in the same message pass.
 [2026-03-13]
 - Added per-message callback continuation routing to prevent callback replay on stale/duplicate callback_data.
@@ -1554,12 +1477,10 @@
   - Added runtime-held `callback_continuation_by_message` map and passed it into `_handle_update`.
 - Effect:
   - Clicking a callback now advances one continuation step instead of rerunning the whole remaining chain, and per-message map helps avoid the “repeating the last message” behavior caused by overlapping `callback_data`.
-
 [2026-03-13]
 - Added open_mini_app module support across the Telegram core runtime and standalone editor.
 - Introduced a dedicated runtime/config type that sends a message with an inline web_app button.
 - Wired standalone config save/load and added a Vue editor module for open_mini_app, reusing existing button-text and URL form channels while storing normalized step payloads with utton_text and url.
-
 [2026-03-13]
 - Fixed config form parsing alignment bug by enabling keep_blank_values=True in parse_qs for POST bodies. This preserves blank hidden module fields so callback/command row arrays do not shift, which was causing open_mini_app rows to lose their URL when earlier rows had empty values.
 [2026-03-17]
@@ -1805,7 +1726,8 @@
   - updated `src/etrax/standalone/runtime_support.py` with `print_runtime_step(...)` for consistent timestamped step logs
   - updated `src/etrax/standalone/runtime_update_router.py` so `execute_pipeline(...)` now prints one terminal line per executed module with step number, module label, chat id, command/callback context, and outcome reason
   - verification: `py -3 -m py_compile src\\etrax\\standalone\\runtime_support.py src\\etrax\\standalone\\runtime_update_router.py`
-- [2026-03-31 13:05:00 +07:00] Fixed plain context-key matching so un_if / skip_if treat existing keys as present even when the stored value is alse.
+- [2026-03-31 13:05:00 +07:00] Fixed plain context-key matching so 
+un_if / skip_if treat existing keys as present even when the stored value is alse.
   - updated src/etrax/core/telegram/context_conditions.py so rules without =... now use explicit context-path existence instead of truthiness; keys with value False now match, while missing keys and 
 ull values still do not
   - added focused regression coverage in 	ests/test_send_message_module.py and 	ests/test_runtime_update_router.py for profile.i_am_18 existence-based skip behavior when the stored value is boolean false
@@ -1835,3 +1757,46 @@ ull values still do not
   - configured repository-local git identity with `user.name = mengtek-khov` and `user.email = mengtek.work@gmail.com`
   - created the root commit `7304ba6` with message `Initial commit`
   - pushed `main` to `origin` at `https://github.com/mengtek-khov/eTrax.git` and established upstream tracking with `origin/main`
+- [2026-04-01 14:35:00 +07:00] Added `share_location` support across the standalone Telegram bot builder runtime, UI, and profile logging.
+  - added core Telegram location-sharing support in `src/etrax/core/telegram/share_location.py` with pending-request storage, request-location reply markup, templated success rendering, and skip behavior when location context already exists
+  - exposed the new module through `src/etrax/core/telegram/__init__.py`, added standalone runtime wiring in `src/etrax/standalone/runtime_modules/share_location_module.py`, and threaded `location_request_store` through runtime factory/registry/manager/update-router paths
+  - extended `src/etrax/standalone/profile_logging.py` and `src/etrax/standalone/runtime_update_router.py` to persist location fields and reuse stored numeric coordinates as context fallbacks without coercing them to strings
+  - updated `src/etrax/standalone/token_ui.py` and added `src/etrax/standalone/vue_modules/share_location_module.js` so the config UI can create, load, and round-trip `share_location` steps
+  - updated `src/etrax/core/telegram/forget_user_data.py` and `src/etrax/standalone/runtime_modules/forget_user_data_module.py` so forget-user-data also clears pending location requests and location-related context keys
+  - added focused coverage in `tests/test_share_location_module.py`, `tests/test_runtime_update_router.py`, `tests/test_bot_runtime_manager.py`, `tests/test_token_ui.py`, and `tests/test_forget_user_data_module.py`
+  - verification: `py -3 -m py_compile ...` on edited Python files, `node --check src\\etrax\\standalone\\vue_modules\\share_location_module.js`, and direct Python execution of the new/changed location tests because `pytest` is not installed in this environment
+- [2026-04-02 10:20:35 +07:00] Added a live-location-only option to the share-location module across the standalone editor and runtime.
+  - extended `src/etrax/core/telegram/share_location.py` with `require_live_location` config/state, live-location detection, and stricter existing-location skip behavior when a live share is required
+  - updated `src/etrax/standalone/runtime_modules/share_location_module.py` so non-live location replies are rejected with a retry prompt and the pending share request remains active until a live location arrives
+  - updated `src/etrax/standalone/vue_modules/module_system.js`, `src/etrax/standalone/vue_modules/share_location_module.js`, and `src/etrax/standalone/token_ui.py` so the config UI exposes `Allow Only Live Location` and round-trips the flag through JSON and legacy chain-step serialization
+  - added focused coverage in `tests/test_share_location_module.py`, `tests/test_token_ui.py`, and `tests/test_bot_runtime_manager.py` for the new config flag and live-location validation flow
+  - verification: `py -3 -m compileall src tests`, `node --check src\etrax\standalone\vue_modules\module_system.js`, `node --check src\etrax\standalone\vue_modules\share_location_module.js`; `py -3 -m pytest -q tests\test_share_location_module.py tests\test_token_ui.py tests\test_bot_runtime_manager.py` could not run because `pytest` is not installed, so the touched test functions were executed directly via an inline Python smoke run instead
+- [2026-04-02 10:50:48 +07:00] Hid the share-location reply button when live-location-only mode is enabled.
+  - updated `src/etrax/core/telegram/share_location.py` so live-location-only requests send `remove_keyboard` instead of a `request_location` button and use a live-location-specific fallback prompt when the step still has the old default text
+  - updated `src/etrax/standalone/runtime_modules/share_location_module.py` so invalid static-location retries in live-only mode keep the keyboard hidden instead of re-sending a location button
+  - updated `src/etrax/standalone/vue_modules/share_location_module.js` so the `Button Text` field is hidden in the editor when `Allow Only Live Location` is checked
+  - updated `tests/test_share_location_module.py` and `tests/test_bot_runtime_manager.py` to cover the hidden-keyboard behavior for live-only flows while preserving the normal request-location button path for standard location sharing
+  - verification: `py -3 -m compileall src tests`, `node --check src\etrax\standalone\vue_modules\share_location_module.js`, `node --check src\etrax\standalone\vue_modules\module_system.js`, and direct inline-Python smoke execution of the touched share-location test functions because `pytest` is not installed in this environment
+[2026-04-02 11:25:01 +07:00] Updated share_location to stop silently auto-skipping when location data already exists. Added explicit run_if_context_keys and skip_if_context_keys support through the Vue editor, token UI serialization, standalone runtime config resolution, and Telegram share_location execution/tests so location prompts now follow configured conditions instead of implicit existing-location checks.
+[2026-04-06 09:08:42 +07:00] Added live breadcrumb tracking support to share_location. Extended share_location config/runtime with track_breadcrumb for live-location requests, kept tracked requests active after the first accepted live point, appended later edited live-location updates into breadcrumb context/profile summary fields, enabled edited_message polling/profile logging for those updates, exposed the Track As Breadcrumb option in the share_location Vue editor/JSON serialization, and cleared the new breadcrumb fields in forget_user_data.
+[2026-04-06 09:14:27 +07:00] Polished standalone config-ui checkbox styling. Updated the shared .checkbox CSS in token_ui to use a bordered pill-style control with stronger spacing/hover states, and switched the share_location, send_photo, and cart_button Vue editor checkboxes to the shared checkbox markup so those module toggles render consistently instead of using raw browser defaults.
+[2026-04-06 09:19:52 +07:00] Fixed share_location primary-step checkbox persistence in the standalone config UI. Added hidden form fields for require_live_location and track_breadcrumb in config_vue, threaded those values through token_ui form parsing/builders/extractors for start/command/callback primary modules, and added token_ui regression coverage so the live-location checkboxes now round-trip on save/load instead of being dropped by form submission.
+[2026-04-06 10:40:47 +07:00] Fixed remaining share_location checkbox reload persistence in the standalone config UI. Preserved require_live_location and track_breadcrumb in the command/callback row payloads returned to the Vue editor after save/load, added default empty values for new rows, and added regression tests covering command-row and callback-row rehydration so the Allow Only Live Location and Track As Breadcrumb toggles now stay checked after reload.
+[2026-04-06 10:43:20 +07:00] Fixed the remaining share_location Track As Breadcrumb checkbox persistence bug in the Vue editor. Updated the shared module-system step normalizer to preserve track_breadcrumb during config-state rehydration while still requiring require_live_location, and verified the fix with node syntax check plus a direct parsePrimary smoke run for share_location.
+[2026-04-06 11:01:26 +07:00] Added breadcrumb sampling controls to share_location. Extended the standalone editor and token_ui save/load path with breadcrumb_interval_minutes and breadcrumb_min_distance_meters for live-location breadcrumb tracking, preserved the new fields through Vue normalization and chain-step serialization, and updated the Telegram runtime so tracked live-location points are stored when either the configured time interval or minimum movement distance is reached. Verified with py -3 -m compileall src tests, node --check for config_vue.js, module_system.js, and share_location_module.js, plus focused inline-Python smoke coverage of the updated share-location runtime and token-ui cases because pytest is not installed.
+[2026-04-06 11:21:10 +07:00] Added daily location-history storage for share_location. Introduced a store_history_by_day share_location option in the standalone editor and token_ui save/load path, preserved it through Vue normalization and chain-step serialization, and updated the Telegram runtime to append accepted location shares into location_history_by_day and accepted breadcrumb points into location_breadcrumb_by_day using per-day YYYY-MM-DD buckets. Also cleared the new daily history keys in forget_user_data and added focused runtime, token-ui, share-location, and forget-user-data regression coverage. Verified with py -3 -m compileall src tests, node --check for config_vue.js, module_system.js, and share_location_module.js, plus focused inline-Python smoke coverage because pytest is not installed.
+[2026-04-06 11:42:26 +07:00] Added reusable command_module support so callback routes can load existing command pipelines for submenu-style flows. Wired command_module through standalone runtime execution, config persistence, Vue module editor, and focused regression coverage for command-module runtime/config/token-ui paths.
+[2026-04-06 12:11:44] Added callback-local temporary command submenu support: callbacks can now save nested temporary commands in config, activate chat-scoped Telegram command menus via setMyCommands scope=chat, dispatch those temporary commands before global commands, and restore the main menu after the temporary command finishes. Updated runtime router/manager, callback config save-load/UI, nested module validation, and focused smoke coverage.
+[2026-04-06 13:38:29] Fixed callback submenu save regression: removed stray temporary_commands_text reference from _build_command_modules_from_form so normal command config saves no longer raise NameError during token_ui config POST.
+2026-04-06
+- Fixed temporary callback submenu activation when a normal command loads a callback pipeline via `callback_module`. `handle_message_update()` now passes command-menu state and gateway context into `execute_pipeline()`, so `/etrex -> callback_module("tracking location")` can activate the callback's temporary command menu the same way as a direct callback click.
+- Added a regression test covering `/etrex` loading `tracking location`, activating the temporary submenu, and restoring the main command menu after `/next`.
+- Added a config-editor example scaffold for temporary callback menus. The new `Add eTrax Temp Menu Example` action creates `/etrax` plus callback `etrax` with example temporary commands for `/next`, `/route`, `/distance`, `/clear`, `/genstations`, and `/optimize`, so users can start from the original submenu plan without building every row manually.
+- Renamed the scaffold action to `Add module with temp command` and simplified the generated example. It now creates `/temp_menu` plus callback `temp_menu` with only two sample temporary commands: `/command1` and `/command2`.
+- Added a per-temporary-command checkbox in the config UI to control whether that temp command restores the original command menu after it runs. Old configs default to restore-on-run, and runtime restore now follows the per-command flag instead of always resetting after every temporary command.
+- Updated the config-editor scaffold button label from `Add module with temp command` to `Add command with temp command` to match the command-focused workflow terminology in the editor.
+- Simplified callback temp-command UI so callbacks without temporary commands no longer show the full submenu section. The editor now shows only an `Add Temporary Command` action until at least one temp command exists, then expands the full temporary command block.
+- Added a `Clear Temporary Commands` action inside the callback temp-command section so a callback row can drop all temporary submenu commands at once without removing them one by one.
+- Tightened callback temp-command UI state so the full temporary-command section only auto-opens from saved temp commands. Blank draft rows no longer count as persisted temp commands, and callback list keys now use stable callback identifiers to reduce stale Vue row state.
+- Fixed the callback temp-command action label to use the same visibility rule as the section itself. `Add Another Temporary Command` now appears only when the temp-command section is actually open for that callback, instead of being driven by raw draft-row count alone.
+- Fixed callback temp-command add behavior so clicking `Add Temporary Command` on a callback with no real temp commands reuses a hidden blank draft instead of creating a second blank temporary command row.

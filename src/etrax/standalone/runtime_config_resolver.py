@@ -143,6 +143,50 @@ def resolve_callback_send_configs(config_payload: dict[str, Any], bot_id: str) -
     return resolved
 
 
+def resolve_callback_temporary_command_menus(
+    config_payload: dict[str, Any],
+    bot_id: str,
+) -> dict[str, dict[str, Any]]:
+    """Resolve callback-local temporary command menus into command metadata and pipelines."""
+    command_menu = config_payload.get("command_menu", {})
+    if not isinstance(command_menu, dict):
+        command_menu = {}
+    raw_modules = command_menu.get("callback_modules", {})
+    callback_modules = raw_modules if isinstance(raw_modules, dict) else {}
+
+    resolved: dict[str, dict[str, Any]] = {}
+    for raw_callback_key, module_config_raw in callback_modules.items():
+        callback_key = str(raw_callback_key).strip()
+        if not callback_key:
+            continue
+        module_config = module_config_raw if isinstance(module_config_raw, dict) else {}
+        commands = _resolve_temporary_command_menu_commands(module_config)
+        if not commands:
+            continue
+        raw_command_modules = module_config.get("temporary_command_modules", {})
+        temporary_command_modules = raw_command_modules if isinstance(raw_command_modules, dict) else {}
+        resolved_pipelines: dict[str, list[Any]] = {}
+        for command in commands:
+            command_name = _normalize_command(str(command.get("command", "")))
+            if not command_name:
+                continue
+            temporary_module_raw = temporary_command_modules.get(command_name, {})
+            temporary_module = temporary_module_raw if isinstance(temporary_module_raw, dict) else {}
+            resolved_pipelines[command_name] = _resolve_named_send_config_pipeline(
+                bot_id=bot_id,
+                route_label=f"callback '{callback_key}' temporary /{command_name}",
+                route_key=f"cbtmp_{_normalize_route_key(callback_key)}_{command_name}",
+                default_text_template=_default_command_text_template(command_name),
+                module_config=temporary_module,
+            )
+        if resolved_pipelines:
+            resolved[callback_key] = {
+                "commands": commands,
+                "command_modules": resolved_pipelines,
+            }
+    return resolved
+
+
 def _resolve_named_send_config_pipeline(
     *,
     bot_id: str,
@@ -220,46 +264,27 @@ def _default_callback_text_template(callback_key: str) -> str:
 
 def resolve_cart_button_configs(config_payload: dict[str, Any], bot_id: str) -> dict[str, CartButtonConfig]:
     """Collect every cart_button module in the config and index them by product key."""
-    command_menu = config_payload.get("command_menu", {})
-    if not isinstance(command_menu, dict):
-        command_menu = {}
-
     resolved: dict[str, CartButtonConfig] = {}
     seen_routes: dict[str, str] = {}
-    for collection_key in ("command_modules", "callback_modules"):
-        raw_modules = command_menu.get(collection_key, {})
-        module_entries = raw_modules if isinstance(raw_modules, dict) else {}
-        for route_name, module_config_raw in module_entries.items():
-            module_config = module_config_raw if isinstance(module_config_raw, dict) else {}
-            pipeline_raw = module_config.get("pipeline", [])
-            if isinstance(pipeline_raw, list) and pipeline_raw:
-                steps = [step for step in pipeline_raw if isinstance(step, dict)]
-            else:
-                steps = [module_config]
-            route_label = f"{collection_key[:-8]} '{route_name}'"
-            for step in steps:
-                module_type = str(step.get("module_type", "send_message")).strip() or "send_message"
-                if module_type != "cart_button":
-                    continue
-                default_text = (
-                    _default_callback_text_template(str(route_name).strip())
-                    if collection_key == "callback_modules"
-                    else _default_command_text_template(str(route_name).strip() or "cart")
+    for route_label, default_text, steps in _iter_configured_route_steps(config_payload):
+        for step in steps:
+            module_type = str(step.get("module_type", "send_message")).strip() or "send_message"
+            if module_type != "cart_button":
+                continue
+            config = resolve_cart_button_config(
+                bot_id=bot_id,
+                route_label=route_label,
+                default_text_template=default_text,
+                step=step,
+            )
+            product_key = config.product_key or ""
+            if product_key in resolved:
+                previous_route = seen_routes.get(product_key, "unknown route")
+                raise ValueError(
+                    f"duplicate cart_button product_key '{product_key}' in {route_label}; already used in {previous_route}"
                 )
-                config = resolve_cart_button_config(
-                    bot_id=bot_id,
-                    route_label=route_label,
-                    default_text_template=default_text,
-                    step=step,
-                )
-                product_key = config.product_key or ""
-                if product_key in resolved:
-                    previous_route = seen_routes.get(product_key, "unknown route")
-                    raise ValueError(
-                        f"duplicate cart_button product_key '{product_key}' in {route_label}; already used in {previous_route}"
-                    )
-                resolved[product_key] = config
-                seen_routes[product_key] = route_label
+            resolved[product_key] = config
+            seen_routes[product_key] = route_label
     return resolved
 
 
@@ -275,23 +300,93 @@ def _validate_cart_dependent_modules(config_payload: dict[str, Any], *, cart_con
 
 def _config_uses_module_type(config_payload: dict[str, Any], module_type: str) -> bool:
     normalized_module_type = str(module_type).strip().lower()
+    for _route_label, _default_text, steps in _iter_configured_route_steps(config_payload):
+        for step in steps:
+            if str(step.get("module_type", "send_message")).strip().lower() == normalized_module_type:
+                return True
+    return False
+
+
+def _resolve_temporary_command_menu_commands(module_config: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_commands = module_config.get("temporary_commands", [])
+    if not isinstance(raw_commands, list):
+        return []
+
+    commands: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_command in raw_commands:
+        if not isinstance(raw_command, dict):
+            continue
+        command_name = _normalize_command(str(raw_command.get("command", "")))
+        if not command_name or command_name in seen:
+            continue
+        description = str(raw_command.get("description", "")).strip()[:256] or "Command"
+        restore_original_menu = True
+        if "restore_original_menu" in raw_command:
+            restore_original_menu = str(raw_command.get("restore_original_menu", "")).strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        commands.append(
+            {
+                "command": command_name,
+                "description": description,
+                "restore_original_menu": restore_original_menu,
+            }
+        )
+        seen.add(command_name)
+    return commands
+
+
+def _module_config_to_steps(module_config: dict[str, Any]) -> list[dict[str, Any]]:
+    pipeline_raw = module_config.get("pipeline", [])
+    if isinstance(pipeline_raw, list) and pipeline_raw:
+        steps = [step for step in pipeline_raw if isinstance(step, dict)]
+        if steps:
+            return steps
+    return [module_config]
+
+
+def _iter_configured_route_steps(config_payload: dict[str, Any]):
     command_menu = config_payload.get("command_menu", {})
     if not isinstance(command_menu, dict):
-        return False
+        return
+
     for collection_key in ("command_modules", "callback_modules"):
         raw_modules = command_menu.get(collection_key, {})
         module_entries = raw_modules if isinstance(raw_modules, dict) else {}
-        for raw_module in module_entries.values():
-            module_config = raw_module if isinstance(raw_module, dict) else {}
-            pipeline_raw = module_config.get("pipeline", [])
-            if isinstance(pipeline_raw, list) and pipeline_raw:
-                steps = [step for step in pipeline_raw if isinstance(step, dict)]
-            else:
-                steps = [module_config]
-            for step in steps:
-                if str(step.get("module_type", "send_message")).strip().lower() == normalized_module_type:
-                    return True
-    return False
+        for route_name, module_config_raw in module_entries.items():
+            module_config = module_config_raw if isinstance(module_config_raw, dict) else {}
+            route_name_text = str(route_name).strip()
+            route_label = f"{collection_key[:-8]} '{route_name_text}'"
+            default_text = (
+                _default_callback_text_template(route_name_text)
+                if collection_key == "callback_modules"
+                else _default_command_text_template(route_name_text or "command")
+            )
+            yield route_label, default_text, _module_config_to_steps(module_config)
+            if collection_key != "callback_modules":
+                continue
+            temporary_commands = _resolve_temporary_command_menu_commands(module_config)
+            if not temporary_commands:
+                continue
+            raw_temporary_command_modules = module_config.get("temporary_command_modules", {})
+            temporary_command_modules = (
+                raw_temporary_command_modules if isinstance(raw_temporary_command_modules, dict) else {}
+            )
+            for temporary_command in temporary_commands:
+                command_name = _normalize_command(str(temporary_command.get("command", "")))
+                if not command_name:
+                    continue
+                temporary_module_raw = temporary_command_modules.get(command_name, {})
+                temporary_module = temporary_module_raw if isinstance(temporary_module_raw, dict) else {}
+                yield (
+                    f"callback '{route_name_text}' temporary /{command_name}",
+                    _default_command_text_template(command_name),
+                    _module_config_to_steps(temporary_module),
+                )
 
 
 def resolve_scenario_send_config(

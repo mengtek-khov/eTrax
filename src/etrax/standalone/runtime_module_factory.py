@@ -9,6 +9,7 @@ from etrax.core.telegram import (
     CheckoutCartModule,
     CartStateStore,
     ContactRequestStore,
+    LocationRequestStore,
 )
 from etrax.core.token import BotTokenService
 from .runtime_module_registry import build_runtime_step_module, get_runtime_module_build_spec
@@ -21,10 +22,11 @@ def build_runtime_modules(
     cart_state_store: CartStateStore,
     profile_log_store: object | None,
     contact_request_store: ContactRequestStore,
+    location_request_store: LocationRequestStore,
     cart_configs: dict[str, CartButtonConfig],
     checkout_modules: dict[str, CheckoutCartModule],
 ) -> list[FlowModule]:
-    """Instantiate executable flow modules from resolved step configs."""
+    """Instantiate executable flow modules from resolved configs."""
     modules: list[FlowModule] = []
     for idx, step_config in enumerate(step_configs):
         spec = get_runtime_module_build_spec(step_config)
@@ -35,6 +37,7 @@ def build_runtime_modules(
             "cart_state_store": cart_state_store,
             "profile_log_store": profile_log_store,
             "contact_request_store": contact_request_store,
+            "location_request_store": location_request_store,
             "cart_configs": cart_configs,
             "checkout_modules": checkout_modules,
         }
@@ -46,6 +49,7 @@ def build_runtime_modules(
                 cart_state_store=cart_state_store,
                 profile_log_store=profile_log_store,
                 contact_request_store=contact_request_store,
+                location_request_store=location_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )

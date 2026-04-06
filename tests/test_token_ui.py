@@ -4,8 +4,12 @@ import json
 from pathlib import Path
 
 from etrax.standalone.token_ui import (
+    _build_callback_module_entry,
     _build_command_module_entry,
     _command_menu_uses_module_type,
+    _extract_callback_module_form_values,
+    _extract_callback_rows,
+    _extract_command_rows,
     _extract_command_module_form_values,
     _load_profile_log_context_keys,
     _parse_chain_steps,
@@ -321,6 +325,49 @@ def test_pipeline_to_chain_steps_round_trips_share_contact_step() -> None:
     ]
 
 
+def test_pipeline_to_chain_steps_round_trips_share_location_step() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "share_location",
+            "text_template": "Share your location.",
+            "parse_mode": "HTML",
+            "button_text": "Verify Location",
+            "success_text_template": "Saved {location_latitude},{location_longitude}",
+            "require_live_location": True,
+            "track_breadcrumb": True,
+            "store_history_by_day": True,
+            "breadcrumb_interval_minutes": 10,
+            "breadcrumb_min_distance_meters": 50,
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["location_latitude"],
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="verify_location", raw=serialized)
+
+    assert steps == [
+        {
+            "module_type": "share_location",
+            "text_template": "Share your location.",
+            "parse_mode": "HTML",
+            "button_text": "Verify Location",
+            "success_text_template": "Saved {location_latitude},{location_longitude}",
+            "require_live_location": True,
+            "track_breadcrumb": True,
+            "store_history_by_day": True,
+            "breadcrumb_interval_minutes": 10,
+            "breadcrumb_min_distance_meters": 50,
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["location_latitude"],
+        }
+    ]
+
 def test_pipeline_to_chain_steps_round_trips_checkout_step() -> None:
     pipeline = [
         {
@@ -413,6 +460,7 @@ def test_build_command_module_entry_persists_open_mini_app_url_and_button_text()
         inline_skip_if_context_keys_text="",
         inline_save_callback_data_to_key_text="",
         callback_target_key="",
+        command_target_key="",
         photo_url="",
         contact_button_text="",
         mini_app_button_text="Open Shop",
@@ -447,6 +495,34 @@ def test_build_command_module_entry_persists_open_mini_app_url_and_button_text()
     assert entry["pipeline"][0]["url"] == "https://example.com/mini-app"
 
 
+
+def test_pipeline_to_chain_steps_round_trips_command_module_step() -> None:
+    serialized = _pipeline_to_chain_steps(
+        [
+            {
+                "module_type": "send_message",
+                "text_template": "Start",
+            },
+            {
+                "module_type": "command_module",
+                "target_command_key": "route",
+                "run_if_context_keys": ["profile.phone_number"],
+                "skip_if_context_keys": ["profile.block_submenu=true"],
+            }
+        ]
+    )
+
+    assert "\"module_type\": \"command_module\"" in serialized or "\"module_type\":\"command_module\"" in serialized
+    assert _parse_chain_steps(command_name="start", raw=serialized) == [
+        {
+            "module_type": "command_module",
+            "target_command_key": "route",
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["profile.block_submenu=true"],
+        }
+    ]
+
+
 def test_build_command_module_entry_persists_callback_module_target() -> None:
     entry = _build_command_module_entry(
         command_name="launch",
@@ -461,6 +537,7 @@ def test_build_command_module_entry_persists_callback_module_target() -> None:
         inline_skip_if_context_keys_text="i_am_18",
         inline_save_callback_data_to_key_text="selected_age_flag",
         callback_target_key="share_contact",
+        command_target_key="",
         photo_url="",
         contact_button_text="",
         mini_app_button_text="",
@@ -496,6 +573,56 @@ def test_build_command_module_entry_persists_callback_module_target() -> None:
     assert entry["pipeline"][0]["target_callback_key"] == "share_contact"
 
 
+
+def test_build_command_module_entry_persists_command_module_target() -> None:
+    entry = _build_command_module_entry(
+        command_name="launch",
+        module_type="command_module",
+        text_template="",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="profile.phone_number",
+        inline_skip_if_context_keys_text="i_am_18",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="route",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["target_command_key"] == "route"
+    assert entry["run_if_context_keys"] == ["profile.phone_number"]
+    assert entry["skip_if_context_keys"] == ["i_am_18"]
+    assert entry["pipeline"][0]["target_command_key"] == "route"
+
+
 def test_build_command_module_entry_persists_inline_button_module_target() -> None:
     entry = _build_command_module_entry(
         command_name="launch",
@@ -510,6 +637,7 @@ def test_build_command_module_entry_persists_inline_button_module_target() -> No
         inline_skip_if_context_keys_text="i_am_18",
         inline_save_callback_data_to_key_text="selected_plan",
         callback_target_key="shared_menu",
+        command_target_key="",
         photo_url="",
         contact_button_text="",
         mini_app_button_text="",
@@ -543,6 +671,66 @@ def test_build_command_module_entry_persists_inline_button_module_target() -> No
     assert entry["skip_if_context_keys"] == ["i_am_18"]
     assert entry["save_callback_data_to_key"] == "selected_plan"
     assert entry["pipeline"][0]["target_callback_key"] == "shared_menu"
+
+
+def test_build_command_module_entry_persists_share_location_live_flags() -> None:
+    entry = _build_command_module_entry(
+        command_name="verify_location",
+        module_type="share_location",
+        text_template="Share your live location.",
+        hide_caption="",
+        parse_mode="HTML",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="Verify Location",
+        mini_app_button_text="",
+        contact_success_text="Saved {location_latitude},{location_longitude}",
+        contact_invalid_text="",
+        require_live_location="1",
+        track_breadcrumb="1",
+        store_history_by_day="1",
+        breadcrumb_interval_minutes="10",
+        breadcrumb_min_distance_meters="50",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["require_live_location"] is True
+    assert entry["track_breadcrumb"] is True
+    assert entry["store_history_by_day"] is True
+    assert entry["breadcrumb_interval_minutes"] == 10.0
+    assert entry["breadcrumb_min_distance_meters"] == 50.0
+    assert entry["pipeline"][0]["require_live_location"] is True
+    assert entry["pipeline"][0]["track_breadcrumb"] is True
+    assert entry["pipeline"][0]["store_history_by_day"] is True
+    assert entry["pipeline"][0]["breadcrumb_interval_minutes"] == 10.0
+    assert entry["pipeline"][0]["breadcrumb_min_distance_meters"] == 50.0
 
 
 def test_extract_command_module_form_values_keeps_open_mini_app_url_and_button_text() -> None:
@@ -601,6 +789,33 @@ def test_extract_command_module_form_values_keeps_callback_module_target() -> No
     assert values["inline_save_callback_data_to_key"] == "selected_age_flag"
 
 
+
+def test_extract_command_module_form_values_keeps_command_module_target() -> None:
+    values = _extract_command_module_form_values(
+        command_name="launch",
+        raw_module={
+            "module_type": "command_module",
+            "target_command_key": "route",
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["i_am_18"],
+            "pipeline": [
+                {
+                    "module_type": "command_module",
+                    "target_command_key": "route",
+                    "run_if_context_keys": ["profile.phone_number"],
+                    "skip_if_context_keys": ["i_am_18"],
+                }
+            ],
+        },
+        default_text_template="Command /launch received.",
+        default_menu_title="Launch Menu",
+    )
+
+    assert values["command_target_key"] == "route"
+    assert values["inline_run_if_context_keys"] == "profile.phone_number"
+    assert values["inline_skip_if_context_keys"] == "i_am_18"
+
+
 def test_extract_command_module_form_values_keeps_inline_button_module_target() -> None:
     values = _extract_command_module_form_values(
         command_name="launch",
@@ -630,6 +845,265 @@ def test_extract_command_module_form_values_keeps_inline_button_module_target() 
     assert values["inline_save_callback_data_to_key"] == "selected_plan"
 
 
+def test_extract_command_module_form_values_keeps_share_location_live_flags() -> None:
+    values = _extract_command_module_form_values(
+        command_name="verify_location",
+        raw_module={
+            "module_type": "share_location",
+            "text_template": "Share your live location.",
+            "button_text": "Verify Location",
+            "success_text_template": "Saved {location_latitude},{location_longitude}",
+            "require_live_location": True,
+            "track_breadcrumb": True,
+            "store_history_by_day": True,
+            "breadcrumb_interval_minutes": 10,
+            "breadcrumb_min_distance_meters": 50,
+            "pipeline": [
+                {
+                    "module_type": "share_location",
+                    "text_template": "Share your live location.",
+                    "button_text": "Verify Location",
+                    "success_text_template": "Saved {location_latitude},{location_longitude}",
+                    "require_live_location": True,
+                    "track_breadcrumb": True,
+                    "store_history_by_day": True,
+                    "breadcrumb_interval_minutes": 10,
+                    "breadcrumb_min_distance_meters": 50,
+                }
+            ],
+        },
+        default_text_template="Command /verify_location received.",
+        default_menu_title="Verify Location Menu",
+    )
+
+    assert values["contact_button_text"] == "Verify Location"
+    assert values["contact_success_text"] == "Saved {location_latitude},{location_longitude}"
+    assert values["require_live_location"] == "1"
+    assert values["track_breadcrumb"] == "1"
+    assert values["store_history_by_day"] == "1"
+    assert values["breadcrumb_interval_minutes"] == "10"
+    assert values["breadcrumb_min_distance_meters"] == "50"
+
+
+def test_extract_command_rows_keeps_share_location_live_flags() -> None:
+    rows = _extract_command_rows(
+        [{"command": "verify_location", "description": "Verify location"}],
+        command_modules={
+            "verify_location": {
+                "module_type": "share_location",
+                "text_template": "Share your live location.",
+                "button_text": "Verify Location",
+                "success_text_template": "Saved {location_latitude},{location_longitude}",
+                "require_live_location": True,
+                "track_breadcrumb": True,
+                "store_history_by_day": True,
+                "breadcrumb_interval_minutes": 10,
+                "breadcrumb_min_distance_meters": 50,
+                "pipeline": [
+                    {
+                        "module_type": "share_location",
+                        "text_template": "Share your live location.",
+                        "button_text": "Verify Location",
+                        "success_text_template": "Saved {location_latitude},{location_longitude}",
+                        "require_live_location": True,
+                        "track_breadcrumb": True,
+                        "store_history_by_day": True,
+                        "breadcrumb_interval_minutes": 10,
+                        "breadcrumb_min_distance_meters": 50,
+                    }
+                ],
+            }
+        },
+    )
+
+    assert rows[0]["require_live_location"] == "1"
+    assert rows[0]["track_breadcrumb"] == "1"
+    assert rows[0]["store_history_by_day"] == "1"
+    assert rows[0]["breadcrumb_interval_minutes"] == "10"
+    assert rows[0]["breadcrumb_min_distance_meters"] == "50"
+
+
+def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
+    rows = _extract_callback_rows(
+        {
+            "verify_location": {
+                "module_type": "share_location",
+                "text_template": "Share your live location.",
+                "button_text": "Verify Location",
+                "success_text_template": "Saved {location_latitude},{location_longitude}",
+                "require_live_location": True,
+                "track_breadcrumb": True,
+                "store_history_by_day": True,
+                "breadcrumb_interval_minutes": 10,
+                "breadcrumb_min_distance_meters": 50,
+                "pipeline": [
+                    {
+                        "module_type": "share_location",
+                        "text_template": "Share your live location.",
+                        "button_text": "Verify Location",
+                        "success_text_template": "Saved {location_latitude},{location_longitude}",
+                        "require_live_location": True,
+                        "track_breadcrumb": True,
+                        "store_history_by_day": True,
+                        "breadcrumb_interval_minutes": 10,
+                        "breadcrumb_min_distance_meters": 50,
+                    }
+                ],
+            }
+        }
+    )
+
+    assert rows[0]["require_live_location"] == "1"
+    assert rows[0]["track_breadcrumb"] == "1"
+    assert rows[0]["store_history_by_day"] == "1"
+    assert rows[0]["breadcrumb_interval_minutes"] == "10"
+    assert rows[0]["breadcrumb_min_distance_meters"] == "50"
+
+
+def test_build_callback_module_entry_persists_temporary_commands() -> None:
+    temporary_commands = json.dumps(
+        [
+            {
+                "command": "next",
+                "description": "Next station",
+                "restore_original_menu": "",
+                "module_type": "send_message",
+                "text_template": "Next station ready",
+            },
+            {
+                "command": "route",
+                "description": "Route",
+                "restore_original_menu": "1",
+                "module_type": "send_message",
+                "text_template": "Route ready",
+            },
+        ]
+    )
+
+    entry = _build_callback_module_entry(
+        callback_key="etrax",
+        module_type="send_message",
+        text_template="Open eTrax submenu",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="USD",
+        payment_limit="5",
+        payment_deep_link_prefix="abamobilebank://",
+        payment_merchant_ref_prefix="cart",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="1",
+        cart_min_qty="0",
+        cart_max_qty="99",
+        chain_steps_text="",
+        temporary_commands_text=temporary_commands,
+    )
+
+    assert entry["temporary_commands"] == [
+        {"command": "next", "description": "Next station", "restore_original_menu": False},
+        {"command": "route", "description": "Route", "restore_original_menu": True},
+    ]
+    assert entry["temporary_command_modules"]["next"]["text_template"] == "Next station ready"
+    assert entry["temporary_command_modules"]["route"]["text_template"] == "Route ready"
+
+
+
+def test_extract_callback_module_form_values_keeps_temporary_commands() -> None:
+    values = _extract_callback_module_form_values(
+        callback_key="etrax",
+        raw_module={
+            "module_type": "send_message",
+            "text_template": "Open eTrax submenu",
+            "pipeline": [
+                {
+                    "module_type": "send_message",
+                    "text_template": "Open eTrax submenu",
+                }
+            ],
+            "temporary_commands": [
+                {"command": "next", "description": "Next station", "restore_original_menu": False},
+                {"command": "route", "description": "Route", "restore_original_menu": True},
+            ],
+            "temporary_command_modules": {
+                "next": {
+                    "module_type": "send_message",
+                    "text_template": "Next station ready",
+                    "pipeline": [
+                        {
+                            "module_type": "send_message",
+                            "text_template": "Next station ready",
+                        }
+                    ],
+                },
+                "route": {
+                    "module_type": "send_message",
+                    "text_template": "Route ready",
+                    "pipeline": [
+                        {
+                            "module_type": "send_message",
+                            "text_template": "Route ready",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+
+    temporary_commands = values["temporary_commands"]
+    assert temporary_commands[0]["command"] == "next"
+    assert temporary_commands[0]["description"] == "Next station"
+    assert temporary_commands[0]["restore_original_menu"] == ""
+    assert temporary_commands[1]["command"] == "route"
+    assert temporary_commands[1]["description"] == "Route"
+    assert temporary_commands[1]["restore_original_menu"] == "1"
+
+
+
+def test_command_menu_uses_module_type_detects_nested_temporary_callback_commands() -> None:
+    command_menu = {
+        "callback_modules": {
+            "etrax": {
+                "module_type": "send_message",
+                "temporary_command_modules": {
+                    "next": {
+                        "pipeline": [
+                            {"module_type": "checkout", "text_template": "Cart"},
+                            {"module_type": "cart_button", "product_name": "Ticket", "price": "1"},
+                        ]
+                    }
+                },
+            }
+        }
+    }
+
+    assert _command_menu_uses_module_type(command_menu, "checkout") is True
+    assert _command_menu_uses_module_type(command_menu, "cart_button") is True
+
+
 def test_command_menu_uses_module_type_detects_checkout_and_cart_button() -> None:
     command_menu = {
         "command_modules": {
@@ -649,3 +1123,6 @@ def test_command_menu_uses_module_type_detects_checkout_and_cart_button() -> Non
     assert _command_menu_uses_module_type(command_menu, "checkout") is True
     assert _command_menu_uses_module_type(command_menu, "cart_button") is True
     assert _command_menu_uses_module_type(command_menu, "send_photo") is False
+
+
+

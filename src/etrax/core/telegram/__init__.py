@@ -17,6 +17,7 @@ from .checkout import (
 )
 from .contracts import BotTokenResolver, CartStateStore, TelegramMessageGateway, UserProfileStore
 from .callback_module import LoadCallbackConfig, LoadCallbackModule
+from .command_module import LoadCommandConfig, LoadCommandModule
 from .forget_user_data import ForgetUserDataConfig, ForgetUserDataModule
 from .inline_button import SendInlineButtonConfig, SendTelegramInlineButtonModule
 from .load_inline_button import LoadInlineButtonConfig, LoadInlineButtonModule
@@ -34,6 +35,21 @@ from .share_contact import (
     render_share_contact_text,
     shared_contact_belongs_to_user,
 )
+from .share_location import (
+    DEFAULT_LIVE_LOCATION_REQUIRED,
+    LocationRequestStore,
+    PendingLocationRequest,
+    ShareLocationConfig,
+    ShareLocationModule,
+    append_location_breadcrumb_point,
+    build_breadcrumb_history_entry,
+    build_location_history_entry,
+    build_location_request_reply_markup,
+    daily_history_key,
+    extract_location_context,
+    location_is_live,
+    render_share_location_text,
+)
 from .send_message import SendMessageConfig, SendTelegramMessageModule
 from .send_photo import SendPhotoConfig, SendTelegramPhotoModule
 
@@ -44,6 +60,8 @@ __all__ = [
     "UserProfileStore",
     "LoadCallbackConfig",
     "LoadCallbackModule",
+    "LoadCommandConfig",
+    "LoadCommandModule",
     "LoadInlineButtonConfig",
     "LoadInlineButtonModule",
     "SendMessageConfig",
@@ -54,6 +72,15 @@ __all__ = [
     "ShareContactModule",
     "ContactRequestStore",
     "PendingContactRequest",
+    "ShareLocationConfig",
+    "ShareLocationModule",
+    "LocationRequestStore",
+    "PendingLocationRequest",
+    "DEFAULT_LIVE_LOCATION_REQUIRED",
+    "append_location_breadcrumb_point",
+    "build_breadcrumb_history_entry",
+    "build_location_history_entry",
+    "daily_history_key",
     "SendInlineButtonConfig",
     "SendTelegramInlineButtonModule",
     "OpenMiniAppConfig",
@@ -75,8 +102,13 @@ __all__ = [
     "parse_checkout_callback_data",
     "build_inline_keyboard_reply_markup",
     "build_contact_request_reply_markup",
+    "build_location_request_reply_markup",
     "build_remove_keyboard_reply_markup",
     "extract_contact_context",
+    "extract_location_context",
+    "location_is_live",
     "render_share_contact_text",
+    "render_share_location_text",
     "shared_contact_belongs_to_user",
 ]
+

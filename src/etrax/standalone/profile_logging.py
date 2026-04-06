@@ -34,6 +34,12 @@ def build_profile_log_update(update: dict[str, Any], *, bot_id: str) -> tuple[st
         "is_bot": _optional_bool(sender.get("is_bot")),
         "is_premium": _optional_bool(sender.get("is_premium")),
         "phone_number": None,
+        "location_latitude": None,
+        "location_longitude": None,
+        "location_horizontal_accuracy": None,
+        "location_live_period": None,
+        "location_heading": None,
+        "location_proximity_alert_radius": None,
         "date_of_birth": None,
         "gender": None,
         "bio": None,
@@ -47,9 +53,13 @@ def build_profile_log_update(update: dict[str, Any], *, bot_id: str) -> tuple[st
         "last_callback_data": None,
         "contact_shared_at": None,
         "contact_is_current_user": None,
+        "location_shared_at": None,
     }
 
     message = update.get("message")
+    if not isinstance(message, dict):
+        candidate = update.get("edited_message")
+        message = candidate if isinstance(candidate, dict) else None
     if isinstance(message, dict):
         text = str(message.get("text", "")).strip()
         if text.startswith("/"):
@@ -63,6 +73,15 @@ def build_profile_log_update(update: dict[str, Any], *, bot_id: str) -> tuple[st
                 if phone_number:
                     updates["phone_number"] = phone_number
                 updates["contact_shared_at"] = now
+        location = message.get("location")
+        if isinstance(location, dict):
+            updates["location_latitude"] = _optional_number(location.get("latitude"))
+            updates["location_longitude"] = _optional_number(location.get("longitude"))
+            updates["location_horizontal_accuracy"] = _optional_number(location.get("horizontal_accuracy"))
+            updates["location_live_period"] = _optional_number(location.get("live_period"))
+            updates["location_heading"] = _optional_number(location.get("heading"))
+            updates["location_proximity_alert_radius"] = _optional_number(location.get("proximity_alert_radius"))
+            updates["location_shared_at"] = now
 
     callback_query = update.get("callback_query")
     if isinstance(callback_query, dict):
@@ -110,6 +129,18 @@ def merge_profile_log_update(existing: dict[str, Any] | None, updates: dict[str,
     if current.get("contact_is_current_user") is True and updates.get("contact_is_current_user") is None:
         merged["contact_is_current_user"] = True
 
+    for key in (
+        "location_latitude",
+        "location_longitude",
+        "location_horizontal_accuracy",
+        "location_live_period",
+        "location_heading",
+        "location_proximity_alert_radius",
+        "location_shared_at",
+    ):
+        if current.get(key) is not None and updates.get(key) is None:
+            merged[key] = current.get(key)
+
     if current.get("date_of_birth") and not updates.get("date_of_birth"):
         merged["date_of_birth"] = current.get("date_of_birth")
     if current.get("gender") and not updates.get("gender"):
@@ -134,7 +165,22 @@ def _extract_sender_chat_and_type(update: dict[str, Any]) -> tuple[dict[str, Any
     if isinstance(message, dict):
         sender = message.get("from")
         chat = message.get("chat", {})
-        interaction_type = "contact_message" if isinstance(message.get("contact"), dict) else "message"
+        if isinstance(message.get("contact"), dict):
+            interaction_type = "contact_message"
+        elif isinstance(message.get("location"), dict):
+            interaction_type = "location_message"
+        else:
+            interaction_type = "message"
+        return sender if isinstance(sender, dict) else None, _string_or_none(chat.get("id")), interaction_type
+
+    edited_message = update.get("edited_message")
+    if isinstance(edited_message, dict):
+        sender = edited_message.get("from")
+        chat = edited_message.get("chat", {})
+        if isinstance(edited_message.get("location"), dict):
+            interaction_type = "location_message"
+        else:
+            interaction_type = "message"
         return sender if isinstance(sender, dict) else None, _string_or_none(chat.get("id")), interaction_type
 
     return None, None, "unknown"
@@ -171,6 +217,15 @@ def _merge_chat_ids(existing: object, updates: object) -> list[str]:
 def _optional_bool(raw: object) -> bool | None:
     """Return booleans as-is and coerce everything else to `None`."""
     if isinstance(raw, bool):
+        return raw
+    return None
+
+
+def _optional_number(raw: object) -> int | float | None:
+    """Return numeric values as-is and coerce everything else to `None`."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
         return raw
     return None
 

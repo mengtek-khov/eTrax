@@ -127,7 +127,7 @@
         `<input placeholder="https://example.com/product.jpg" :value="currentStepField(${ctx}, 'photo_url')" @input="updateCurrentStepField(${ctx}, 'photo_url', $event.target.value)">` +
         `</div>` +
         `<div v-if="currentStepField(${ctx}, 'photo_url')">` +
-        `<label><input type="checkbox" :checked="currentStepChecked(${ctx}, 'hide_caption')" @change="updateCurrentStepToggle(${ctx}, 'hide_caption', $event.target.checked)"> Hide Caption When Sending Photo</label>` +
+        `<label class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'hide_caption')" @change="updateCurrentStepToggle(${ctx}, 'hide_caption', $event.target.checked)"><span>Hide Caption When Sending Photo</span></label>` +
         `</div>` +
         `<div>` +
         `<label>Product Name</label>` +

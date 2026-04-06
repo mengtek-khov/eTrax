@@ -26,6 +26,7 @@ def build_forget_user_data_module(
     cart_state_store=None,
     profile_log_store=None,
     contact_request_store: object | None = None,
+    location_request_store: object | None = None,
     cart_configs: dict[str, Any] | None = None,
     checkout_modules: dict[str, Any] | None = None,
 ) -> FlowModule:
@@ -34,6 +35,7 @@ def build_forget_user_data_module(
         cart_state_store=cart_state_store,
         profile_store=profile_log_store,
         contact_request_store=contact_request_store,
+        location_request_store=location_request_store,
         config=step_config,
     )
 

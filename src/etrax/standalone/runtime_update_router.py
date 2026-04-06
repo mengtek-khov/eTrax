@@ -11,6 +11,7 @@ from etrax.core.telegram import (
     CartButtonModule,
     CheckoutCartModule,
     ContactRequestStore,
+    LocationRequestStore,
     SendTelegramInlineButtonModule,
 )
 
@@ -30,6 +31,8 @@ def handle_update(
     command_modules: dict[str, list[FlowModule]],
     callback_modules: dict[str, list[FlowModule]],
     cart_modules: dict[str, CartButtonModule],
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None = None,
     callback_continuation_modules: dict[str, list[FlowModule]] | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates: dict[str, dict[str, Any]] | None = None,
@@ -38,6 +41,7 @@ def handle_update(
     gateway: TelegramBotApiGateway,
     bot_token: str,
     contact_request_store: ContactRequestStore | None = None,
+    location_request_store: LocationRequestStore | None = None,
     profile_log_store: UserProfileLogStore | None = None,
 ) -> int:
     """Route one Telegram update through profile logging, cart, checkout, and pipeline handlers."""
@@ -67,11 +71,16 @@ def handle_update(
         return handle_callback_query_update(
             update,
             bot_id=bot_id,
+            command_modules=command_modules,
             callback_modules=callback_modules,
+            temporary_command_menus=temporary_command_menus,
+            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
             callback_continuation_modules=callback_continuation_modules,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates=callback_context_updates,
             callback_context_updates_by_message=callback_context_updates_by_message,
+            gateway=gateway,
+            bot_token=bot_token,
             profile_log_store=profile_log_store,
         )
 
@@ -83,9 +92,11 @@ def handle_update(
             gateway=gateway,
             bot_token=bot_token,
             contact_request_store=contact_request_store,
+            location_request_store=location_request_store,
             callback_modules=callback_modules,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates_by_message=callback_context_updates_by_message,
+            profile_log_store=profile_log_store,
         )
         if contact_sent_count > 0:
             return contact_sent_count
@@ -94,9 +105,13 @@ def handle_update(
         bot_id=bot_id,
         command_modules=command_modules,
         callback_modules=callback_modules,
+        temporary_command_menus=temporary_command_menus,
         start_returning_user=is_returning_user,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        gateway=gateway,
+        bot_token=bot_token,
         profile_log_store=profile_log_store,
     )
 
@@ -150,8 +165,12 @@ def handle_message_update(
     command_modules: dict[str, list[FlowModule]],
     start_returning_user: bool,
     callback_modules: dict[str, list[FlowModule]] | None = None,
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    gateway: TelegramBotApiGateway | None = None,
+    bot_token: str = "",
     profile_log_store: UserProfileLogStore | None = None,
 ) -> int:
     """Dispatch a plain message update into the configured command pipeline."""
@@ -167,15 +186,33 @@ def handle_message_update(
     if text.startswith("/"):
         command_name, payload_text = extract_command_name_and_payload(text)
 
-    pipeline = command_modules.get(command_name, [])
-    if not pipeline:
-        return 0
-
     chat = message.get("chat", {})
     sender = message.get("from", {})
     chat_id = str(chat.get("id", "")).strip()
     if not chat_id:
         raise ValueError("update message does not include chat.id")
+
+    active_temporary_command_menu = _get_active_temporary_command_menu(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+    )
+    temporary_command_modules = (
+        active_temporary_command_menu.get("command_modules", {})
+        if isinstance(active_temporary_command_menu, dict)
+        else {}
+    )
+    using_temporary_command_menu = False
+    pipeline: list[FlowModule] = []
+    if command_name and isinstance(temporary_command_modules, dict):
+        pipeline_candidate = temporary_command_modules.get(command_name, [])
+        if isinstance(pipeline_candidate, list) and pipeline_candidate:
+            pipeline = pipeline_candidate
+            using_temporary_command_menu = True
+    if not pipeline:
+        pipeline = command_modules.get(command_name, [])
+    if not pipeline:
+        return 0
 
     context: dict[str, Any] = {
         "bot_id": bot_id,
@@ -190,12 +227,61 @@ def handle_message_update(
     _apply_profile_log_context(context, bot_id=bot_id, profile_log_store=profile_log_store)
     if command_name == "start":
         context["start_returning_user"] = bool(start_returning_user)
+    if using_temporary_command_menu and isinstance(active_temporary_command_menu, dict):
+        source_callback_key = str(active_temporary_command_menu.get("source_callback_key", "")).strip()
+        if source_callback_key:
+            context["temporary_command_source_callback_key"] = source_callback_key
+        if _temporary_command_restores_original_menu(
+            command_name=command_name,
+            active_temporary_command_menu=active_temporary_command_menu,
+        ):
+            try:
+                return execute_pipeline(
+                    pipeline,
+                    context,
+                    command_modules=command_modules,
+                    callback_modules=callback_modules,
+                    temporary_command_menus=None,
+                    active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                    callback_continuation_by_message=callback_continuation_by_message,
+                    callback_context_updates_by_message=callback_context_updates_by_message,
+                    command_execution_stack=(command_name,),
+                    gateway=gateway,
+                    bot_token=bot_token,
+                )
+            finally:
+                _restore_active_temporary_command_menu(
+                    bot_id=bot_id,
+                    chat_id=chat_id,
+                    active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                    gateway=gateway,
+                    bot_token=bot_token,
+                )
+        return execute_pipeline(
+            pipeline,
+            context,
+            command_modules=command_modules,
+            callback_modules=callback_modules,
+            temporary_command_menus=None,
+            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+            callback_continuation_by_message=callback_continuation_by_message,
+            callback_context_updates_by_message=callback_context_updates_by_message,
+            command_execution_stack=(command_name,),
+            gateway=gateway,
+            bot_token=bot_token,
+        )
     return execute_pipeline(
         pipeline,
         context,
+        command_modules=command_modules,
         callback_modules=callback_modules,
+        temporary_command_menus=temporary_command_menus,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        command_execution_stack=(command_name,),
+        gateway=gateway,
+        bot_token=bot_token,
     )
 
 
@@ -203,11 +289,16 @@ def handle_callback_query_update(
     update: dict[str, Any],
     *,
     bot_id: str,
-    callback_modules: dict[str, list[FlowModule]],
+    command_modules: dict[str, list[FlowModule]] | None = None,
+    callback_modules: dict[str, list[FlowModule]] | None = None,
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None = None,
     callback_continuation_modules: dict[str, list[FlowModule]] | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates: dict[str, dict[str, Any]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    gateway: TelegramBotApiGateway | None = None,
+    bot_token: str = "",
     profile_log_store: UserProfileLogStore | None = None,
 ) -> int:
     """Dispatch a non-cart callback query into the configured callback pipeline."""
@@ -217,6 +308,7 @@ def handle_callback_query_update(
     callback_data = str(callback_query.get("data", "")).strip()
     if not callback_data:
         return 0
+    callback_modules = callback_modules or {}
 
     message = callback_query.get("message")
     if not isinstance(message, dict):
@@ -251,14 +343,29 @@ def handle_callback_query_update(
 
     pipeline = callback_modules.get(callback_data, [])
     if pipeline:
-        return execute_pipeline(
+        sent_count = execute_pipeline(
             pipeline,
             context,
+            command_modules=command_modules,
             callback_modules=callback_modules,
+            temporary_command_menus=temporary_command_menus,
+            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates_by_message=callback_context_updates_by_message,
             callback_execution_stack=(callback_data,),
+            gateway=gateway,
+            bot_token=bot_token,
         )
+        _activate_callback_temporary_command_menu(
+            bot_id=bot_id,
+            chat_id=chat_id,
+            callback_data=callback_data,
+            temporary_command_menus=temporary_command_menus,
+            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+            gateway=gateway,
+            bot_token=bot_token,
+        )
+        return sent_count
 
     continuation_pipeline = _resolve_message_callback_continuation(
         bot_id=bot_id,
@@ -278,10 +385,131 @@ def handle_callback_query_update(
     return _run_callback_continuation_step(
         continuation_pipeline,
         context=context,
+        command_modules=command_modules,
         callback_modules=callback_modules,
+        temporary_command_menus=temporary_command_menus,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
         callback_execution_stack=(callback_data,),
+        gateway=gateway,
+        bot_token=bot_token,
+    )
+
+
+def _temporary_command_menu_state_key(*, bot_id: str, chat_id: str) -> str:
+    return f"{bot_id}:{chat_id}"
+
+
+def _get_active_temporary_command_menu(
+    *,
+    bot_id: str,
+    chat_id: str,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None,
+) -> dict[str, object] | None:
+    if active_temporary_command_menus_by_chat is None or not bot_id or not chat_id:
+        return None
+    key = _temporary_command_menu_state_key(bot_id=bot_id, chat_id=chat_id)
+    active_menu = active_temporary_command_menus_by_chat.get(key)
+    return active_menu if isinstance(active_menu, dict) else None
+
+
+def _activate_callback_temporary_command_menu(
+    *,
+    bot_id: str,
+    chat_id: str,
+    callback_data: str,
+    temporary_command_menus: dict[str, dict[str, object]] | None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+) -> None:
+    if (
+        temporary_command_menus is None
+        or active_temporary_command_menus_by_chat is None
+        or not bot_id
+        or not chat_id
+        or not callback_data
+    ):
+        return
+    menu_payload = temporary_command_menus.get(callback_data)
+    if not isinstance(menu_payload, dict):
+        return
+    commands_raw = menu_payload.get("commands", [])
+    command_modules_raw = menu_payload.get("command_modules", {})
+    if not isinstance(commands_raw, list) or not isinstance(command_modules_raw, dict):
+        return
+    commands = [dict(item) for item in commands_raw if isinstance(item, dict)]
+    if not commands or not command_modules_raw:
+        return
+    state_key = _temporary_command_menu_state_key(bot_id=bot_id, chat_id=chat_id)
+    active_temporary_command_menus_by_chat[state_key] = {
+        "commands": commands,
+        "command_modules": command_modules_raw,
+        "source_callback_key": callback_data,
+    }
+    if gateway is None or not bot_token:
+        return
+    telegram_commands = []
+    for command in commands:
+        command_name = str(command.get("command", "")).strip()
+        description = str(command.get("description", "")).strip()
+        if not command_name:
+            continue
+        telegram_commands.append({"command": command_name, "description": description or "Command"})
+    if not telegram_commands:
+        return
+    gateway.set_my_commands(
+        bot_token=bot_token,
+        commands=telegram_commands,
+        scope={"type": "chat", "chat_id": chat_id},
+    )
+
+
+def _temporary_command_restores_original_menu(
+    *,
+    command_name: str,
+    active_temporary_command_menu: dict[str, object],
+) -> bool:
+    commands_raw = active_temporary_command_menu.get("commands", [])
+    if not isinstance(commands_raw, list):
+        return True
+    normalized_command = str(command_name or "").strip()
+    if not normalized_command:
+        return True
+    for raw_command in commands_raw:
+        if not isinstance(raw_command, dict):
+            continue
+        if str(raw_command.get("command", "")).strip() != normalized_command:
+            continue
+        if "restore_original_menu" not in raw_command:
+            return True
+        return str(raw_command.get("restore_original_menu", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    return True
+
+
+def _restore_active_temporary_command_menu(
+    *,
+    bot_id: str,
+    chat_id: str,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+) -> None:
+    if active_temporary_command_menus_by_chat is None or not bot_id or not chat_id:
+        return
+    state_key = _temporary_command_menu_state_key(bot_id=bot_id, chat_id=chat_id)
+    removed = active_temporary_command_menus_by_chat.pop(state_key, None)
+    if removed is None or gateway is None or not bot_token:
+        return
+    gateway.delete_my_commands(
+        bot_token=bot_token,
+        scope={"type": "chat", "chat_id": chat_id},
     )
 
 
@@ -424,30 +652,48 @@ def _run_callback_continuation_step(
     pipeline: list[FlowModule],
     *,
     context: dict[str, Any],
+    command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
     callback_execution_stack: tuple[str, ...] = (),
+    command_execution_stack: tuple[str, ...] = (),
+    gateway: TelegramBotApiGateway | None = None,
+    bot_token: str = "",
 ) -> int:
     if not pipeline:
         return 0
     return execute_pipeline(
         pipeline,
         context,
+        command_modules=command_modules,
         callback_modules=callback_modules,
+        temporary_command_menus=temporary_command_menus,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
         callback_execution_stack=callback_execution_stack,
+        command_execution_stack=command_execution_stack,
+        gateway=gateway,
+        bot_token=bot_token,
     )
 
 
 def execute_pipeline(
     pipeline: list[FlowModule],
     context: dict[str, Any],
+    command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
     callback_execution_stack: tuple[str, ...] = (),
+    command_execution_stack: tuple[str, ...] = (),
+    gateway: TelegramBotApiGateway | None = None,
+    bot_token: str = "",
 ) -> int:
     """Execute modules in order, mutating context and honoring stop signals."""
     sent_count = 0
@@ -481,31 +727,64 @@ def execute_pipeline(
             sent_count += _execute_loaded_callback_pipeline(
                 source_module=module,
                 target_callback_key=target_callback_key,
+                command_modules=command_modules,
                 callback_modules=callback_modules,
                 callback_execution_stack=callback_execution_stack,
+                command_execution_stack=command_execution_stack,
                 context=context,
+                temporary_command_menus=temporary_command_menus,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                gateway=gateway,
+                bot_token=bot_token,
+            )
+        target_command_key = _target_command_key_for_outcome(module, outcome)
+        if target_command_key:
+            sent_count += _execute_loaded_command_pipeline(
+                target_command_key=target_command_key,
+                command_modules=command_modules,
+                callback_modules=callback_modules,
+                command_execution_stack=command_execution_stack,
+                context=context,
+                temporary_command_menus=temporary_command_menus,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                callback_continuation_by_message=callback_continuation_by_message,
+                callback_context_updates_by_message=callback_context_updates_by_message,
+                gateway=gateway,
+                bot_token=bot_token,
             )
         target_inline_button_key = _target_inline_button_key_for_outcome(module, outcome)
         if target_inline_button_key:
             sent_count += _execute_loaded_inline_button_module(
                 source_module=module,
                 target_callback_key=target_inline_button_key,
+                command_modules=command_modules,
                 callback_modules=callback_modules,
                 context=context,
+                temporary_command_menus=temporary_command_menus,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                command_execution_stack=command_execution_stack,
+                gateway=gateway,
+                bot_token=bot_token,
             )
         continuation_modules = _continuation_modules_for_skipped_outcome(module, outcome)
         if continuation_modules:
             sent_count += execute_pipeline(
                 continuation_modules,
                 context,
+                command_modules=command_modules,
                 callback_modules=callback_modules,
+                temporary_command_menus=temporary_command_menus,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
                 callback_execution_stack=callback_execution_stack,
+                command_execution_stack=command_execution_stack,
+                gateway=gateway,
+                bot_token=bot_token,
             )
             break
         if outcome and outcome.stop:
@@ -536,6 +815,7 @@ def _print_pipeline_step_trace(
 
 def _runtime_module_label(module: object) -> str:
     target_callback_key = str(getattr(module, "target_callback_key", "") or "").strip()
+    target_command_key = str(getattr(module, "target_command_key", "") or "").strip()
     module_name = type(module).__name__.strip()
     normalized = module_name.lower()
     if normalized == "sendtelegraminlinebuttonmodule":
@@ -544,8 +824,12 @@ def _runtime_module_label(module: object) -> str:
         label = "inline_button_module"
     elif normalized == "loadcallbackmodule":
         label = "callback_module"
+    elif normalized == "loadcommandmodule":
+        label = "command_module"
     elif normalized == "sharecontactmodule":
         label = "share_contact"
+    elif normalized == "sharelocationmodule":
+        label = "share_location"
     elif normalized == "sendtelegrammessagemodule":
         label = "send_message"
     elif normalized == "sendtelegramphotomodule":
@@ -558,6 +842,8 @@ def _runtime_module_label(module: object) -> str:
         label = module_name or "module"
     if target_callback_key:
         return f"{label}({target_callback_key})"
+    if target_command_key:
+        return f"{label}({target_command_key})"
     return label
 
 
@@ -568,6 +854,15 @@ def _target_callback_key_for_outcome(module: FlowModule, outcome: object) -> str
     if reason != "load_existing_callback":
         return ""
     return str(getattr(module, "target_callback_key", "") or "").strip()
+
+
+def _target_command_key_for_outcome(module: FlowModule, outcome: object) -> str:
+    if outcome is None:
+        return ""
+    reason = str(getattr(outcome, "reason", "") or "").strip()
+    if reason != "load_existing_command":
+        return ""
+    return str(getattr(module, "target_command_key", "") or "").strip()
 
 
 def _target_inline_button_key_for_outcome(module: FlowModule, outcome: object) -> str:
@@ -583,11 +878,17 @@ def _execute_loaded_callback_pipeline(
     *,
     source_module: FlowModule,
     target_callback_key: str,
+    command_modules: dict[str, list[FlowModule]] | None,
     callback_modules: dict[str, list[FlowModule]] | None,
+    temporary_command_menus: dict[str, dict[str, object]] | None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None,
     callback_execution_stack: tuple[str, ...],
+    command_execution_stack: tuple[str, ...],
     context: dict[str, Any],
     callback_continuation_by_message: dict[str, list[FlowModule]] | None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
 ) -> int:
     if not callback_modules:
         raise ValueError(f"callback_module target '{target_callback_key}' is unavailable: no callback modules loaded")
@@ -605,24 +906,46 @@ def _execute_loaded_callback_pipeline(
     profile = context.get("profile")
     if isinstance(profile, dict):
         profile["last_callback_data"] = target_callback_key
-    return execute_pipeline(
+    sent_count = execute_pipeline(
         target_pipeline,
         context,
+        command_modules=command_modules,
         callback_modules=callback_modules,
+        temporary_command_menus=temporary_command_menus,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
         callback_execution_stack=(*callback_execution_stack, target_callback_key),
+        command_execution_stack=command_execution_stack,
+        gateway=gateway,
+        bot_token=bot_token,
     )
+    _activate_callback_temporary_command_menu(
+        bot_id=str(context.get("bot_id", "")).strip(),
+        chat_id=str(context.get("chat_id", "")).strip(),
+        callback_data=target_callback_key,
+        temporary_command_menus=temporary_command_menus,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+        gateway=gateway,
+        bot_token=bot_token,
+    )
+    return sent_count
 
 
 def _execute_loaded_inline_button_module(
     *,
     source_module: FlowModule,
     target_callback_key: str,
+    command_modules: dict[str, list[FlowModule]] | None,
     callback_modules: dict[str, list[FlowModule]] | None,
+    temporary_command_menus: dict[str, dict[str, object]] | None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None,
     context: dict[str, Any],
     callback_continuation_by_message: dict[str, list[FlowModule]] | None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    command_execution_stack: tuple[str, ...],
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
 ) -> int:
     target_module = _find_loaded_inline_button_module(
         source_module=source_module,
@@ -632,9 +955,56 @@ def _execute_loaded_inline_button_module(
     return execute_pipeline(
         [target_module],
         context,
+        command_modules=command_modules,
         callback_modules=callback_modules,
+        temporary_command_menus=temporary_command_menus,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        command_execution_stack=command_execution_stack,
+        gateway=gateway,
+        bot_token=bot_token,
+    )
+
+
+def _execute_loaded_command_pipeline(
+    *,
+    target_command_key: str,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+    temporary_command_menus: dict[str, dict[str, object]] | None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None,
+    command_execution_stack: tuple[str, ...],
+    context: dict[str, Any],
+    callback_continuation_by_message: dict[str, list[FlowModule]] | None,
+    callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+) -> int:
+    if not command_modules:
+        raise ValueError(f"command_module target '{target_command_key}' is unavailable: no command modules loaded")
+    if target_command_key in command_execution_stack:
+        raise ValueError(
+            f"command_module recursion detected for command key '{target_command_key}'"
+        )
+    target_pipeline = command_modules.get(target_command_key, [])
+    if not target_pipeline:
+        raise ValueError(f"command_module target '{target_command_key}' does not exist")
+    profile = context.get("profile")
+    if isinstance(profile, dict):
+        profile["last_command"] = target_command_key
+    return execute_pipeline(
+        target_pipeline,
+        context,
+        command_modules=command_modules,
+        callback_modules=callback_modules,
+        temporary_command_menus=temporary_command_menus,
+        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+        callback_continuation_by_message=callback_continuation_by_message,
+        callback_context_updates_by_message=callback_context_updates_by_message,
+        command_execution_stack=(*command_execution_stack, target_command_key),
+        gateway=gateway,
+        bot_token=bot_token,
     )
 
 
@@ -696,7 +1066,7 @@ def _outcome_represents_skip(outcome: object) -> bool:
     if stop:
         return False
     reason = str(getattr(outcome, "reason", "") or "").strip()
-    if reason in {"missing_required_context", "skip_context_present", "existing_contact_available"}:
+    if reason in {"missing_required_context", "skip_context_present", "existing_contact_available", "existing_location_available"}:
         return True
     context_updates = getattr(outcome, "context_updates", {})
     if not isinstance(context_updates, dict):
@@ -948,6 +1318,16 @@ def _apply_profile_log_context(
         "contact_last_name": profile.get("last_name"),
         "contact_user_id": profile.get("telegram_user_id"),
         "contact_is_current_user": profile.get("contact_is_current_user"),
+        "location_latitude": profile.get("location_latitude"),
+        "location_longitude": profile.get("location_longitude"),
+        "location_horizontal_accuracy": profile.get("location_horizontal_accuracy"),
+        "location_live_period": profile.get("location_live_period"),
+        "location_heading": profile.get("location_heading"),
+        "location_proximity_alert_radius": profile.get("location_proximity_alert_radius"),
+        "location_breadcrumb_points": profile.get("location_breadcrumb_points"),
+        "location_breadcrumb_count": profile.get("location_breadcrumb_count"),
+        "location_breadcrumb_total_distance_meters": profile.get("location_breadcrumb_total_distance_meters"),
+        "location_breadcrumb_active": profile.get("location_breadcrumb_active"),
         "last_command": profile.get("last_command"),
         "last_callback_data": profile.get("last_callback_data"),
     }
@@ -956,6 +1336,15 @@ def _apply_profile_log_context(
             continue
         if isinstance(value, bool):
             context[key] = value
+            continue
+        if isinstance(value, (int, float)):
+            context[key] = value
+            continue
+        if isinstance(value, list):
+            context[key] = list(value)
+            continue
+        if isinstance(value, dict):
+            context[key] = dict(value)
             continue
         if value is None:
             continue
@@ -993,6 +1382,16 @@ def _apply_profile_log_context(
         "is_bot",
         "is_premium",
         "phone_number",
+        "location_latitude",
+        "location_longitude",
+        "location_horizontal_accuracy",
+        "location_live_period",
+        "location_heading",
+        "location_proximity_alert_radius",
+        "location_breadcrumb_points",
+        "location_breadcrumb_count",
+        "location_breadcrumb_total_distance_meters",
+        "location_breadcrumb_active",
         "date_of_birth",
         "gender",
         "bio",
@@ -1063,3 +1462,4 @@ def _invoke_update_handler(handler: Any, **kwargs: Any) -> int:
         key: value for key, value in kwargs.items() if key in signature.parameters
     }
     return int(handler(**accepted))
+

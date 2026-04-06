@@ -6,12 +6,16 @@ from etrax.core.flow import ModuleOutcome
 from etrax.core.telegram import (
     LoadCallbackConfig,
     LoadCallbackModule,
+    LoadCommandConfig,
+    LoadCommandModule,
     LoadInlineButtonConfig,
     LoadInlineButtonModule,
     SendInlineButtonConfig,
     SendTelegramInlineButtonModule,
     ShareContactConfig,
     ShareContactModule,
+    ShareLocationConfig,
+    ShareLocationModule,
 )
 from etrax.standalone.runtime_update_router import handle_callback_query_update, handle_message_update, handle_update
 
@@ -71,7 +75,60 @@ class FakeGateway:
         return payload
 
 
+class FakeCommandMenuGateway:
+    def __init__(self) -> None:
+        self.set_calls: list[dict[str, Any]] = []
+        self.delete_calls: list[dict[str, Any]] = []
+
+    def set_my_commands(
+        self,
+        *,
+        bot_token: str,
+        commands: list[dict[str, str]],
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "commands": [dict(item) for item in commands],
+            "scope": dict(scope) if isinstance(scope, dict) else scope,
+            "language_code": language_code,
+        }
+        self.set_calls.append(payload)
+        return payload
+
+    def delete_my_commands(
+        self,
+        *,
+        bot_token: str,
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "scope": dict(scope) if isinstance(scope, dict) else scope,
+            "language_code": language_code,
+        }
+        self.delete_calls.append(payload)
+        return payload
+
+
 class FakeContactRequestStore:
+    def __init__(self) -> None:
+        self.pending: dict[tuple[str, str, str], object] = {}
+
+    def set_pending(self, request: object) -> None:
+        key = (request.bot_id, request.chat_id, request.user_id)
+        self.pending[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.get((bot_id, chat_id, user_id))
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.pop((bot_id, chat_id, user_id), None)
+
+
+class FakeLocationRequestStore:
     def __init__(self) -> None:
         self.pending: dict[tuple[str, str, str], object] = {}
 
@@ -259,6 +316,44 @@ def test_handle_message_update_uses_profile_log_as_contact_fallback() -> None:
     assert context["contact_is_current_user"] is True
 
 
+def test_handle_message_update_uses_profile_log_as_location_fallback() -> None:
+    module = CaptureModule()
+    profile_store = FakeProfileLogStore(
+        {
+            ("support-bot", "77"): {
+                "telegram_user_id": "77",
+                "first_name": "Alice",
+                "location_latitude": 11.5564,
+                "location_longitude": 104.9282,
+                "location_heading": 90,
+            }
+        }
+    )
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [module]},
+        start_returning_user=False,
+        profile_log_store=profile_store,
+    )
+
+    assert sent == 1
+    context = module.contexts[0]
+    assert context["location_latitude"] == 11.5564
+    assert context["location_longitude"] == 104.9282
+    assert context["location_heading"] == 90
+
+
 def test_handle_message_update_exposes_custom_profile_fields() -> None:
     module = CaptureModule()
     profile_store = FakeProfileLogStore(
@@ -325,6 +420,297 @@ def test_handle_message_update_loads_existing_callback_pipeline() -> None:
         "loaded": True,
         "target_callback_key": "open_shop",
     }
+
+
+
+def test_handle_callback_query_update_loads_existing_command_pipeline() -> None:
+    command_loader = LoadCommandModule(
+        LoadCommandConfig(target_command_key="route"),
+    )
+    command_target = CaptureModule()
+
+    sent = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-route",
+                "data": "etrax_route",
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+                "message": {
+                    "message_id": 777,
+                    "chat": {"id": 12345},
+                    "text": "Choose route",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"route": [command_target]},
+        callback_modules={"etrax_route": [command_loader]},
+    )
+
+    assert sent == 2
+    context = command_target.contexts[0]
+    assert context["command_name"] == "route"
+    assert context["last_command"] == "route"
+    assert context["command_module_result"] == {
+        "loaded": True,
+        "target_command_key": "route",
+    }
+
+
+def test_handle_callback_query_update_activates_temporary_command_menu_and_restores_after_temp_command() -> None:
+    callback_target = CaptureModule()
+    temporary_command_target = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    active_menus: dict[str, dict[str, Any]] = {}
+
+    sent = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-submenu",
+                "data": "etrax",
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+                "message": {
+                    "message_id": 777,
+                    "chat": {"id": 12345},
+                    "text": "Open eTrax",
+                },
+            }
+        },
+        bot_id="support-bot",
+        callback_modules={"etrax": [callback_target]},
+        temporary_command_menus={
+            "etrax": {
+                "commands": [{"command": "next", "description": "Next"}],
+                "command_modules": {"next": [temporary_command_target]},
+            }
+        },
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert sent == 1
+    assert active_menus["support-bot:12345"]["source_callback_key"] == "etrax"
+    assert gateway.set_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "commands": [{"command": "next", "description": "Next"}],
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
+
+    temp_sent = handle_message_update(
+        {
+            "message": {
+                "text": "/next",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        start_returning_user=False,
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert temp_sent == 1
+    assert temporary_command_target.contexts[0]["temporary_command_source_callback_key"] == "etrax"
+    assert "support-bot:12345" not in active_menus
+    assert gateway.delete_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
+
+
+def test_handle_message_update_loads_callback_module_and_activates_temporary_command_menu() -> None:
+    callback_loader = LoadCallbackModule(
+        LoadCallbackConfig(target_callback_key="tracking location"),
+    )
+    callback_target = CaptureModule()
+    temporary_command_target = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    active_menus: dict[str, dict[str, Any]] = {}
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/etrex",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"etrex": [callback_loader]},
+        callback_modules={"tracking location": [callback_target]},
+        temporary_command_menus={
+            "tracking location": {
+                "commands": [{"command": "next", "description": "Next"}],
+                "command_modules": {"next": [temporary_command_target]},
+            }
+        },
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        start_returning_user=False,
+    )
+
+    assert sent == 2
+    assert callback_target.contexts[0]["callback_data"] == "tracking location"
+    assert active_menus["support-bot:12345"]["source_callback_key"] == "tracking location"
+    assert gateway.set_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "commands": [{"command": "next", "description": "Next"}],
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
+
+    temp_sent = handle_message_update(
+        {
+            "message": {
+                "text": "/next",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        start_returning_user=False,
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert temp_sent == 1
+    assert temporary_command_target.contexts[0]["temporary_command_source_callback_key"] == "tracking location"
+    assert "support-bot:12345" not in active_menus
+    assert gateway.delete_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
+
+
+def test_handle_message_update_keeps_temporary_command_menu_when_restore_flag_is_off() -> None:
+    callback_target = CaptureModule()
+    temporary_command_target = CaptureModule()
+    closing_command_target = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    active_menus: dict[str, dict[str, Any]] = {}
+
+    sent = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-submenu",
+                "data": "etrax",
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+                "message": {
+                    "message_id": 777,
+                    "chat": {"id": 12345},
+                    "text": "Open eTrax",
+                },
+            }
+        },
+        bot_id="support-bot",
+        callback_modules={"etrax": [callback_target]},
+        temporary_command_menus={
+            "etrax": {
+                "commands": [
+                    {"command": "next", "description": "Next", "restore_original_menu": False},
+                    {"command": "close", "description": "Close", "restore_original_menu": True},
+                ],
+                "command_modules": {
+                    "next": [temporary_command_target],
+                    "close": [closing_command_target],
+                },
+            }
+        },
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert sent == 1
+    temp_sent = handle_message_update(
+        {
+            "message": {
+                "text": "/next",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        start_returning_user=False,
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert temp_sent == 1
+    assert temporary_command_target.contexts[0]["temporary_command_source_callback_key"] == "etrax"
+    assert "support-bot:12345" in active_menus
+    assert gateway.delete_calls == []
+
+    close_sent = handle_message_update(
+        {
+            "message": {
+                "text": "/close",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        start_returning_user=False,
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert close_sent == 1
+    assert closing_command_target.contexts[0]["temporary_command_source_callback_key"] == "etrax"
+    assert "support-bot:12345" not in active_menus
+    assert gateway.delete_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
 
 
 def test_handle_message_update_skips_callback_module_when_run_if_missing() -> None:
@@ -902,6 +1288,72 @@ def test_handle_callback_query_update_skips_share_contact_when_profile_already_h
     }
 
 
+def test_handle_callback_query_update_share_location_uses_explicit_skip_rules() -> None:
+    gateway = FakeGateway()
+    location_store = FakeLocationRequestStore()
+    continuation = CaptureModule()
+    share_location_module = ShareLocationModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        location_request_store=location_store,
+        config=ShareLocationConfig(
+            bot_id="support-bot",
+            text_template="Share your location, {user_first_name}.",
+            button_text="Send Location",
+            skip_if_context_keys=("location_latitude",),
+        ),
+    )
+    profile_store = FakeProfileLogStore(
+        {
+            ("support-bot", "88"): {
+                "telegram_user_id": "88",
+                "first_name": "Bob",
+                "last_name": "Builder",
+                "full_name": "Bob Builder",
+                "username": "bob_builder",
+                "location_latitude": 11.5564,
+                "location_longitude": 104.9282,
+            }
+        }
+    )
+
+    sent = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-1",
+                "data": "verify_location",
+                "from": {
+                    "id": 88,
+                    "first_name": "Bob",
+                    "last_name": "Builder",
+                    "username": "bob_builder",
+                },
+                "message": {
+                    "message_id": 55,
+                    "chat": {"id": 67890},
+                    "text": "Verify location",
+                },
+            }
+        },
+        bot_id="support-bot",
+        callback_modules={},
+        callback_continuation_modules={"verify_location": [share_location_module, continuation]},
+        profile_log_store=profile_store,
+    )
+
+    assert sent == 2
+    assert gateway.message_calls == []
+    assert location_store.pending == {}
+    assert len(continuation.contexts) == 1
+    context = continuation.contexts[0]
+    assert context["location_latitude"] == 11.5564
+    assert context["location_longitude"] == 104.9282
+    assert context["share_location_result"] == {
+        "skipped": True,
+        "reason": "skip_context_present",
+        "matched_context_keys": ["location_latitude"],
+    }
+
 def test_handle_update_runs_inline_button_module_after_contact_success() -> None:
     class MessageIdGateway(FakeGateway):
         def send_message(
@@ -1136,3 +1588,4 @@ def test_handle_message_update_runs_continuation_when_inline_button_skips() -> N
         "reason": "skip_context_present",
         "matched_context_keys": ["contact_phone_number"],
     }
+

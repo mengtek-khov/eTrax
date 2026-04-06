@@ -136,9 +136,33 @@ class TelegramBotApiGateway:
         *,
         bot_token: str,
         commands: list[dict[str, str]],
+        scope: dict[str, object] | None = None,
+        language_code: str | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {"commands": commands}
+        if scope:
+            payload["scope"] = scope
+        if language_code is not None:
+            normalized_language_code = language_code.strip()
+            if normalized_language_code:
+                payload["language_code"] = normalized_language_code
         return self._request_json(bot_token=bot_token, method="setMyCommands", payload=payload)
+
+    def delete_my_commands(
+        self,
+        *,
+        bot_token: str,
+        scope: dict[str, object] | None = None,
+        language_code: str | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {}
+        if scope:
+            payload["scope"] = scope
+        if language_code is not None:
+            normalized_language_code = language_code.strip()
+            if normalized_language_code:
+                payload["language_code"] = normalized_language_code
+        return self._request_json(bot_token=bot_token, method="deleteMyCommands", payload=payload)
 
     def answer_callback_query(
         self,

@@ -17,13 +17,16 @@ from etrax.core.telegram import (
     CartButtonModule,
     CheckoutCartModule,
     ContactRequestStore,
+    LocationRequestStore,
     PendingContactRequest,
+    PendingLocationRequest,
 )
 from etrax.core.flow import FlowModule
 from etrax.core.token import BotTokenService
 from etrax.standalone.runtime_config_resolver import (
     _validate_cart_dependent_modules,
     resolve_callback_send_configs,
+    resolve_callback_temporary_command_menus,
     resolve_cart_button_configs,
     resolve_command_menu,
     resolve_command_send_configs,
@@ -71,6 +74,7 @@ class RuntimeSnapshot:
 
     command_modules: dict[str, list[FlowModule]]
     callback_modules: dict[str, list[FlowModule]]
+    temporary_command_menus: dict[str, dict[str, object]]
     cart_modules: dict[str, CartButtonModule]
     callback_continuation_modules: dict[str, list[FlowModule]]
     callback_context_updates: dict[str, dict[str, object]]
@@ -83,6 +87,7 @@ class RuntimeSnapshot:
             or self.callback_modules
             or self.cart_modules
             or self.checkout_modules
+            or self.temporary_command_menus
         )
 
 
@@ -108,6 +113,33 @@ class _InMemoryContactRequestStore(ContactRequestStore):
 
     def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingContactRequest | None:
         """Remove and return a pending contact request once it is handled."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.pop(key, None)
+
+
+class _InMemoryLocationRequestStore(LocationRequestStore):
+    """Process-local pending location request store for standalone runtime."""
+
+    def __init__(self) -> None:
+        """Initialize the in-memory pending-location index."""
+        self._values: dict[tuple[str, str, str], PendingLocationRequest] = {}
+        self._lock = Lock()
+
+    def set_pending(self, request: PendingLocationRequest) -> None:
+        """Store a pending share-location request by bot, chat, and user."""
+        key = (request.bot_id, request.chat_id, request.user_id)
+        with self._lock:
+            self._values[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingLocationRequest | None:
+        """Look up a pending location request without removing it."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.get(key)
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingLocationRequest | None:
+        """Remove and return a pending location request once it is handled."""
         key = (bot_id, chat_id, user_id)
         with self._lock:
             return self._values.pop(key, None)
@@ -152,6 +184,7 @@ class BotRuntimeManager:
         self._controllers: dict[str, BotRuntimeController] = {}
         self._lock = Lock()
         self._contact_request_store = _InMemoryContactRequestStore()
+        self._location_request_store = _InMemoryLocationRequestStore()
 
     def start(self, bot_id: str) -> tuple[bool, str]:
         """Start long polling for one bot if it is not already running."""
@@ -237,6 +270,7 @@ class BotRuntimeManager:
         offset = _load_offset(self._state_file, bot_id)
         callback_continuation_by_message: dict[str, list[FlowModule]] = {}
         callback_context_updates_by_message: dict[str, dict[str, object]] = {}
+        active_temporary_command_menus_by_chat: dict[str, dict[str, object]] = {}
 
         while not controller.stop_event.is_set():
             try:
@@ -258,7 +292,7 @@ class BotRuntimeManager:
                     bot_token=token,
                     offset=offset,
                     timeout=self._poll_timeout_seconds,
-                    allowed_updates=["message", "callback_query"],
+                    allowed_updates=["message", "edited_message", "callback_query"],
                 )
                 raw_updates = updates.get("result", [])
                 if not isinstance(raw_updates, list):
@@ -286,6 +320,8 @@ class BotRuntimeManager:
                         bot_id=bot_id,
                         command_modules=runtime_snapshot.command_modules,
                         callback_modules=runtime_snapshot.callback_modules,
+                        temporary_command_menus=runtime_snapshot.temporary_command_menus,
+                        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
                         cart_modules=runtime_snapshot.cart_modules,
                         callback_continuation_modules=runtime_snapshot.callback_continuation_modules,
                         callback_continuation_by_message=callback_continuation_by_message,
@@ -295,6 +331,7 @@ class BotRuntimeManager:
                         gateway=gateway,
                         bot_token=token,
                         contact_request_store=self._contact_request_store,
+                        location_request_store=self._location_request_store,
                         profile_log_store=self._profile_log_store,
                     )
                     if sent_count > 0:
@@ -338,6 +375,7 @@ class BotRuntimeManager:
         )
         command_pipelines = resolve_command_send_configs(config_payload, bot_id, commands=command_menu)
         callback_pipelines = resolve_callback_send_configs(config_payload, bot_id)
+        temporary_command_menus = resolve_callback_temporary_command_menus(config_payload, bot_id)
 
         checkout_modules: dict[str, CheckoutCartModule] = {}
         command_modules = {
@@ -348,6 +386,7 @@ class BotRuntimeManager:
                 cart_state_store=self._cart_state_store,
                 profile_log_store=self._profile_log_store,
                 contact_request_store=self._contact_request_store,
+                location_request_store=self._location_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )
@@ -361,18 +400,46 @@ class BotRuntimeManager:
                 cart_state_store=self._cart_state_store,
                 profile_log_store=self._profile_log_store,
                 contact_request_store=self._contact_request_store,
+                location_request_store=self._location_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )
             for callback_key, pipeline in callback_pipelines.items()
         }
+        built_temporary_command_menus: dict[str, dict[str, object]] = {}
+        for callback_key, menu_payload in temporary_command_menus.items():
+            commands_raw = menu_payload.get("commands", [])
+            commands = [dict(item) for item in commands_raw] if isinstance(commands_raw, list) else []
+            raw_command_modules = menu_payload.get("command_modules", {})
+            temporary_command_pipelines = raw_command_modules if isinstance(raw_command_modules, dict) else {}
+            built_command_modules = {
+                command_name: _build_runtime_modules(
+                    step_configs=pipeline,
+                    token_service=self._token_service,
+                    gateway=gateway,
+                    cart_state_store=self._cart_state_store,
+                    profile_log_store=self._profile_log_store,
+                    contact_request_store=self._contact_request_store,
+                    location_request_store=self._location_request_store,
+                    cart_configs=cart_configs,
+                    checkout_modules=checkout_modules,
+                )
+                for command_name, pipeline in temporary_command_pipelines.items()
+            }
+            if commands and built_command_modules:
+                built_temporary_command_menus[callback_key] = {
+                    "commands": commands,
+                    "command_modules": built_command_modules,
+                }
         callback_continuation_modules = _build_callback_continuation_modules(
             command_modules=command_modules,
             callback_modules=callback_modules,
+            temporary_command_menus=built_temporary_command_menus,
         )
         callback_context_updates = _build_callback_context_updates(
             command_modules=command_modules,
             callback_modules=callback_modules,
+            temporary_command_menus=built_temporary_command_menus,
         )
         cart_modules = {
             product_key: _build_runtime_modules(
@@ -382,6 +449,7 @@ class BotRuntimeManager:
                 cart_state_store=self._cart_state_store,
                 profile_log_store=self._profile_log_store,
                 contact_request_store=self._contact_request_store,
+                location_request_store=self._location_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )[0]
@@ -397,10 +465,35 @@ class BotRuntimeManager:
                     module_key = module.module_key
                     if module.continuation_modules:
                         checkout_modules[module_key] = module
+        for modules in callback_modules.values():
+            for module in modules:
+                if isinstance(module, CartButtonModule):
+                    product_key = module.product_key
+                    if module.continuation_modules:
+                        cart_modules[product_key] = module
+                if isinstance(module, CheckoutCartModule):
+                    module_key = module.module_key
+                    if module.continuation_modules:
+                        checkout_modules[module_key] = module
+        for menu_payload in built_temporary_command_menus.values():
+            temporary_modules = menu_payload.get("command_modules", {})
+            if not isinstance(temporary_modules, dict):
+                continue
+            for modules in temporary_modules.values():
+                for module in modules:
+                    if isinstance(module, CartButtonModule):
+                        product_key = module.product_key
+                        if module.continuation_modules:
+                            cart_modules[product_key] = module
+                    if isinstance(module, CheckoutCartModule):
+                        module_key = module.module_key
+                        if module.continuation_modules:
+                            checkout_modules[module_key] = module
 
         return RuntimeSnapshot(
             command_modules=command_modules,
             callback_modules=callback_modules,
+            temporary_command_menus=built_temporary_command_menus,
             cart_modules=cart_modules,
             callback_continuation_modules=callback_continuation_modules,
             callback_context_updates=callback_context_updates,
@@ -419,6 +512,7 @@ def _build_callback_continuation_modules(
     *,
     command_modules: dict[str, list[FlowModule]],
     callback_modules: dict[str, list[FlowModule]],
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, list[FlowModule]]:
     callback_continuation_modules: dict[str, list[FlowModule]] = {}
     for modules in command_modules.values():
@@ -434,6 +528,17 @@ def _build_callback_continuation_modules(
                 module=module,
                 continuation_modules=callback_continuation_modules,
             )
+    if temporary_command_menus:
+        for menu_payload in temporary_command_menus.values():
+            temporary_modules = menu_payload.get("command_modules", {})
+            if not isinstance(temporary_modules, dict):
+                continue
+            for modules in temporary_modules.values():
+                for module in modules:
+                    _collect_callback_continuation(
+                        module=module,
+                        continuation_modules=callback_continuation_modules,
+                    )
 
     return callback_continuation_modules
 
@@ -476,6 +581,7 @@ def _build_callback_context_updates(
     *,
     command_modules: dict[str, list[FlowModule]],
     callback_modules: dict[str, list[FlowModule]],
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, dict[str, object]]:
     callback_context_updates: dict[str, dict[str, object]] = {}
     for modules in command_modules.values():
@@ -491,6 +597,17 @@ def _build_callback_context_updates(
                 module=module,
                 callback_context_updates=callback_context_updates,
             )
+    if temporary_command_menus:
+        for menu_payload in temporary_command_menus.values():
+            temporary_modules = menu_payload.get("command_modules", {})
+            if not isinstance(temporary_modules, dict):
+                continue
+            for modules in temporary_modules.values():
+                for module in modules:
+                    _collect_callback_context_updates(
+                        module=module,
+                        callback_context_updates=callback_context_updates,
+                    )
 
     return callback_context_updates
 
@@ -540,3 +657,4 @@ def _update_requires_start_reload(update: dict[str, Any]) -> bool:
         return False
     command_name, _payload = _extract_command_name_and_payload(text)
     return command_name == "start"
+

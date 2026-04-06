@@ -15,6 +15,7 @@ from etrax.core.telegram import (
     CheckoutCartConfig,
     ForgetUserDataConfig,
     LoadCallbackConfig,
+    LoadCommandConfig,
     LoadInlineButtonConfig,
     OpenMiniAppConfig,
     PaywayPaymentConfig,
@@ -22,6 +23,7 @@ from etrax.core.telegram import (
     SendMessageConfig,
     SendPhotoConfig,
     ShareContactConfig,
+    ShareLocationConfig,
 )
 
 from .runtime_contracts import RuntimeStepConfig
@@ -220,10 +222,12 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
         SendMessageConfig,
         SendPhotoConfig,
         ShareContactConfig,
+        ShareLocationConfig,
         CartButtonConfig,
         CheckoutCartConfig,
         PaywayPaymentConfig,
         LoadCallbackConfig,
+        LoadCommandConfig,
         LoadInlineButtonConfig,
         OpenMiniAppConfig,
         ForgetUserDataConfig,
@@ -294,6 +298,7 @@ def build_runtime_step_module(
     cart_state_store: object,
     profile_log_store: object | None = None,
     contact_request_store: object | None = None,
+    location_request_store: object | None = None,
     cart_configs: dict[str, object] | None = None,
     checkout_modules: dict[str, object] | None = None,
     continuation_modules: list[FlowModule] | None = None,
@@ -307,6 +312,7 @@ def build_runtime_step_module(
         "cart_state_store": cart_state_store,
         "profile_log_store": profile_log_store,
         "contact_request_store": contact_request_store,
+        "location_request_store": location_request_store,
         "cart_configs": cart_configs,
         "checkout_modules": checkout_modules,
     }
@@ -320,3 +326,4 @@ def _initialize_runtime_module_registry_for_tests() -> None:
 
 
 _initialize_runtime_module_registry_for_tests()
+

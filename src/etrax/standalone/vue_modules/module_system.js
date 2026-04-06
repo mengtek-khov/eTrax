@@ -170,18 +170,25 @@
     return defaultType();
   }
 
+  function normalizeCheckboxValue(raw) {
+    const normalized = String(raw == null ? "" : raw).trim().toLowerCase();
+    return raw === true || normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on";
+  }
+
   function normalizeStep(rawStep, fallbackType) {
     const source = rawStep && typeof rawStep === "object" ? rawStep : {};
-    const hideCaptionRaw = source.hide_caption;
-    const hideCaption =
-      hideCaptionRaw === true ||
-      String(hideCaptionRaw == null ? "" : hideCaptionRaw).trim().toLowerCase() === "true" ||
-      String(hideCaptionRaw == null ? "" : hideCaptionRaw).trim() === "1";
+    const hideCaption = normalizeCheckboxValue(source.hide_caption);
+    const requireLiveLocation = normalizeCheckboxValue(source.require_live_location);
+    const trackBreadcrumb = requireLiveLocation && normalizeCheckboxValue(source.track_breadcrumb);
+    const storeHistoryByDay = normalizeCheckboxValue(source.store_history_by_day);
     return {
       module_type: normalizeType(source.module_type || fallbackType),
       text_template: source.text_template == null ? "" : String(source.text_template),
       parse_mode: source.parse_mode == null ? "" : String(source.parse_mode),
       hide_caption: hideCaption,
+      require_live_location: requireLiveLocation,
+      track_breadcrumb: trackBreadcrumb,
+      store_history_by_day: storeHistoryByDay,
       title: source.title == null ? "Main Menu" : String(source.title),
       items: parseMenuItems(Array.isArray(source.items) ? source.items.join("\n") : source.items || ""),
       buttons: normalizeInlineButtons(source.buttons || []),
@@ -197,10 +204,14 @@
           : String(source.skip_if_context_keys),
       save_callback_data_to_key: source.save_callback_data_to_key == null ? "" : String(source.save_callback_data_to_key),
       target_callback_key: source.target_callback_key == null ? "" : String(source.target_callback_key),
+      target_command_key: source.target_command_key == null ? "" : String(source.target_command_key),
       photo_url: source.photo_url == null ? "" : String(source.photo_url),
       button_text: source.button_text == null ? "" : String(source.button_text),
       success_text_template: source.success_text_template == null ? "" : String(source.success_text_template),
       invalid_text_template: source.invalid_text_template == null ? "" : String(source.invalid_text_template),
+      breadcrumb_interval_minutes: source.breadcrumb_interval_minutes == null ? "" : String(source.breadcrumb_interval_minutes),
+      breadcrumb_min_distance_meters:
+        source.breadcrumb_min_distance_meters == null ? "" : String(source.breadcrumb_min_distance_meters),
       empty_text_template: source.empty_text_template == null ? "" : String(source.empty_text_template),
       pay_button_text: source.pay_button_text == null ? "" : String(source.pay_button_text),
       pay_callback_data: source.pay_callback_data == null ? "" : String(source.pay_callback_data),

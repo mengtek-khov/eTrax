@@ -48,6 +48,33 @@
     return steps;
   }
 
+  function normalizeCommandKey(rawValue) {
+    let command = String(rawValue || "").trim();
+    if (!command) {
+      return "";
+    }
+    if (command.startsWith("/")) {
+      command = command.slice(1);
+    }
+    const botSplitIndex = command.indexOf("@");
+    if (botSplitIndex >= 0) {
+      command = command.slice(0, botSplitIndex);
+    }
+    command = command.replace(/[-\s]+/g, "_");
+    command = command
+      .split("")
+      .map((ch) => (/^[a-z0-9_]$/i.test(ch) ? ch.toLowerCase() : "_"))
+      .join("");
+    command = command.split("_").filter((part) => part.length > 0).join("_");
+    if (!command) {
+      return "";
+    }
+    if (/^\d/.test(command)) {
+      command = `cmd_${command}`;
+    }
+    return command.slice(0, 32);
+  }
+
   function createEditor(values) {
     // Wrap one module/pipeline payload in the editor state tracked by Vue.
     const source = normalizeEditorSeed(values);
@@ -82,6 +109,9 @@
     }
     if (!("target_callback_key" in normalized) && "callback_target_key" in source) {
       normalized.target_callback_key = source.callback_target_key;
+    }
+    if (!("target_command_key" in normalized) && "command_target_key" in source) {
+      normalized.target_command_key = source.command_target_key;
     }
     if (!("button_text" in normalized)) {
       if ("contact_button_text" in source && String(source.contact_button_text || "").trim()) {
@@ -172,6 +202,7 @@
         buttons: [],
         save_callback_data_to_key: "",
         target_callback_key: "",
+        target_command_key: "",
         photo_url: "",
       button_text: "",
       success_text_template: "",
@@ -200,9 +231,20 @@
   function createCommandEntry(row) {
     // Normalize one command row coming from the preloaded config state.
     const source = row && typeof row === "object" ? row : {};
+    const rawRestoreOriginalMenu = Object.prototype.hasOwnProperty.call(source, "restore_original_menu")
+      ? source.restore_original_menu
+      : true;
     return {
       command: source.command ? String(source.command) : "",
       description: source.description ? String(source.description) : "",
+      restore_original_menu: !(
+        rawRestoreOriginalMenu === false
+        || rawRestoreOriginalMenu === 0
+        || rawRestoreOriginalMenu === "0"
+        || rawRestoreOriginalMenu === "false"
+        || rawRestoreOriginalMenu === "False"
+        || rawRestoreOriginalMenu === ""
+      ),
       editor: createEditor(source),
     };
   }
@@ -210,9 +252,64 @@
   function createCallbackEntry(row) {
     // Normalize one callback row coming from the preloaded config state.
     const source = row && typeof row === "object" ? row : {};
+    const temporaryCommands = Array.isArray(source.temporary_commands)
+      ? source.temporary_commands.map((entry) => createCommandEntry(entry))
+      : [];
+    const hasSavedTemporaryCommands = temporaryCommands.some(
+      (entry) => normalizeCommandKey(entry && entry.command ? entry.command : "").length > 0
+    );
     return {
       callback_key: source.callback_key ? String(source.callback_key) : "",
       editor: createEditor(source),
+      temporaryCommandEntries: temporaryCommands,
+      tempCommandsExpanded: hasSavedTemporaryCommands,
+    };
+  }
+
+  function createTemporaryMenuExampleCommand(command, description) {
+    const normalizedCommand = normalizeCommandKey(command);
+    return createCommandEntry({
+      command: normalizedCommand,
+      description: String(description || ""),
+      module_type: "send_message",
+      text_template: `Example /${normalizedCommand} temporary command. Replace this module with your real ${normalizedCommand} flow.`,
+      parse_mode: "",
+    });
+  }
+
+  function createModuleWithTempCommandExample() {
+    const temporaryCommands = [
+      createTemporaryMenuExampleCommand("command1", "Command 1"),
+      createTemporaryMenuExampleCommand("command2", "Command 2"),
+    ];
+    return {
+      commandEntry: createCommandEntry({
+        command: "temp_menu",
+        description: "Module with temp command",
+        module_type: "callback_module",
+        callback_target_key: "temp_menu",
+      }),
+      callbackEntry: createCallbackEntry({
+        callback_key: "temp_menu",
+        module_type: "send_message",
+        text_template:
+          "Temporary command menu is active for this chat. Use /command1 or /command2.",
+        temporary_commands: temporaryCommands.map((entry) => {
+          const serialized = {
+            command: entry.command,
+            description: entry.description,
+            module_type: "send_message",
+            text_template: "",
+          };
+          const editor = entry && entry.editor && typeof entry.editor === "object" ? entry.editor : null;
+          if (editor && Array.isArray(editor.steps) && editor.steps.length > 0) {
+            const step = editor.steps[0];
+            serialized.module_type = step && step.module_type ? String(step.module_type) : "send_message";
+            serialized.text_template = step && step.text_template ? String(step.text_template) : "";
+          }
+          return serialized;
+        }),
+      }),
     };
   }
 
@@ -307,11 +404,17 @@
   <input type="hidden" name="start_inline_skip_if_context_keys" :value="startPrimary.skip_if_context_keys">
   <input type="hidden" name="start_inline_save_callback_data_to_key" :value="startPrimary.save_callback_data_to_key">
   <input type="hidden" name="start_callback_target_key" :value="startPrimary.target_callback_key">
+  <input type="hidden" name="start_command_target_key" :value="startPrimary.target_command_key">
   <input type="hidden" name="start_photo_url" :value="startPrimary.photo_url">
   <input type="hidden" name="start_contact_button_text" :value="startPrimary.button_text">
   <input type="hidden" name="start_mini_app_button_text" :value="startPrimary.button_text">
   <input type="hidden" name="start_contact_success_text" :value="startPrimary.success_text_template">
   <input type="hidden" name="start_contact_invalid_text" :value="startPrimary.invalid_text_template">
+  <input type="hidden" name="start_require_live_location" :value="startPrimary.require_live_location ? '1' : ''">
+  <input type="hidden" name="start_track_breadcrumb" :value="startPrimary.track_breadcrumb ? '1' : ''">
+  <input type="hidden" name="start_store_history_by_day" :value="startPrimary.store_history_by_day ? '1' : ''">
+  <input type="hidden" name="start_breadcrumb_interval_minutes" :value="startPrimary.breadcrumb_interval_minutes">
+  <input type="hidden" name="start_breadcrumb_min_distance_meters" :value="startPrimary.breadcrumb_min_distance_meters">
   <input type="hidden" name="start_checkout_empty_text" :value="startPrimary.empty_text_template">
   <input type="hidden" name="start_checkout_pay_button_text" :value="startPrimary.pay_button_text">
   <input type="hidden" name="start_checkout_pay_callback_data" :value="startPrimary.pay_callback_data">
@@ -393,11 +496,17 @@
 	      <input type="hidden" name="command_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
 	      <input type="hidden" name="command_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
 	      <input type="hidden" name="command_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
+	      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 	      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
 	      <input type="hidden" name="command_contact_button_text" :value="primaryStep(entry.editor).button_text">
 	      <input type="hidden" name="command_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
-	      <input type="hidden" name="command_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
-	      <input type="hidden" name="command_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+      <input type="hidden" name="command_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
+      <input type="hidden" name="command_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+      <input type="hidden" name="command_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
+      <input type="hidden" name="command_track_breadcrumb" :value="primaryStep(entry.editor).track_breadcrumb ? '1' : ''">
+      <input type="hidden" name="command_store_history_by_day" :value="primaryStep(entry.editor).store_history_by_day ? '1' : ''">
+      <input type="hidden" name="command_breadcrumb_interval_minutes" :value="primaryStep(entry.editor).breadcrumb_interval_minutes">
+      <input type="hidden" name="command_breadcrumb_min_distance_meters" :value="primaryStep(entry.editor).breadcrumb_min_distance_meters">
       <input type="hidden" name="command_checkout_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="command_payment_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="command_checkout_pay_button_text" :value="primaryStep(entry.editor).pay_button_text">
@@ -423,10 +532,14 @@
 	  </div>
 	  <div class="actions">
 	    <button type="button" class="secondary" @click="addCommand">Add Command</button>
+	    <button type="button" class="secondary" @click="addModuleWithTempCommandExample">Add command with temp command</button>
 	  </div>
 
 		  <label>Callback Modules</label>
 		  <p class="hint">Match callback module keys to inline-button <code>callback_data</code> values.</p>
+		  <datalist id="command-key-options">
+		    <option v-for="commandKey in commandOptions" :key="'command-opt-' + commandKey" :value="commandKey">[[ commandKey ]]</option>
+		  </datalist>
 		  <datalist id="callback-key-options">
 		    <option v-for="callbackKey in callbackOptions" :key="'callback-opt-' + callbackKey" :value="callbackKey">[[ callbackKey ]]</option>
 		  </datalist>
@@ -434,7 +547,7 @@
 		    <option v-for="callbackKey in callbackOptions" :key="'callback-data-opt-' + callbackKey" :value="callbackKey">[[ callbackKey ]]</option>
 		  </datalist>
 		  <div id="callback-list" class="command-list">
-	    <div class="command-entry" v-for="(entry, callbackIndex) in callbackEntries" :key="'callback-' + callbackIndex">
+	    <div class="command-entry" v-for="(entry, callbackIndex) in callbackEntries" :key="'callback-' + (entry.callback_key || callbackIndex)">
 	      <p class="command-panel-title">[[ callbackPanelTitle(entry.callback_key) ]]</p>
 	      <div class="command-row">
 	        <input placeholder="Driver" list="callback-key-options" v-model="entry.callback_key">
@@ -479,54 +592,123 @@
 	        </div>
 	        ${renderModuleEditorSections("entry.editor", "")}
 	      </div>
-	      <input type="hidden" name="callback_key" :value="entry.callback_key">
-	      <input type="hidden" name="callback_module_type" :value="primaryStep(entry.editor).module_type">
-	      <input type="hidden" name="callback_text_template" :value="primaryStep(entry.editor).text_template">
-	      <input type="hidden" name="callback_hide_caption" :value="primaryStep(entry.editor).hide_caption ? '1' : ''">
-	      <input type="hidden" name="callback_parse_mode" :value="primaryStep(entry.editor).parse_mode">
-	      <input type="hidden" name="callback_menu_title" :value="primaryStep(entry.editor).title">
-	      <input type="hidden" name="callback_menu_items" :value="formatMenuItems(primaryStep(entry.editor).items)">
-	      <input type="hidden" name="callback_inline_buttons" :value="formatInlineButtons(primaryStep(entry.editor).buttons)">
-	      <input type="hidden" name="callback_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
-	      <input type="hidden" name="callback_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
-	      <input type="hidden" name="callback_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
-	      <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
-	      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
-	      <input type="hidden" name="callback_contact_button_text" :value="primaryStep(entry.editor).button_text">
-	      <input type="hidden" name="callback_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
-	      <input type="hidden" name="callback_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
-	      <input type="hidden" name="callback_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+	      <div class="callback-submenu-block" v-if="showTemporaryCommands(entry)">
+        <label>Temporary Commands After This Callback</label>
+        <p class="hint">When this callback runs, Telegram command menu switches to these commands for this chat only. After one of them finishes, the main command menu returns.</p>
+        <div class="actions">
+          <button type="button" class="secondary" @click="clearTemporaryCommands(entry)">Clear Temporary Commands</button>
+        </div>
+        <div class="command-list">
+          <div class="command-entry" v-for="(tempEntry, tempCommandIndex) in entry.temporaryCommandEntries" :key="'callback-temp-' + (entry.callback_key || callbackIndex) + '-' + (tempEntry.command || tempCommandIndex)">
+            <p class="command-panel-title">[[ commandPanelTitle(tempEntry.command) ]]</p>
+            <div class="command-row">
+              <input placeholder="/next" v-model="tempEntry.command">
+              <input placeholder="Next step" v-model="tempEntry.description">
+              <button type="button" @click="removeTemporaryCommand(entry, tempCommandIndex)">Remove</button>
+            </div>
+            <label class="checkbox">
+              <input type="checkbox" v-model="tempEntry.restore_original_menu">
+              Reset to original command menu after this temp command runs
+            </label>
+            <div class="module-list-tools">
+              <select v-model="tempEntry.editor.add_type">
+                <option v-for="option in availableModuleOptions" :key="'callback-temp-opt-' + callbackIndex + '-' + tempCommandIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
+              </select>
+              <button type="button" class="secondary" @click="addModule(tempEntry.editor)">Add Module</button>
+            </div>
+            <div class="module-list">
+              <div v-for="(step, moduleIndex) in tempEntry.editor.steps" :key="'callback-temp-step-' + callbackIndex + '-' + tempCommandIndex + '-' + moduleIndex" :class="moduleRowClass(tempEntry.editor, moduleIndex)">
+                <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(tempEntry.editor, moduleIndex)) ]]</div>
+                <div class="module-list-actions">
+                  <button type="button" @click="editModule(tempEntry.editor, moduleIndex)">Edit</button>
+                  <button type="button" :disabled="moduleIndex === 0" @click="moveModuleUp(tempEntry.editor, moduleIndex)">Up</button>
+                  <button type="button" :disabled="moduleIndex >= tempEntry.editor.steps.length - 1" @click="moveModuleDown(tempEntry.editor, moduleIndex)">Down</button>
+                  <button type="button" @click="removeModule(tempEntry.editor, moduleIndex)">Remove</button>
+                </div>
+              </div>
+            </div>
+            <p class="module-editor-placeholder" v-if="!tempEntry.editor.visible">Click Edit on a module row to load Temporary Command Module Setup.</p>
+            <div class="module-editor" v-if="tempEntry.editor.visible">
+              <div class="module-grid">
+                <div>
+                  <label>Module Type (locked)</label>
+                  <input :value="currentStepType(tempEntry.editor)" readonly>
+                </div>
+                <div>
+                  <label>Parse Mode (optional)</label>
+                  <input placeholder="HTML or MarkdownV2" :value="currentStepField(tempEntry.editor, 'parse_mode')" @input="updateCurrentStepField(tempEntry.editor, 'parse_mode', $event.target.value)">
+                </div>
+                <div>
+                  <label>Reset Current Module</label>
+                  <button type="button" class="secondary" @click="resetCurrentModule(tempEntry.editor)">Reset To Default</button>
+                </div>
+              </div>
+              ${renderModuleEditorSections("tempEntry.editor", "")}
+            </div>
+          </div>
+        </div>
+      </div>
+	      <div class="actions">
+	        <button type="button" class="secondary" @click="addTemporaryCommand(entry)">
+            [[ temporaryCommandsButtonLabel(entry) ]]
+          </button>
+	      </div>
+
+      <input type="hidden" name="callback_key" :value="entry.callback_key">
+      <input type="hidden" name="callback_module_type" :value="primaryStep(entry.editor).module_type">
+      <input type="hidden" name="callback_text_template" :value="primaryStep(entry.editor).text_template">
+      <input type="hidden" name="callback_hide_caption" :value="primaryStep(entry.editor).hide_caption ? '1' : ''">
+      <input type="hidden" name="callback_parse_mode" :value="primaryStep(entry.editor).parse_mode">
+      <input type="hidden" name="callback_menu_title" :value="primaryStep(entry.editor).title">
+      <input type="hidden" name="callback_menu_items" :value="formatMenuItems(primaryStep(entry.editor).items)">
+      <input type="hidden" name="callback_inline_buttons" :value="formatInlineButtons(primaryStep(entry.editor).buttons)">
+      <input type="hidden" name="callback_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
+      <input type="hidden" name="callback_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
+      <input type="hidden" name="callback_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
+      <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
+      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
+      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
+      <input type="hidden" name="callback_contact_button_text" :value="primaryStep(entry.editor).button_text">
+      <input type="hidden" name="callback_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
+      <input type="hidden" name="callback_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
+      <input type="hidden" name="callback_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+      <input type="hidden" name="callback_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
+      <input type="hidden" name="callback_track_breadcrumb" :value="primaryStep(entry.editor).track_breadcrumb ? '1' : ''">
+      <input type="hidden" name="callback_store_history_by_day" :value="primaryStep(entry.editor).store_history_by_day ? '1' : ''">
+      <input type="hidden" name="callback_breadcrumb_interval_minutes" :value="primaryStep(entry.editor).breadcrumb_interval_minutes">
+      <input type="hidden" name="callback_breadcrumb_min_distance_meters" :value="primaryStep(entry.editor).breadcrumb_min_distance_meters">
       <input type="hidden" name="callback_checkout_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="callback_payment_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="callback_checkout_pay_button_text" :value="primaryStep(entry.editor).pay_button_text">
       <input type="hidden" name="callback_checkout_pay_callback_data" :value="primaryStep(entry.editor).pay_callback_data">
       <input type="hidden" name="callback_payment_return_url" :value="primaryStep(entry.editor).return_url">
       <input type="hidden" name="callback_mini_app_url" :value="primaryStep(entry.editor).return_url">
-	      <input type="hidden" name="callback_payment_title_template" :value="primaryStep(entry.editor).title_template">
-	      <input type="hidden" name="callback_payment_description_template" :value="primaryStep(entry.editor).description_template">
-	      <input type="hidden" name="callback_payment_open_button_text" :value="primaryStep(entry.editor).open_button_text">
-	      <input type="hidden" name="callback_payment_web_button_text" :value="primaryStep(entry.editor).web_button_text">
-	      <input type="hidden" name="callback_payment_currency" :value="primaryStep(entry.editor).currency">
-	      <input type="hidden" name="callback_payment_limit" :value="primaryStep(entry.editor).payment_limit">
-	      <input type="hidden" name="callback_payment_deep_link_prefix" :value="primaryStep(entry.editor).deep_link_prefix">
-	      <input type="hidden" name="callback_payment_merchant_ref_prefix" :value="primaryStep(entry.editor).merchant_ref_prefix">
-	      <input type="hidden" name="callback_cart_product_name" :value="primaryStep(entry.editor).product_name">
-	      <input type="hidden" name="callback_cart_product_key" :value="primaryStep(entry.editor).product_key">
-	      <input type="hidden" name="callback_cart_price" :value="primaryStep(entry.editor).price">
-	      <input type="hidden" name="callback_cart_qty" :value="primaryStep(entry.editor).quantity">
-	      <input type="hidden" name="callback_cart_min_qty" :value="primaryStep(entry.editor).min_qty">
-	      <input type="hidden" name="callback_cart_max_qty" :value="primaryStep(entry.editor).max_qty">
-	      <input type="hidden" name="callback_chain_steps" :value="formatChainSteps(entry.editor.steps.slice(1))">
-	    </div>
-	  </div>
-	  <div class="actions">
-	    <button type="button" class="secondary" @click="addCallback">Add Callback Module</button>
-	  </div>
-	  <div class="actions">
-	    <button type="button" class="secondary" @click="resetAllToStartDefault">Reset Everything To /start Default</button>
-	  </div>
-	</div>
-	`;
+      <input type="hidden" name="callback_payment_title_template" :value="primaryStep(entry.editor).title_template">
+      <input type="hidden" name="callback_payment_description_template" :value="primaryStep(entry.editor).description_template">
+      <input type="hidden" name="callback_payment_open_button_text" :value="primaryStep(entry.editor).open_button_text">
+      <input type="hidden" name="callback_payment_web_button_text" :value="primaryStep(entry.editor).web_button_text">
+      <input type="hidden" name="callback_payment_currency" :value="primaryStep(entry.editor).currency">
+      <input type="hidden" name="callback_payment_limit" :value="primaryStep(entry.editor).payment_limit">
+      <input type="hidden" name="callback_payment_deep_link_prefix" :value="primaryStep(entry.editor).deep_link_prefix">
+      <input type="hidden" name="callback_payment_merchant_ref_prefix" :value="primaryStep(entry.editor).merchant_ref_prefix">
+      <input type="hidden" name="callback_cart_product_name" :value="primaryStep(entry.editor).product_name">
+      <input type="hidden" name="callback_cart_product_key" :value="primaryStep(entry.editor).product_key">
+      <input type="hidden" name="callback_cart_price" :value="primaryStep(entry.editor).price">
+      <input type="hidden" name="callback_cart_qty" :value="primaryStep(entry.editor).quantity">
+      <input type="hidden" name="callback_cart_min_qty" :value="primaryStep(entry.editor).min_qty">
+      <input type="hidden" name="callback_cart_max_qty" :value="primaryStep(entry.editor).max_qty">
+      <input type="hidden" name="callback_chain_steps" :value="formatChainSteps(entry.editor.steps.slice(1))">
+      <input type="hidden" name="callback_temporary_commands" :value="serializeTemporaryCommands(entry.temporaryCommandEntries)">
+    </div>
+  </div>
+  <div class="actions">
+    <button type="button" class="secondary" @click="addCallback">Add Callback Module</button>
+  </div>
+  <div class="actions">
+    <button type="button" class="secondary" @click="resetAllToStartDefault">Reset Everything To /start Default</button>
+  </div>
+</div>
+		`;
   }
 
   function buildVueOptions(initialState) {
@@ -648,6 +830,25 @@
           const step = this.currentStep(editor);
           const value = step && field in step ? step[field] : "";
           return value == null ? "" : String(value);
+        },
+        hasMeaningfulTemporaryCommands(entry) {
+          if (!entry || !Array.isArray(entry.temporaryCommandEntries)) {
+            return false;
+          }
+          return entry.temporaryCommandEntries.some(
+            (tempEntry) => normalizeCommandKey(tempEntry && tempEntry.command ? tempEntry.command : "").length > 0
+          );
+        },
+        showTemporaryCommands(entry) {
+          if (!entry) {
+            return false;
+          }
+          return Boolean(entry.tempCommandsExpanded) || this.hasMeaningfulTemporaryCommands(entry);
+        },
+        temporaryCommandsButtonLabel(entry) {
+          return this.showTemporaryCommands(entry)
+            ? "Add Another Temporary Command"
+            : "Add Temporary Command";
         },
         currentStepChecked(editor, field) {
           const step = this.currentStep(editor);
@@ -998,6 +1199,40 @@
         addCommand() {
           this.commandEntries.push(createCommandEntry({}));
         },
+        addModuleWithTempCommandExample() {
+          const example = createModuleWithTempCommandExample();
+          const commandKey = normalizeCommandKey(example.commandEntry.command);
+          const callbackKey = String(example.callbackEntry.callback_key || "").trim();
+          const existingCommandIndex = this.commandEntries.findIndex(
+            (entry) => normalizeCommandKey(entry && entry.command ? entry.command : "") === commandKey
+          );
+          const existingCallbackIndex = this.callbackEntries.findIndex(
+            (entry) => String(entry && entry.callback_key ? entry.callback_key : "").trim() === callbackKey
+          );
+          const hasConflict = existingCommandIndex >= 0 || existingCallbackIndex >= 0;
+          if (hasConflict && typeof window !== "undefined" && typeof window.confirm === "function") {
+            const confirmed = window.confirm(
+              "Replace the existing /temp_menu command or temp_menu callback with the temporary command example scaffold?"
+            );
+            if (!confirmed) {
+              return;
+            }
+          }
+          example.commandEntry.editor.visible = true;
+          example.commandEntry.editor.editing_index = 0;
+          example.callbackEntry.editor.visible = true;
+          example.callbackEntry.editor.editing_index = 0;
+          if (existingCommandIndex >= 0) {
+            this.commandEntries.splice(existingCommandIndex, 1, example.commandEntry);
+          } else {
+            this.commandEntries.push(example.commandEntry);
+          }
+          if (existingCallbackIndex >= 0) {
+            this.callbackEntries.splice(existingCallbackIndex, 1, example.callbackEntry);
+          } else {
+            this.callbackEntries.push(example.callbackEntry);
+          }
+        },
         removeCommand(index) {
           if (index < 0 || index >= this.commandEntries.length) {
             return;
@@ -1013,6 +1248,42 @@
             return;
           }
           this.callbackEntries.splice(index, 1);
+        },
+        addTemporaryCommand(entry) {
+          if (!entry) {
+            return;
+          }
+          if (!Array.isArray(entry.temporaryCommandEntries)) {
+            entry.temporaryCommandEntries = [];
+          }
+          entry.tempCommandsExpanded = true;
+          const hasMeaningfulEntry = this.hasMeaningfulTemporaryCommands(entry);
+          const hasBlankDraft = entry.temporaryCommandEntries.some(
+            (tempEntry) => normalizeCommandKey(tempEntry && tempEntry.command ? tempEntry.command : "").length === 0
+          );
+          if (!hasMeaningfulEntry && hasBlankDraft) {
+            return;
+          }
+          entry.temporaryCommandEntries.push(createCommandEntry({}));
+        },
+        removeTemporaryCommand(entry, index) {
+          if (!entry || !Array.isArray(entry.temporaryCommandEntries)) {
+            return;
+          }
+          if (index < 0 || index >= entry.temporaryCommandEntries.length) {
+            return;
+          }
+          entry.temporaryCommandEntries.splice(index, 1);
+          if (!entry.temporaryCommandEntries.length) {
+            entry.tempCommandsExpanded = false;
+          }
+        },
+        clearTemporaryCommands(entry) {
+          if (!entry || !Array.isArray(entry.temporaryCommandEntries)) {
+            return;
+          }
+          entry.temporaryCommandEntries = [];
+          entry.tempCommandsExpanded = false;
         },
         applyCallbackSuggestion(entry, value) {
           if (!entry) {
@@ -1079,6 +1350,68 @@
             }
           }
           return lines.join("\n");
+        },
+        serializeCommandEntry(entry) {
+          const source = entry && typeof entry === "object" ? entry : {};
+          const editor = source.editor && typeof source.editor === "object" ? source.editor : createEditor({});
+          const primary = this.primaryStep(editor);
+          return {
+            command: normalizeCommandKey(source.command || ""),
+            description: String(source.description || ""),
+            module_type: primary.module_type,
+            text_template: primary.text_template,
+            hide_caption: primary.hide_caption ? "1" : "",
+            parse_mode: primary.parse_mode,
+            menu_title: primary.title,
+            menu_items: this.formatMenuItems(primary.items),
+            inline_buttons: this.formatInlineButtons(primary.buttons),
+            inline_run_if_context_keys: primary.run_if_context_keys,
+            inline_skip_if_context_keys: primary.skip_if_context_keys,
+            inline_save_callback_data_to_key: primary.save_callback_data_to_key,
+            callback_target_key: primary.target_callback_key,
+            command_target_key: primary.target_command_key,
+            photo_url: primary.photo_url,
+            contact_button_text: primary.button_text,
+            mini_app_button_text: primary.button_text,
+            contact_success_text: primary.success_text_template,
+            contact_invalid_text: primary.invalid_text_template,
+            require_live_location: primary.require_live_location ? "1" : "",
+            track_breadcrumb: primary.track_breadcrumb ? "1" : "",
+            store_history_by_day: primary.store_history_by_day ? "1" : "",
+            breadcrumb_interval_minutes: primary.breadcrumb_interval_minutes,
+            breadcrumb_min_distance_meters: primary.breadcrumb_min_distance_meters,
+            checkout_empty_text: primary.empty_text_template,
+            payment_empty_text: primary.empty_text_template,
+            checkout_pay_button_text: primary.pay_button_text,
+            checkout_pay_callback_data: primary.pay_callback_data,
+            payment_return_url: primary.return_url,
+            mini_app_url: primary.return_url,
+            payment_title_template: primary.title_template,
+            payment_description_template: primary.description_template,
+            payment_open_button_text: primary.open_button_text,
+            payment_web_button_text: primary.web_button_text,
+            payment_currency: primary.currency,
+            payment_limit: primary.payment_limit,
+            payment_deep_link_prefix: primary.deep_link_prefix,
+            payment_merchant_ref_prefix: primary.merchant_ref_prefix,
+            cart_product_name: primary.product_name,
+            cart_product_key: primary.product_key,
+            cart_price: primary.price,
+            cart_qty: primary.quantity,
+            cart_min_qty: primary.min_qty,
+            cart_max_qty: primary.max_qty,
+            chain_steps: this.formatChainSteps(editor.steps.slice(1)),
+            restore_original_menu: source.restore_original_menu ? "1" : "",
+          };
+        },
+        serializeTemporaryCommands(entries) {
+          if (!Array.isArray(entries) || !entries.length) {
+            return "";
+          }
+          const payload = entries
+            .map((entry) => this.serializeCommandEntry(entry))
+            .filter((entry) => Boolean(entry.command));
+          return payload.length ? JSON.stringify(payload) : "";
         },
       },
       template: appTemplate(),

@@ -107,7 +107,7 @@
         `@input=\"updateCurrentStepField(${ctx}, 'photo_url', $event.target.value)\">` +
         `</div>` +
         `<div>` +
-        `<label><input type=\"checkbox\" :checked=\"currentStepChecked(${ctx}, 'hide_caption')\" @change=\"updateCurrentStepToggle(${ctx}, 'hide_caption', $event.target.checked)\"> Hide Caption</label>` +
+        `<label class=\"checkbox compact\"><input type=\"checkbox\" :checked=\"currentStepChecked(${ctx}, 'hide_caption')\" @change=\"updateCurrentStepToggle(${ctx}, 'hide_caption', $event.target.checked)\"><span>Hide Caption</span></label>` +
         `</div>` +
         `</div>` +
         `<label${textFor} v-if=\"isStepType(${ctx}, 'send_photo') && !currentStepChecked(${ctx}, 'hide_caption')\">Caption Template</label>` +

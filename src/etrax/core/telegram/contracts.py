@@ -112,6 +112,25 @@ class TelegramMessageGateway(Protocol):
     ) -> dict[str, Any]:
         """Acknowledge an inline-button callback query."""
 
+    def set_my_commands(
+        self,
+        *,
+        bot_token: str,
+        commands: list[dict[str, str]],
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> dict[str, Any]:
+        """Publish bot commands for the global scope or a narrower Telegram command scope."""
+
+    def delete_my_commands(
+        self,
+        *,
+        bot_token: str,
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> dict[str, Any]:
+        """Remove a previously scoped bot-command override."""
+
     def get_user_profile_photo_url(
         self,
         *,

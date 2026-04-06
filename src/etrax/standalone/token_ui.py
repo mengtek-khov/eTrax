@@ -171,6 +171,9 @@ def _build_handler(
             if parsed.path == "/module-share-contact.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_contact_module.js"))
                 return
+            if parsed.path == "/module-share-location.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_location_module.js"))
+                return
             if parsed.path == "/module-checkout.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("checkout_module.js"))
                 return
@@ -188,6 +191,9 @@ def _build_handler(
                 return
             if parsed.path == "/module-callback-module.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("callback_module_module.js"))
+                return
+            if parsed.path == "/module-command-module.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("command_module_module.js"))
                 return
             if parsed.path == "/module-inline-button-module.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("inline_button_reference_module.js"))
@@ -315,11 +321,17 @@ def _build_handler(
             command_inline_skip_if_context_keys = form.get("command_inline_skip_if_context_keys", [])
             command_inline_save_callback_data_to_keys = form.get("command_inline_save_callback_data_to_key", [])
             command_callback_target_keys = form.get("command_callback_target_key", [])
+            command_command_target_keys = form.get("command_command_target_key", [])
             command_photo_urls = form.get("command_photo_url", [])
             command_contact_button_texts = form.get("command_contact_button_text", [])
             command_mini_app_button_texts = form.get("command_mini_app_button_text", [])
             command_contact_success_texts = form.get("command_contact_success_text", [])
             command_contact_invalid_texts = form.get("command_contact_invalid_text", [])
+            command_require_live_locations = form.get("command_require_live_location", [])
+            command_track_breadcrumbs = form.get("command_track_breadcrumb", [])
+            command_store_history_by_days = form.get("command_store_history_by_day", [])
+            command_breadcrumb_interval_minutes = form.get("command_breadcrumb_interval_minutes", [])
+            command_breadcrumb_min_distance_meters = form.get("command_breadcrumb_min_distance_meters", [])
             command_checkout_empty_texts = form.get("command_checkout_empty_text", [])
             command_checkout_pay_button_texts = form.get("command_checkout_pay_button_text", [])
             command_checkout_pay_callback_datas = form.get("command_checkout_pay_callback_data", [])
@@ -353,11 +365,17 @@ def _build_handler(
             callback_inline_skip_if_context_keys = form.get("callback_inline_skip_if_context_keys", [])
             callback_inline_save_callback_data_to_keys = form.get("callback_inline_save_callback_data_to_key", [])
             callback_callback_target_keys = form.get("callback_callback_target_key", [])
+            callback_command_target_keys = form.get("callback_command_target_key", [])
             callback_photo_urls = form.get("callback_photo_url", [])
             callback_contact_button_texts = form.get("callback_contact_button_text", [])
             callback_mini_app_button_texts = form.get("callback_mini_app_button_text", [])
             callback_contact_success_texts = form.get("callback_contact_success_text", [])
             callback_contact_invalid_texts = form.get("callback_contact_invalid_text", [])
+            callback_require_live_locations = form.get("callback_require_live_location", [])
+            callback_track_breadcrumbs = form.get("callback_track_breadcrumb", [])
+            callback_store_history_by_days = form.get("callback_store_history_by_day", [])
+            callback_breadcrumb_interval_minutes = form.get("callback_breadcrumb_interval_minutes", [])
+            callback_breadcrumb_min_distance_meters = form.get("callback_breadcrumb_min_distance_meters", [])
             callback_checkout_empty_texts = form.get("callback_checkout_empty_text", [])
             callback_checkout_pay_button_texts = form.get("callback_checkout_pay_button_text", [])
             callback_checkout_pay_callback_datas = form.get("callback_checkout_pay_callback_data", [])
@@ -379,6 +397,7 @@ def _build_handler(
             callback_cart_min_qtys = form.get("callback_cart_min_qty", [])
             callback_cart_max_qtys = form.get("callback_cart_max_qty", [])
             callback_chain_steps = form.get("callback_chain_steps", [])
+            callback_temporary_commands = form.get("callback_temporary_commands", [])
             start_module_type = form.get("start_module_type", ["send_message"])[0].strip() or "send_message"
             start_text_template = form.get("start_text_template", [""])[0].strip()
             start_returning_text_template = form.get("start_returning_text_template", [""])[0].strip()
@@ -391,11 +410,17 @@ def _build_handler(
             start_inline_skip_if_context_keys = form.get("start_inline_skip_if_context_keys", [""])[0].strip()
             start_inline_save_callback_data_to_key = form.get("start_inline_save_callback_data_to_key", [""])[0].strip()
             start_callback_target_key = form.get("start_callback_target_key", [""])[0].strip()
+            start_command_target_key = form.get("start_command_target_key", [""])[0].strip()
             start_photo_url = form.get("start_photo_url", [""])[0].strip()
             start_contact_button_text = form.get("start_contact_button_text", [""])[0].strip()
             start_mini_app_button_text = form.get("start_mini_app_button_text", [""])[0].strip()
             start_contact_success_text = form.get("start_contact_success_text", [""])[0].strip()
             start_contact_invalid_text = form.get("start_contact_invalid_text", [""])[0].strip()
+            start_require_live_location = form.get("start_require_live_location", [""])[0].strip()
+            start_track_breadcrumb = form.get("start_track_breadcrumb", [""])[0].strip()
+            start_store_history_by_day = form.get("start_store_history_by_day", [""])[0].strip()
+            start_breadcrumb_interval_minutes = form.get("start_breadcrumb_interval_minutes", [""])[0].strip()
+            start_breadcrumb_min_distance_meters = form.get("start_breadcrumb_min_distance_meters", [""])[0].strip()
             start_checkout_empty_text = form.get("start_checkout_empty_text", [""])[0].strip()
             start_checkout_pay_button_text = form.get("start_checkout_pay_button_text", [""])[0].strip()
             start_checkout_pay_callback_data = form.get("start_checkout_pay_callback_data", [""])[0].strip()
@@ -447,11 +472,17 @@ def _build_handler(
                     command_inline_skip_if_context_keys=command_inline_skip_if_context_keys,
                     command_inline_save_callback_data_to_keys=command_inline_save_callback_data_to_keys,
                     command_callback_target_keys=command_callback_target_keys,
+                    command_command_target_keys=command_command_target_keys,
                     command_photo_urls=command_photo_urls,
                     command_contact_button_texts=command_contact_button_texts,
                     command_mini_app_button_texts=command_mini_app_button_texts,
                     command_contact_success_texts=command_contact_success_texts,
                     command_contact_invalid_texts=command_contact_invalid_texts,
+                    command_require_live_locations=command_require_live_locations,
+                    command_track_breadcrumbs=command_track_breadcrumbs,
+                    command_store_history_by_days=command_store_history_by_days,
+                    command_breadcrumb_interval_minutes=command_breadcrumb_interval_minutes,
+                    command_breadcrumb_min_distance_meters=command_breadcrumb_min_distance_meters,
                     command_checkout_empty_texts=command_checkout_empty_texts,
                     command_checkout_pay_button_texts=command_checkout_pay_button_texts,
                     command_checkout_pay_callback_datas=command_checkout_pay_callback_datas,
@@ -489,11 +520,17 @@ def _build_handler(
                         inline_skip_if_context_keys_text=start_inline_skip_if_context_keys,
                         inline_save_callback_data_to_key_text=start_inline_save_callback_data_to_key,
                         callback_target_key=start_callback_target_key,
+                        command_target_key=start_command_target_key,
                         photo_url=start_photo_url,
                         contact_button_text=start_contact_button_text,
                         mini_app_button_text=start_mini_app_button_text,
                         contact_success_text=start_contact_success_text,
                         contact_invalid_text=start_contact_invalid_text,
+                        require_live_location=start_require_live_location,
+                        track_breadcrumb=start_track_breadcrumb,
+                        store_history_by_day=start_store_history_by_day,
+                        breadcrumb_interval_minutes=start_breadcrumb_interval_minutes,
+                        breadcrumb_min_distance_meters=start_breadcrumb_min_distance_meters,
                         checkout_empty_text=start_checkout_empty_text,
                         checkout_pay_button_text=start_checkout_pay_button_text,
                         checkout_pay_callback_data=start_checkout_pay_callback_data,
@@ -531,11 +568,17 @@ def _build_handler(
                     callback_inline_skip_if_context_keys=callback_inline_skip_if_context_keys,
                     callback_inline_save_callback_data_to_keys=callback_inline_save_callback_data_to_keys,
                     callback_callback_target_keys=callback_callback_target_keys,
+                    callback_command_target_keys=callback_command_target_keys,
                     callback_photo_urls=callback_photo_urls,
                     callback_contact_button_texts=callback_contact_button_texts,
                     callback_mini_app_button_texts=callback_mini_app_button_texts,
                     callback_contact_success_texts=callback_contact_success_texts,
                     callback_contact_invalid_texts=callback_contact_invalid_texts,
+                    callback_require_live_locations=callback_require_live_locations,
+                    callback_track_breadcrumbs=callback_track_breadcrumbs,
+                    callback_store_history_by_days=callback_store_history_by_days,
+                    callback_breadcrumb_interval_minutes=callback_breadcrumb_interval_minutes,
+                    callback_breadcrumb_min_distance_meters=callback_breadcrumb_min_distance_meters,
                     callback_checkout_empty_texts=callback_checkout_empty_texts,
                     callback_checkout_pay_button_texts=callback_checkout_pay_button_texts,
                     callback_checkout_pay_callback_datas=callback_checkout_pay_callback_datas,
@@ -557,6 +600,7 @@ def _build_handler(
                     callback_cart_min_qtys=callback_cart_min_qtys,
                     callback_cart_max_qtys=callback_cart_max_qtys,
                     callback_chain_steps=callback_chain_steps,
+                    callback_temporary_commands=callback_temporary_commands,
                 )
                 if callback_modules:
                     command_menu["callback_modules"] = callback_modules
@@ -1192,13 +1236,37 @@ def _render_config_page(
     }}
     .checkbox {{
       margin-top: 14px;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid #d0d5dd;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      color: #111827;
+      font-weight: 500;
+      line-height: 1.35;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+      cursor: pointer;
+      transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, background 0.16s ease;
+    }}
+    .checkbox:hover {{
+      border-color: #98a2b3;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+      transform: translateY(-1px);
     }}
     .checkbox input {{
-      width: auto;
+      width: 18px;
+      height: 18px;
       margin: 0;
+      accent-color: var(--accent);
+      flex: 0 0 auto;
+    }}
+    .checkbox span {{
+      display: inline-block;
+    }}
+    .checkbox.compact {{
+      margin-top: 10px;
     }}
     .actions {{
       margin-top: 16px;
@@ -1483,12 +1551,14 @@ def _render_config_page(
   <script src="/module-menu.js"></script>
   <script src="/module-inline-button.js"></script>
   <script src="/module-share-contact.js"></script>
+  <script src="/module-share-location.js"></script>
   <script src="/module-checkout.js"></script>
   <script src="/module-payway-payment.js"></script>
   <script src="/module-cart-button.js"></script>
   <script src="/module-open-mini-app.js"></script>
   <script src="/module-forget-user-data.js"></script>
   <script src="/module-callback-module.js"></script>
+  <script src="/module-command-module.js"></script>
   <script src="/module-inline-button-module.js"></script>
   <script src="/config-vue.js"></script>
     <script>
@@ -1706,11 +1776,17 @@ def _build_command_modules_from_form(
     command_inline_skip_if_context_keys: list[str],
     command_inline_save_callback_data_to_keys: list[str],
     command_callback_target_keys: list[str],
+    command_command_target_keys: list[str],
     command_photo_urls: list[str],
     command_contact_button_texts: list[str],
     command_mini_app_button_texts: list[str],
     command_contact_success_texts: list[str],
     command_contact_invalid_texts: list[str],
+    command_require_live_locations: list[str],
+    command_track_breadcrumbs: list[str],
+    command_store_history_by_days: list[str],
+    command_breadcrumb_interval_minutes: list[str],
+    command_breadcrumb_min_distance_meters: list[str],
     command_checkout_empty_texts: list[str],
     command_checkout_pay_button_texts: list[str],
     command_checkout_pay_callback_datas: list[str],
@@ -1749,11 +1825,17 @@ def _build_command_modules_from_form(
         len(command_inline_skip_if_context_keys),
         len(command_inline_save_callback_data_to_keys),
         len(command_callback_target_keys),
+        len(command_command_target_keys),
         len(command_photo_urls),
         len(command_contact_button_texts),
         len(command_mini_app_button_texts),
         len(command_contact_success_texts),
         len(command_contact_invalid_texts),
+        len(command_require_live_locations),
+        len(command_track_breadcrumbs),
+        len(command_store_history_by_days),
+        len(command_breadcrumb_interval_minutes),
+        len(command_breadcrumb_min_distance_meters),
         len(command_checkout_empty_texts),
         len(command_checkout_pay_button_texts),
         len(command_checkout_pay_callback_datas),
@@ -1797,6 +1879,7 @@ def _build_command_modules_from_form(
             else ""
         )
         callback_target_key = command_callback_target_keys[idx].strip() if idx < len(command_callback_target_keys) else ""
+        command_target_key = command_command_target_keys[idx].strip() if idx < len(command_command_target_keys) else ""
         photo_url = command_photo_urls[idx].strip() if idx < len(command_photo_urls) else ""
         contact_button_text = command_contact_button_texts[idx].strip() if idx < len(command_contact_button_texts) else ""
         mini_app_button_text = (
@@ -1804,6 +1887,21 @@ def _build_command_modules_from_form(
         )
         contact_success_text = command_contact_success_texts[idx].strip() if idx < len(command_contact_success_texts) else ""
         contact_invalid_text = command_contact_invalid_texts[idx].strip() if idx < len(command_contact_invalid_texts) else ""
+        require_live_location = (
+            command_require_live_locations[idx].strip() if idx < len(command_require_live_locations) else ""
+        )
+        track_breadcrumb = command_track_breadcrumbs[idx].strip() if idx < len(command_track_breadcrumbs) else ""
+        store_history_by_day = (
+            command_store_history_by_days[idx].strip() if idx < len(command_store_history_by_days) else ""
+        )
+        breadcrumb_interval_minutes = (
+            command_breadcrumb_interval_minutes[idx].strip() if idx < len(command_breadcrumb_interval_minutes) else ""
+        )
+        breadcrumb_min_distance_meters = (
+            command_breadcrumb_min_distance_meters[idx].strip()
+            if idx < len(command_breadcrumb_min_distance_meters)
+            else ""
+        )
         checkout_empty_text = command_checkout_empty_texts[idx].strip() if idx < len(command_checkout_empty_texts) else ""
         checkout_pay_button_text = command_checkout_pay_button_texts[idx].strip() if idx < len(command_checkout_pay_button_texts) else ""
         checkout_pay_callback_data = command_checkout_pay_callback_datas[idx].strip() if idx < len(command_checkout_pay_callback_datas) else ""
@@ -1838,11 +1936,17 @@ def _build_command_modules_from_form(
             inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
             callback_target_key=callback_target_key,
+            command_target_key=command_target_key,
             photo_url=photo_url,
             contact_button_text=contact_button_text,
             mini_app_button_text=mini_app_button_text,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
+            require_live_location=require_live_location,
+            track_breadcrumb=track_breadcrumb,
+            store_history_by_day=store_history_by_day,
+            breadcrumb_interval_minutes=breadcrumb_interval_minutes,
+            breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
             checkout_empty_text=checkout_empty_text,
             checkout_pay_button_text=checkout_pay_button_text,
             checkout_pay_callback_data=checkout_pay_callback_data,
@@ -1882,11 +1986,17 @@ def _build_callback_modules_from_form(
     callback_inline_skip_if_context_keys: list[str],
     callback_inline_save_callback_data_to_keys: list[str],
     callback_callback_target_keys: list[str],
+    callback_command_target_keys: list[str],
     callback_photo_urls: list[str],
     callback_contact_button_texts: list[str],
     callback_mini_app_button_texts: list[str],
     callback_contact_success_texts: list[str],
     callback_contact_invalid_texts: list[str],
+    callback_require_live_locations: list[str],
+    callback_track_breadcrumbs: list[str],
+    callback_store_history_by_days: list[str],
+    callback_breadcrumb_interval_minutes: list[str],
+    callback_breadcrumb_min_distance_meters: list[str],
     callback_checkout_empty_texts: list[str],
     callback_checkout_pay_button_texts: list[str],
     callback_checkout_pay_callback_datas: list[str],
@@ -1908,6 +2018,7 @@ def _build_callback_modules_from_form(
     callback_cart_min_qtys: list[str],
     callback_cart_max_qtys: list[str],
     callback_chain_steps: list[str],
+    callback_temporary_commands: list[str],
 ) -> dict[str, dict[str, object]]:
     """Build the callback_modules config block from submitted form field arrays."""
     modules: dict[str, dict[str, object]] = {}
@@ -1925,11 +2036,17 @@ def _build_callback_modules_from_form(
         len(callback_inline_skip_if_context_keys),
         len(callback_inline_save_callback_data_to_keys),
         len(callback_callback_target_keys),
+        len(callback_command_target_keys),
         len(callback_photo_urls),
         len(callback_contact_button_texts),
         len(callback_mini_app_button_texts),
         len(callback_contact_success_texts),
         len(callback_contact_invalid_texts),
+        len(callback_require_live_locations),
+        len(callback_track_breadcrumbs),
+        len(callback_store_history_by_days),
+        len(callback_breadcrumb_interval_minutes),
+        len(callback_breadcrumb_min_distance_meters),
         len(callback_checkout_empty_texts),
         len(callback_checkout_pay_button_texts),
         len(callback_checkout_pay_callback_datas),
@@ -1951,6 +2068,7 @@ def _build_callback_modules_from_form(
         len(callback_cart_min_qtys),
         len(callback_cart_max_qtys),
         len(callback_chain_steps),
+        len(callback_temporary_commands),
     )
     for idx in range(total):
         callback_key = callback_keys[idx].strip() if idx < len(callback_keys) else ""
@@ -1972,6 +2090,7 @@ def _build_callback_modules_from_form(
             else ""
         )
         callback_target_key = callback_callback_target_keys[idx].strip() if idx < len(callback_callback_target_keys) else ""
+        command_target_key = callback_command_target_keys[idx].strip() if idx < len(callback_command_target_keys) else ""
         photo_url = callback_photo_urls[idx].strip() if idx < len(callback_photo_urls) else ""
         contact_button_text = callback_contact_button_texts[idx].strip() if idx < len(callback_contact_button_texts) else ""
         mini_app_button_text = (
@@ -1979,6 +2098,23 @@ def _build_callback_modules_from_form(
         )
         contact_success_text = callback_contact_success_texts[idx].strip() if idx < len(callback_contact_success_texts) else ""
         contact_invalid_text = callback_contact_invalid_texts[idx].strip() if idx < len(callback_contact_invalid_texts) else ""
+        require_live_location = (
+            callback_require_live_locations[idx].strip() if idx < len(callback_require_live_locations) else ""
+        )
+        track_breadcrumb = callback_track_breadcrumbs[idx].strip() if idx < len(callback_track_breadcrumbs) else ""
+        store_history_by_day = (
+            callback_store_history_by_days[idx].strip() if idx < len(callback_store_history_by_days) else ""
+        )
+        breadcrumb_interval_minutes = (
+            callback_breadcrumb_interval_minutes[idx].strip()
+            if idx < len(callback_breadcrumb_interval_minutes)
+            else ""
+        )
+        breadcrumb_min_distance_meters = (
+            callback_breadcrumb_min_distance_meters[idx].strip()
+            if idx < len(callback_breadcrumb_min_distance_meters)
+            else ""
+        )
         checkout_empty_text = callback_checkout_empty_texts[idx].strip() if idx < len(callback_checkout_empty_texts) else ""
         checkout_pay_button_text = callback_checkout_pay_button_texts[idx].strip() if idx < len(callback_checkout_pay_button_texts) else ""
         checkout_pay_callback_data = callback_checkout_pay_callback_datas[idx].strip() if idx < len(callback_checkout_pay_callback_datas) else ""
@@ -2000,6 +2136,9 @@ def _build_callback_modules_from_form(
         cart_min_qty = callback_cart_min_qtys[idx].strip() if idx < len(callback_cart_min_qtys) else ""
         cart_max_qty = callback_cart_max_qtys[idx].strip() if idx < len(callback_cart_max_qtys) else ""
         chain_steps_text = callback_chain_steps[idx].strip() if idx < len(callback_chain_steps) else ""
+        temporary_commands_text = (
+            callback_temporary_commands[idx].strip() if idx < len(callback_temporary_commands) else ""
+        )
         modules[callback_key] = _build_callback_module_entry(
             callback_key=callback_key,
             module_type=module_type,
@@ -2013,11 +2152,17 @@ def _build_callback_modules_from_form(
             inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
             callback_target_key=callback_target_key,
+            command_target_key=command_target_key,
             photo_url=photo_url,
             contact_button_text=contact_button_text,
             mini_app_button_text=mini_app_button_text,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
+            require_live_location=require_live_location,
+            track_breadcrumb=track_breadcrumb,
+            store_history_by_day=store_history_by_day,
+            breadcrumb_interval_minutes=breadcrumb_interval_minutes,
+            breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
             checkout_empty_text=checkout_empty_text,
             checkout_pay_button_text=checkout_pay_button_text,
             checkout_pay_callback_data=checkout_pay_callback_data,
@@ -2039,8 +2184,94 @@ def _build_callback_modules_from_form(
             cart_min_qty=cart_min_qty,
             cart_max_qty=cart_max_qty,
             chain_steps_text=chain_steps_text,
+            temporary_commands_text=temporary_commands_text,
         )
     return modules
+
+
+def _build_callback_temporary_command_entries(
+    *,
+    callback_key: str,
+    raw: str,
+) -> tuple[list[dict[str, object]], dict[str, dict[str, object]]]:
+    temporary_commands: list[dict[str, object]] = []
+    temporary_command_modules: dict[str, dict[str, object]] = {}
+    payload = raw.strip()
+    if not payload:
+        return temporary_commands, temporary_command_modules
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"callback '{callback_key}': temporary commands must be valid JSON") from exc
+    if not isinstance(parsed, list):
+        raise ValueError(f"callback '{callback_key}': temporary commands must be a JSON array")
+
+    seen: set[str] = set()
+    for idx, raw_entry in enumerate(parsed, start=1):
+        if not isinstance(raw_entry, dict):
+            continue
+        command_name = _normalize_command_value(str(raw_entry.get("command", "")).strip())
+        if not command_name or command_name in seen:
+            continue
+        seen.add(command_name)
+        description = str(raw_entry.get("description", "")).strip()[:256] or "Command"
+        restore_original_menu = True
+        if "restore_original_menu" in raw_entry:
+            restore_original_menu = _is_truthy_text(raw_entry.get("restore_original_menu"))
+        temporary_commands.append(
+            {
+                "command": command_name,
+                "description": description,
+                "restore_original_menu": restore_original_menu,
+            }
+        )
+        temporary_command_modules[command_name] = _build_command_module_entry(
+            command_name=command_name,
+            module_type=str(raw_entry.get("module_type", "send_message")).strip() or "send_message",
+            text_template=str(raw_entry.get("text_template", "")).strip(),
+            hide_caption=str(raw_entry.get("hide_caption", "")).strip(),
+            parse_mode=str(raw_entry.get("parse_mode", "")).strip(),
+            menu_title=str(raw_entry.get("menu_title", "")).strip(),
+            menu_items_text=str(raw_entry.get("menu_items", "")).strip(),
+            inline_buttons_text=str(raw_entry.get("inline_buttons", "")).strip(),
+            inline_run_if_context_keys_text=str(raw_entry.get("inline_run_if_context_keys", "")).strip(),
+            inline_skip_if_context_keys_text=str(raw_entry.get("inline_skip_if_context_keys", "")).strip(),
+            inline_save_callback_data_to_key_text=str(raw_entry.get("inline_save_callback_data_to_key", "")).strip(),
+            callback_target_key=str(raw_entry.get("callback_target_key", "")).strip(),
+            command_target_key=str(raw_entry.get("command_target_key", "")).strip(),
+            photo_url=str(raw_entry.get("photo_url", "")).strip(),
+            contact_button_text=str(raw_entry.get("contact_button_text", "")).strip(),
+            mini_app_button_text=str(raw_entry.get("mini_app_button_text", "")).strip(),
+            contact_success_text=str(raw_entry.get("contact_success_text", "")).strip(),
+            contact_invalid_text=str(raw_entry.get("contact_invalid_text", "")).strip(),
+            require_live_location=str(raw_entry.get("require_live_location", "")).strip(),
+            track_breadcrumb=str(raw_entry.get("track_breadcrumb", "")).strip(),
+            store_history_by_day=str(raw_entry.get("store_history_by_day", "")).strip(),
+            breadcrumb_interval_minutes=str(raw_entry.get("breadcrumb_interval_minutes", "")).strip(),
+            breadcrumb_min_distance_meters=str(raw_entry.get("breadcrumb_min_distance_meters", "")).strip(),
+            checkout_empty_text=str(raw_entry.get("checkout_empty_text", "")).strip(),
+            checkout_pay_button_text=str(raw_entry.get("checkout_pay_button_text", "")).strip(),
+            checkout_pay_callback_data=str(raw_entry.get("checkout_pay_callback_data", "")).strip(),
+            payment_return_url=str(raw_entry.get("payment_return_url", "")).strip(),
+            mini_app_url=str(raw_entry.get("mini_app_url", "")).strip(),
+            payment_empty_text=str(raw_entry.get("payment_empty_text", "")).strip(),
+            payment_title_template=str(raw_entry.get("payment_title_template", "")).strip(),
+            payment_description_template=str(raw_entry.get("payment_description_template", "")).strip(),
+            payment_open_button_text=str(raw_entry.get("payment_open_button_text", "")).strip(),
+            payment_web_button_text=str(raw_entry.get("payment_web_button_text", "")).strip(),
+            payment_currency=str(raw_entry.get("payment_currency", "")).strip(),
+            payment_limit=str(raw_entry.get("payment_limit", "")).strip(),
+            payment_deep_link_prefix=str(raw_entry.get("payment_deep_link_prefix", "")).strip(),
+            payment_merchant_ref_prefix=str(raw_entry.get("payment_merchant_ref_prefix", "")).strip(),
+            cart_product_name=str(raw_entry.get("cart_product_name", "")).strip(),
+            cart_product_key=str(raw_entry.get("cart_product_key", "")).strip(),
+            cart_price=str(raw_entry.get("cart_price", "")).strip(),
+            cart_qty=str(raw_entry.get("cart_qty", "")).strip(),
+            cart_min_qty=str(raw_entry.get("cart_min_qty", "")).strip(),
+            cart_max_qty=str(raw_entry.get("cart_max_qty", "")).strip(),
+            chain_steps_text=str(raw_entry.get("chain_steps", "")).strip(),
+        )
+    return temporary_commands, temporary_command_modules
 
 
 def _build_command_module_entry(
@@ -2058,11 +2289,17 @@ def _build_command_module_entry(
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
     callback_target_key: str,
+    command_target_key: str,
     photo_url: str,
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    require_live_location: str = "",
+    track_breadcrumb: str = "",
+    store_history_by_day: str = "",
+    breadcrumb_interval_minutes: str = "",
+    breadcrumb_min_distance_meters: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2084,6 +2321,7 @@ def _build_command_module_entry(
     cart_min_qty: str,
     cart_max_qty: str,
     chain_steps_text: str,
+    temporary_commands_text: str = "",
 ) -> dict[str, object]:
     """Create one stored command module entry, including any chained steps."""
     normalized_module_type = module_type.strip() or "send_message"
@@ -2103,11 +2341,17 @@ def _build_command_module_entry(
         inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
         callback_target_key=callback_target_key,
+        command_target_key=command_target_key,
         photo_url=photo_url,
         contact_button_text=contact_button_text,
         mini_app_button_text=mini_app_button_text,
         contact_success_text=contact_success_text,
         contact_invalid_text=contact_invalid_text,
+        require_live_location=require_live_location,
+        track_breadcrumb=track_breadcrumb,
+        store_history_by_day=store_history_by_day,
+        breadcrumb_interval_minutes=breadcrumb_interval_minutes,
+        breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
         checkout_empty_text=checkout_empty_text,
         checkout_pay_button_text=checkout_pay_button_text,
         checkout_pay_callback_data=checkout_pay_callback_data,
@@ -2149,11 +2393,17 @@ def _build_callback_module_entry(
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
     callback_target_key: str,
+    command_target_key: str,
     photo_url: str,
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    require_live_location: str = "",
+    track_breadcrumb: str = "",
+    store_history_by_day: str = "",
+    breadcrumb_interval_minutes: str = "",
+    breadcrumb_min_distance_meters: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2175,6 +2425,7 @@ def _build_callback_module_entry(
     cart_min_qty: str,
     cart_max_qty: str,
     chain_steps_text: str,
+    temporary_commands_text: str = "",
 ) -> dict[str, object]:
     """Create one stored callback module entry, including any chained steps."""
     normalized_module_type = module_type.strip() or "send_message"
@@ -2193,11 +2444,17 @@ def _build_callback_module_entry(
         inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
         callback_target_key=callback_target_key,
+        command_target_key=command_target_key,
         photo_url=photo_url,
         contact_button_text=contact_button_text,
         mini_app_button_text=mini_app_button_text,
         contact_success_text=contact_success_text,
         contact_invalid_text=contact_invalid_text,
+        require_live_location=require_live_location,
+        track_breadcrumb=track_breadcrumb,
+        store_history_by_day=store_history_by_day,
+        breadcrumb_interval_minutes=breadcrumb_interval_minutes,
+        breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
         checkout_empty_text=checkout_empty_text,
         checkout_pay_button_text=checkout_pay_button_text,
         checkout_pay_callback_data=checkout_pay_callback_data,
@@ -2222,6 +2479,13 @@ def _build_callback_module_entry(
     pipeline = [primary_step, *_parse_callback_chain_steps(callback_key=callback_key, raw=chain_steps_text)]
     entry: dict[str, object] = {"pipeline": pipeline}
     entry.update(primary_step)
+    temporary_commands, temporary_command_modules = _build_callback_temporary_command_entries(
+        callback_key=callback_key,
+        raw=temporary_commands_text,
+    )
+    if temporary_commands and temporary_command_modules:
+        entry["temporary_commands"] = temporary_commands
+        entry["temporary_command_modules"] = temporary_command_modules
     return entry
 
 
@@ -2240,11 +2504,17 @@ def _build_module_step(
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
     callback_target_key: str,
+    command_target_key: str,
     photo_url: str,
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    require_live_location: str = "",
+    track_breadcrumb: str = "",
+    store_history_by_day: str = "",
+    breadcrumb_interval_minutes: str = "",
+    breadcrumb_min_distance_meters: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2324,6 +2594,19 @@ def _build_module_step(
             step["save_callback_data_to_key"] = save_callback_data_to_key
         return step
 
+    if normalized_module_type == "command_module":
+        target_command_key = command_target_key.strip()
+        if not target_command_key:
+            raise ValueError(f"command /{command_name}: command_module requires target command key")
+        return _attach_context_key_rules(
+            {
+                "module_type": "command_module",
+                "target_command_key": target_command_key,
+            },
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
+        )
+
     if normalized_module_type == "inline_button_module":
         target_callback_key = callback_target_key.strip()
         if not target_callback_key:
@@ -2367,6 +2650,24 @@ def _build_module_step(
             contact_button_text=contact_button_text,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
+        )
+
+    if normalized_module_type == "share_location":
+        return _attach_context_key_rules(
+            _build_share_location_step(
+                default_text="Please share your location using the button below.",
+                text_template=text_template,
+                parse_mode_value=parse_mode_value,
+                button_text=contact_button_text,
+                success_text=contact_success_text,
+                require_live_location=_is_truthy_text(require_live_location),
+                track_breadcrumb=_is_truthy_text(track_breadcrumb),
+                store_history_by_day=_is_truthy_text(store_history_by_day),
+                breadcrumb_interval_minutes=breadcrumb_interval_minutes,
+                breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+            ),
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
         )
 
     if normalized_module_type == "checkout":
@@ -2454,11 +2755,17 @@ def _build_callback_module_step(
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
     callback_target_key: str,
+    command_target_key: str,
     photo_url: str,
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    require_live_location: str = "",
+    track_breadcrumb: str = "",
+    store_history_by_day: str = "",
+    breadcrumb_interval_minutes: str = "",
+    breadcrumb_min_distance_meters: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2539,6 +2846,19 @@ def _build_callback_module_step(
             step["save_callback_data_to_key"] = save_callback_data_to_key
         return step
 
+    if normalized_module_type == "command_module":
+        target_command_key = command_target_key.strip()
+        if not target_command_key:
+            raise ValueError(f"callback '{callback_key}': command_module requires target command key")
+        return _attach_context_key_rules(
+            {
+                "module_type": "command_module",
+                "target_command_key": target_command_key,
+            },
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
+        )
+
     if normalized_module_type == "inline_button_module":
         target_callback_key = callback_target_key.strip()
         if not target_callback_key:
@@ -2582,6 +2902,24 @@ def _build_callback_module_step(
             contact_button_text=contact_button_text,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
+        )
+
+    if normalized_module_type == "share_location":
+        return _attach_context_key_rules(
+            _build_share_location_step(
+                default_text="Please share your location using the button below.",
+                text_template=text_template,
+                parse_mode_value=parse_mode_value,
+                button_text=contact_button_text,
+                success_text=contact_success_text,
+                require_live_location=_is_truthy_text(require_live_location),
+                track_breadcrumb=_is_truthy_text(track_breadcrumb),
+                store_history_by_day=_is_truthy_text(store_history_by_day),
+                breadcrumb_interval_minutes=breadcrumb_interval_minutes,
+                breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+            ),
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
         )
 
     if normalized_module_type == "checkout":
@@ -2669,6 +3007,50 @@ def _build_share_contact_step(
         "success_text_template": contact_success_text.strip() or "Thanks {contact_first_name}, your contact was verified.",
         "invalid_text_template": contact_invalid_text.strip() or "Please share your own contact using the button below.",
     }
+
+
+def _build_share_location_step(
+    *,
+    default_text: str,
+    text_template: str,
+    parse_mode_value: str | None,
+    button_text: str,
+    success_text: str,
+    require_live_location: bool = False,
+    track_breadcrumb: bool = False,
+    store_history_by_day: bool = False,
+    breadcrumb_interval_minutes: str = "",
+    breadcrumb_min_distance_meters: str = "",
+) -> dict[str, object]:
+    """Build a normalized share_location step payload."""
+    step: dict[str, object] = {
+        "module_type": "share_location",
+        "text_template": text_template.strip() or default_text,
+        "parse_mode": parse_mode_value,
+        "button_text": button_text.strip() or "Share My Location",
+        "success_text_template": success_text.strip() or "Thanks, your location was received.",
+    }
+    if store_history_by_day:
+        step["store_history_by_day"] = True
+    if require_live_location:
+        step["require_live_location"] = True
+        if track_breadcrumb:
+            breadcrumb_interval = _parse_non_negative_float_text(
+                breadcrumb_interval_minutes,
+                default=None,
+                field_label="share_location breadcrumb interval minutes",
+            )
+            breadcrumb_distance = _parse_non_negative_float_text(
+                breadcrumb_min_distance_meters,
+                default=5.0,
+                field_label="share_location breadcrumb distance meters",
+            )
+            step["track_breadcrumb"] = True
+            if breadcrumb_interval is not None and breadcrumb_interval > 0:
+                step["breadcrumb_interval_minutes"] = breadcrumb_interval
+            if breadcrumb_distance is not None:
+                step["breadcrumb_min_distance_meters"] = breadcrumb_distance
+    return step
 
 
 def _build_open_mini_app_step(
@@ -2823,6 +3205,8 @@ def _extract_command_module_form_values(
         text_default = ""
     elif module_type == "share_contact":
         text_default = "Please share your contact using the button below."
+    elif module_type == "share_location":
+        text_default = "Please share your location using the button below."
     elif module_type == "checkout":
         text_default = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     elif module_type == "payway_payment":
@@ -2831,6 +3215,8 @@ def _extract_command_module_form_values(
         text_default = "Tap the button below to open the mini app."
     elif module_type == "callback_module":
         text_default = ""
+    elif module_type == "command_module":
+        text_default = ""
     elif module_type == "inline_button_module":
         text_default = ""
     elif module_type == "forget_user_data":
@@ -2838,10 +3224,12 @@ def _extract_command_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "share_contact", "checkout", "payway_payment", "open_mini_app", "callback_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
+    if module_type == "share_location" and not text_template:
+        text_template = "Please share your location using the button below."
     if module_type == "checkout" and not text_template:
         text_template = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     if module_type == "payway_payment" and not text_template:
@@ -2864,11 +3252,22 @@ def _extract_command_module_form_values(
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
     callback_target_key = str(module.get("target_callback_key", "")).strip()
+    command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
     contact_button_text = str(module.get("button_text", "")).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
+    require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
+    track_breadcrumb = "1" if bool(module.get("track_breadcrumb", False)) else ""
+    store_history_by_day = "1" if bool(module.get("store_history_by_day", False)) else ""
+    breadcrumb_interval_minutes = _format_numeric_text(
+        module.get("breadcrumb_interval_minutes", ""),
+        blank_when_zero=True,
+    )
+    breadcrumb_min_distance_meters = _format_numeric_text(
+        module.get("breadcrumb_min_distance_meters", 5.0 if bool(module.get("track_breadcrumb", False)) else ""),
+    )
     checkout_empty_text = str(module.get("empty_text_template", "")).strip()
     checkout_pay_button_text = str(module.get("pay_button_text", "")).strip()
     checkout_pay_callback_data = str(module.get("pay_callback_data", "")).strip()
@@ -2883,6 +3282,14 @@ def _extract_command_module_form_values(
     payment_limit = str(module.get("payment_limit", "")).strip()
     payment_deep_link_prefix = str(module.get("deep_link_prefix", "")).strip()
     payment_merchant_ref_prefix = str(module.get("merchant_ref_prefix", "")).strip()
+    temporary_command_modules_raw = module.get("temporary_command_modules", {})
+    temporary_command_modules = (
+        temporary_command_modules_raw if isinstance(temporary_command_modules_raw, dict) else {}
+    )
+    temporary_commands = _extract_command_rows(
+        module.get("temporary_commands", []),
+        command_modules=temporary_command_modules,
+    )
     hide_caption = "1" if bool(module.get("hide_caption", False)) else ""
     product_name = str(module.get("product_name", "")).strip()
     product_key = str(module.get("product_key", "")).strip()
@@ -2904,11 +3311,17 @@ def _extract_command_module_form_values(
         "inline_skip_if_context_keys": inline_skip_if_context_keys,
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
         "callback_target_key": callback_target_key,
+        "command_target_key": command_target_key,
         "photo_url": photo_url,
         "contact_button_text": contact_button_text,
         "mini_app_button_text": mini_app_button_text,
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
+        "require_live_location": require_live_location,
+        "track_breadcrumb": track_breadcrumb,
+        "store_history_by_day": store_history_by_day,
+        "breadcrumb_interval_minutes": breadcrumb_interval_minutes,
+        "breadcrumb_min_distance_meters": breadcrumb_min_distance_meters,
         "checkout_empty_text": checkout_empty_text,
         "payment_empty_text": payment_empty_text,
         "checkout_pay_button_text": checkout_pay_button_text,
@@ -2930,6 +3343,7 @@ def _extract_command_module_form_values(
         "cart_min_qty": min_qty,
         "cart_max_qty": max_qty,
         "chain_steps": chain_steps,
+        "temporary_commands": temporary_commands,
     }
 
 
@@ -2937,7 +3351,7 @@ def _extract_callback_module_form_values(
     *,
     callback_key: str,
     raw_module: object,
-) -> dict[str, str]:
+) -> dict[str, object]:
     """Convert one stored callback module back into flat form field values."""
     module = raw_module if isinstance(raw_module, dict) else {}
     module_type = str(module.get("module_type", "send_message")).strip() or "send_message"
@@ -2949,6 +3363,8 @@ def _extract_callback_module_form_values(
         text_default = ""
     elif module_type == "share_contact":
         text_default = "Please share your contact using the button below."
+    elif module_type == "share_location":
+        text_default = "Please share your location using the button below."
     elif module_type == "checkout":
         text_default = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     elif module_type == "payway_payment":
@@ -2957,6 +3373,8 @@ def _extract_callback_module_form_values(
         text_default = "Tap the button below to open the mini app."
     elif module_type == "callback_module":
         text_default = ""
+    elif module_type == "command_module":
+        text_default = ""
     elif module_type == "inline_button_module":
         text_default = ""
     elif module_type == "forget_user_data":
@@ -2964,10 +3382,12 @@ def _extract_callback_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "share_contact", "checkout", "payway_payment", "open_mini_app", "callback_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
+    if module_type == "share_location" and not text_template:
+        text_template = "Please share your location using the button below."
     if module_type == "checkout" and not text_template:
         text_template = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     if module_type == "payway_payment" and not text_template:
@@ -2987,11 +3407,22 @@ def _extract_callback_module_form_values(
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
     callback_target_key = str(module.get("target_callback_key", "")).strip()
+    command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
     contact_button_text = str(module.get("button_text", "")).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
+    require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
+    track_breadcrumb = "1" if bool(module.get("track_breadcrumb", False)) else ""
+    store_history_by_day = "1" if bool(module.get("store_history_by_day", False)) else ""
+    breadcrumb_interval_minutes = _format_numeric_text(
+        module.get("breadcrumb_interval_minutes", ""),
+        blank_when_zero=True,
+    )
+    breadcrumb_min_distance_meters = _format_numeric_text(
+        module.get("breadcrumb_min_distance_meters", 5.0 if bool(module.get("track_breadcrumb", False)) else ""),
+    )
     checkout_empty_text = str(module.get("empty_text_template", "")).strip()
     checkout_pay_button_text = str(module.get("pay_button_text", "")).strip()
     checkout_pay_callback_data = str(module.get("pay_callback_data", "")).strip()
@@ -3006,6 +3437,14 @@ def _extract_callback_module_form_values(
     payment_limit = str(module.get("payment_limit", "")).strip()
     payment_deep_link_prefix = str(module.get("deep_link_prefix", "")).strip()
     payment_merchant_ref_prefix = str(module.get("merchant_ref_prefix", "")).strip()
+    temporary_command_modules_raw = module.get("temporary_command_modules", {})
+    temporary_command_modules = (
+        temporary_command_modules_raw if isinstance(temporary_command_modules_raw, dict) else {}
+    )
+    temporary_commands = _extract_command_rows(
+        module.get("temporary_commands", []),
+        command_modules=temporary_command_modules,
+    )
     hide_caption = "1" if bool(module.get("hide_caption", False)) else ""
     product_name = str(module.get("product_name", "")).strip()
     product_key = str(module.get("product_key", "")).strip()
@@ -3026,11 +3465,17 @@ def _extract_callback_module_form_values(
         "inline_skip_if_context_keys": inline_skip_if_context_keys,
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
         "callback_target_key": callback_target_key,
+        "command_target_key": command_target_key,
         "photo_url": photo_url,
         "contact_button_text": contact_button_text,
         "mini_app_button_text": mini_app_button_text,
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
+        "require_live_location": require_live_location,
+        "track_breadcrumb": track_breadcrumb,
+        "store_history_by_day": store_history_by_day,
+        "breadcrumb_interval_minutes": breadcrumb_interval_minutes,
+        "breadcrumb_min_distance_meters": breadcrumb_min_distance_meters,
         "checkout_empty_text": checkout_empty_text,
         "payment_empty_text": payment_empty_text,
         "checkout_pay_button_text": checkout_pay_button_text,
@@ -3052,14 +3497,15 @@ def _extract_callback_module_form_values(
         "cart_min_qty": min_qty,
         "cart_max_qty": max_qty,
         "chain_steps": chain_steps,
+        "temporary_commands": temporary_commands,
     }
 
 
 
 
-def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) -> list[dict[str, str]]:
+def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) -> list[dict[str, object]]:
     """Build the editable command row payloads shown in the config page."""
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, object]] = []
     if isinstance(raw, list):
         for item in raw:
             if not isinstance(item, dict):
@@ -3081,6 +3527,9 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                 {
                     "command": normalized_command,
                     "description": command_description,
+                    "restore_original_menu": "1"
+                    if bool(item.get("restore_original_menu", True))
+                    else "",
                     "module_type": module_values["module_type"],
                     "text_template": module_values["text_template"],
                     "hide_caption": module_values["hide_caption"],
@@ -3091,11 +3540,18 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "inline_run_if_context_keys": module_values["inline_run_if_context_keys"],
                     "inline_skip_if_context_keys": module_values["inline_skip_if_context_keys"],
                     "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
+                    "callback_target_key": module_values["callback_target_key"],
+                    "command_target_key": module_values["command_target_key"],
                     "photo_url": module_values["photo_url"],
                     "contact_button_text": module_values["contact_button_text"],
                     "mini_app_button_text": module_values["mini_app_button_text"],
                     "contact_success_text": module_values["contact_success_text"],
                     "contact_invalid_text": module_values["contact_invalid_text"],
+                    "require_live_location": module_values["require_live_location"],
+                    "track_breadcrumb": module_values["track_breadcrumb"],
+                    "store_history_by_day": module_values["store_history_by_day"],
+                    "breadcrumb_interval_minutes": module_values["breadcrumb_interval_minutes"],
+                    "breadcrumb_min_distance_meters": module_values["breadcrumb_min_distance_meters"],
                     "checkout_empty_text": module_values["checkout_empty_text"],
                     "payment_empty_text": module_values["payment_empty_text"],
                     "checkout_pay_button_text": module_values["checkout_pay_button_text"],
@@ -3134,11 +3590,18 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                 "inline_run_if_context_keys": "",
                 "inline_skip_if_context_keys": "",
                 "inline_save_callback_data_to_key": "",
+                "callback_target_key": "",
+                "command_target_key": "",
                 "photo_url": "",
                 "contact_button_text": "",
                 "mini_app_button_text": "",
                 "contact_success_text": "",
                 "contact_invalid_text": "",
+                "require_live_location": "",
+                "track_breadcrumb": "",
+                "store_history_by_day": "",
+                "breadcrumb_interval_minutes": "",
+                "breadcrumb_min_distance_meters": "",
                 "checkout_empty_text": "",
                 "payment_empty_text": "",
                 "checkout_pay_button_text": "",
@@ -3165,7 +3628,7 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
     return rows
 
 
-def _extract_callback_rows(raw: object) -> list[dict[str, str]]:
+def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
     """Build the editable callback row payloads shown in the config page."""
     rows: list[dict[str, str]] = []
     if not isinstance(raw, dict):
@@ -3192,11 +3655,18 @@ def _extract_callback_rows(raw: object) -> list[dict[str, str]]:
                 "inline_run_if_context_keys": module_values["inline_run_if_context_keys"],
                 "inline_skip_if_context_keys": module_values["inline_skip_if_context_keys"],
                 "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
+                "callback_target_key": module_values["callback_target_key"],
+                "command_target_key": module_values["command_target_key"],
                 "photo_url": module_values["photo_url"],
                 "contact_button_text": module_values["contact_button_text"],
                 "mini_app_button_text": module_values["mini_app_button_text"],
                 "contact_success_text": module_values["contact_success_text"],
                 "contact_invalid_text": module_values["contact_invalid_text"],
+                "require_live_location": module_values["require_live_location"],
+                "track_breadcrumb": module_values["track_breadcrumb"],
+                "store_history_by_day": module_values["store_history_by_day"],
+                "breadcrumb_interval_minutes": module_values["breadcrumb_interval_minutes"],
+                "breadcrumb_min_distance_meters": module_values["breadcrumb_min_distance_meters"],
                 "checkout_empty_text": module_values["checkout_empty_text"],
                 "payment_empty_text": module_values["payment_empty_text"],
                 "checkout_pay_button_text": module_values["checkout_pay_button_text"],
@@ -3218,6 +3688,7 @@ def _extract_callback_rows(raw: object) -> list[dict[str, str]]:
                 "cart_min_qty": module_values["cart_min_qty"],
                 "cart_max_qty": module_values["cart_max_qty"],
                 "chain_steps": module_values["chain_steps"],
+                "temporary_commands": module_values["temporary_commands"],
             }
         )
     return rows
@@ -3327,6 +3798,47 @@ def _parse_cart_int_text(raw: str, *, default: int, minimum: int, field_label: s
     except ValueError as exc:
         raise ValueError(f"{field_label} must be an integer") from exc
     return max(parsed, minimum)
+
+
+def _parse_non_negative_float_text(
+    raw: str,
+    *,
+    default: float | None,
+    field_label: str,
+) -> float | None:
+    """Parse a float editor field while enforcing a non-negative bound."""
+    value = raw.strip()
+    if not value:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_label} must be a number") from exc
+    if parsed < 0:
+        raise ValueError(f"{field_label} must be zero or greater")
+    return parsed
+
+
+def _format_numeric_text(raw: object, *, blank_when_zero: bool = False) -> str:
+    """Render numeric config values for the form without unnecessary trailing zeros."""
+    if raw is None or raw == "":
+        return ""
+    if isinstance(raw, bool):
+        return ""
+    if isinstance(raw, int):
+        if blank_when_zero and raw == 0:
+            return ""
+        return str(raw)
+    if isinstance(raw, float):
+        if blank_when_zero and raw == 0.0:
+            return ""
+        if raw.is_integer():
+            return str(int(raw))
+        return str(raw)
+    text = str(raw).strip()
+    if blank_when_zero and text in {"0", "0.0"}:
+        return ""
+    return text
 
 
 def _is_truthy_text(raw: object) -> bool:
@@ -3555,6 +4067,22 @@ def _command_menu_uses_module_type(command_menu: dict[str, object], module_type:
             for step in steps:
                 if str(step.get("module_type", "send_message")).strip().lower() == normalized_module_type:
                     return True
+            if collection_key != "callback_modules":
+                continue
+            raw_temporary_command_modules = module_config.get("temporary_command_modules", {})
+            temporary_command_modules = (
+                raw_temporary_command_modules if isinstance(raw_temporary_command_modules, dict) else {}
+            )
+            for temporary_module in temporary_command_modules.values():
+                temporary_config = temporary_module if isinstance(temporary_module, dict) else {}
+                temporary_pipeline_raw = temporary_config.get("pipeline", [])
+                if isinstance(temporary_pipeline_raw, list) and temporary_pipeline_raw:
+                    temporary_steps = [step for step in temporary_pipeline_raw if isinstance(step, dict)]
+                else:
+                    temporary_steps = [temporary_config]
+                for step in temporary_steps:
+                    if str(step.get("module_type", "send_message")).strip().lower() == normalized_module_type:
+                        return True
     return False
 
 
@@ -3633,6 +4161,40 @@ def _parse_share_contact_chain_step(
     )
 
 
+def _parse_share_location_chain_step(
+    *,
+    default_text: str,
+    text_template: str,
+    parse_mode: str,
+    button_text: str,
+    success_text_template: str,
+    require_live_location: object = False,
+    track_breadcrumb: object = False,
+    store_history_by_day: object = False,
+    breadcrumb_interval_minutes: object = "",
+    breadcrumb_min_distance_meters: object = "",
+    run_if_context_keys: object = (),
+    skip_if_context_keys: object = (),
+) -> dict[str, object]:
+    """Build a normalized share_location chain step."""
+    return _attach_context_key_rules(
+        _build_share_location_step(
+            default_text=default_text,
+            text_template=text_template,
+            parse_mode_value=parse_mode or None,
+            button_text=button_text,
+            success_text=success_text_template,
+            require_live_location=_is_truthy_text(require_live_location),
+            track_breadcrumb=_is_truthy_text(track_breadcrumb),
+            store_history_by_day=_is_truthy_text(store_history_by_day),
+            breadcrumb_interval_minutes=str(breadcrumb_interval_minutes or ""),
+            breadcrumb_min_distance_meters=str(breadcrumb_min_distance_meters or ""),
+        ),
+        run_if_context_keys=run_if_context_keys,
+        skip_if_context_keys=skip_if_context_keys,
+    )
+
+
 def _parse_callback_module_chain_step(
     *,
     route_label: str,
@@ -3659,6 +4221,29 @@ def _parse_callback_module_chain_step(
     if save_callback_data_target:
         step["save_callback_data_to_key"] = save_callback_data_target
     return step
+
+
+def _parse_command_module_chain_step(
+    *,
+    route_label: str,
+    step_index: int,
+    target_command_key: str,
+    run_if_context_keys: object = (),
+    skip_if_context_keys: object = (),
+) -> dict[str, object]:
+    normalized_target_command_key = target_command_key.strip()
+    if not normalized_target_command_key:
+        raise ValueError(
+            f"{route_label} chain step {step_index}: command_module requires target command key"
+        )
+    return _attach_context_key_rules(
+        {
+            "module_type": "command_module",
+            "target_command_key": normalized_target_command_key,
+        },
+        run_if_context_keys=run_if_context_keys,
+        skip_if_context_keys=skip_if_context_keys,
+    )
 
 
 def _parse_inline_button_module_chain_step(
@@ -3761,6 +4346,17 @@ def _parse_route_chain_steps(
                     )
                 )
                 continue
+            if module_type == "command_module":
+                steps.append(
+                    _parse_command_module_chain_step(
+                        route_label=route_label,
+                        step_index=idx,
+                        target_command_key=str(serialized.get("target_command_key", "")),
+                        run_if_context_keys=serialized.get("run_if_context_keys", []),
+                        skip_if_context_keys=serialized.get("skip_if_context_keys", []),
+                    )
+                )
+                continue
             if module_type == "inline_button_module":
                 steps.append(
                     _parse_inline_button_module_chain_step(
@@ -3795,6 +4391,24 @@ def _parse_route_chain_steps(
                         button_text=str(serialized.get("button_text", "")),
                         success_text_template=str(serialized.get("success_text_template", "")),
                         invalid_text_template=str(serialized.get("invalid_text_template", "")),
+                    )
+                )
+                continue
+            if module_type == "share_location":
+                steps.append(
+                    _parse_share_location_chain_step(
+                        default_text="Please share your location using the button below.",
+                        text_template=str(serialized.get("text_template", "")),
+                        parse_mode=parse_mode,
+                        button_text=str(serialized.get("button_text", "")),
+                        success_text_template=str(serialized.get("success_text_template", "")),
+                        require_live_location=serialized.get("require_live_location"),
+                        track_breadcrumb=serialized.get("track_breadcrumb"),
+                        store_history_by_day=serialized.get("store_history_by_day"),
+                        breadcrumb_interval_minutes=serialized.get("breadcrumb_interval_minutes", ""),
+                        breadcrumb_min_distance_meters=serialized.get("breadcrumb_min_distance_meters", ""),
+                        run_if_context_keys=serialized.get("run_if_context_keys", []),
+                        skip_if_context_keys=serialized.get("skip_if_context_keys", []),
                     )
                 )
                 continue
@@ -3890,7 +4504,7 @@ def _parse_route_chain_steps(
                 steps.append({"module_type": "forget_user_data"})
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -3961,6 +4575,17 @@ def _parse_route_chain_steps(
                 )
             )
             continue
+        if module_type == "command_module":
+            steps.append(
+                _parse_command_module_chain_step(
+                    route_label=route_label,
+                    step_index=idx,
+                    target_command_key=parts[1] if len(parts) >= 2 else "",
+                    run_if_context_keys=parts[2] if len(parts) >= 3 else "",
+                    skip_if_context_keys=parts[3] if len(parts) >= 4 else "",
+                )
+            )
+            continue
         if module_type == "inline_button_module":
             steps.append(
                 _parse_inline_button_module_chain_step(
@@ -4008,6 +4633,25 @@ def _parse_route_chain_steps(
                     button_text=parts[2] if len(parts) >= 3 else "",
                     success_text_template=parts[3] if len(parts) >= 4 else "",
                     invalid_text_template=parts[4] if len(parts) >= 5 else "",
+                )
+            )
+            continue
+        if module_type == "share_location":
+            parse_mode = parts[4] if len(parts) >= 5 else ""
+            steps.append(
+                _parse_share_location_chain_step(
+                    default_text="Please share your location using the button below.",
+                    text_template=parts[1] if len(parts) >= 2 else "",
+                    parse_mode=parse_mode,
+                    button_text=parts[2] if len(parts) >= 3 else "",
+                    success_text_template=parts[3] if len(parts) >= 4 else "",
+                    require_live_location=parts[5] if len(parts) >= 6 else "",
+                    track_breadcrumb=parts[8] if len(parts) >= 9 else "",
+                    store_history_by_day=parts[9] if len(parts) >= 10 else "",
+                    breadcrumb_interval_minutes=parts[10] if len(parts) >= 11 else "",
+                    breadcrumb_min_distance_meters=parts[11] if len(parts) >= 12 else "",
+                    run_if_context_keys=parts[6] if len(parts) >= 7 else "",
+                    skip_if_context_keys=parts[7] if len(parts) >= 8 else "",
                 )
             )
             continue
@@ -4129,7 +4773,7 @@ def _parse_route_chain_steps(
             steps.append({"module_type": "forget_user_data"})
             continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
         )
     return steps
 
@@ -4203,6 +4847,17 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["skip_if_context_keys"] = skip_if_context_keys
             if save_callback_data_to_key:
                 payload["save_callback_data_to_key"] = save_callback_data_to_key
+        elif module_type == "command_module":
+            payload = {
+                "module_type": "command_module",
+                "target_command_key": str(step.get("target_command_key", "")).strip(),
+            }
+            run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
+            skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
+            if run_if_context_keys:
+                payload["run_if_context_keys"] = run_if_context_keys
+            if skip_if_context_keys:
+                payload["skip_if_context_keys"] = skip_if_context_keys
         elif module_type == "inline_button_module":
             payload = {
                 "module_type": "inline_button_module",
@@ -4235,6 +4890,29 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "success_text_template": str(step.get("success_text_template", "")),
                 "invalid_text_template": str(step.get("invalid_text_template", "")),
             }
+        elif module_type == "share_location":
+            payload = {
+                "module_type": "share_location",
+                "text_template": str(step.get("text_template", "")),
+                "parse_mode": parse_mode,
+                "button_text": str(step.get("button_text", "")).strip(),
+                "success_text_template": str(step.get("success_text_template", "")),
+                "require_live_location": bool(step.get("require_live_location", False)),
+            }
+            if bool(step.get("require_live_location", False)) and bool(step.get("track_breadcrumb", False)):
+                payload["track_breadcrumb"] = True
+                if step.get("breadcrumb_interval_minutes") not in {None, ""}:
+                    payload["breadcrumb_interval_minutes"] = step.get("breadcrumb_interval_minutes")
+                if step.get("breadcrumb_min_distance_meters") not in {None, ""}:
+                    payload["breadcrumb_min_distance_meters"] = step.get("breadcrumb_min_distance_meters")
+            if bool(step.get("store_history_by_day", False)):
+                payload["store_history_by_day"] = True
+            run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
+            skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
+            if run_if_context_keys:
+                payload["run_if_context_keys"] = run_if_context_keys
+            if skip_if_context_keys:
+                payload["skip_if_context_keys"] = skip_if_context_keys
         elif module_type == "checkout":
             payload = {
                 "module_type": "checkout",
@@ -4408,19 +5086,4 @@ def _snapshot_files(roots: Iterable[Path]) -> dict[Path, float]:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
