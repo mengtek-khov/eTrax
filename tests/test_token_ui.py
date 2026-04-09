@@ -7,14 +7,24 @@ from etrax.standalone.token_ui import (
     _build_callback_module_entry,
     _build_command_module_entry,
     _command_menu_uses_module_type,
+    _extract_location_coordinates,
     _extract_callback_module_form_values,
     _extract_callback_rows,
     _extract_command_rows,
     _extract_command_module_form_values,
+    _load_standalone_ui_entries,
     _load_profile_log_context_keys,
+    _normalize_working_hour_entries,
+    _render_location_demo_page,
+    _render_working_hours_demo_page,
+    _available_working_day_options,
+    _next_available_working_day,
     _parse_chain_steps,
     _pipeline_to_chain_steps,
     _render_config_page,
+    _save_standalone_ui_entries,
+    _resolve_location_search_payload,
+    _working_day_conflicts,
 )
 
 
@@ -91,6 +101,254 @@ def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
     assert "Hide Runtime Error" in html
     assert 'aria-expanded="false"' in html
     assert "sample runtime failure" in html
+
+
+def test_render_config_page_includes_share_location_mode_cards() -> None:
+    html = _render_config_page(
+        bot_id="support-bot",
+        config_path=Path("data/bot_processes/support-bot.json"),
+        payload={
+            "command_menu": {
+                "enabled": True,
+                "include_start": True,
+                "start": {
+                    "module_type": "share_location",
+                    "text_template": "Share your live location.",
+                    "require_live_location": True,
+                },
+            }
+        },
+        runtime_status={},
+        message="",
+        level="info",
+    )
+
+    assert "share-location-mode-grid" in html
+    assert "share-location-mode-title" in html
+    assert "share-location-mode-note" in html
+
+
+def test_standalone_ui_entries_round_trip() -> None:
+    file_path = Path("data/_token_ui_test_working_hours.json")
+    try:
+        _save_standalone_ui_entries(
+            file_path,
+            [
+                {
+                    "id": "wh-1",
+                    "working_day": "Monday",
+                    "start_time": "06:00 AM",
+                    "end_time": "06:00 PM",
+                }
+            ],
+        )
+
+        loaded = _load_standalone_ui_entries(file_path)
+    finally:
+        if file_path.exists():
+            file_path.unlink()
+
+    assert loaded == [
+        {
+            "id": "wh-1",
+            "working_day": "Monday",
+            "start_time": "06:00 AM",
+            "end_time": "06:00 PM",
+        }
+    ]
+
+
+def test_render_standalone_ui_pages_include_saved_records() -> None:
+    working_hours_html = _render_working_hours_demo_page(
+        entries=[
+            {
+                "id": "wh-1",
+                "working_day": "Thursday",
+                "start_time": "08:00 AM",
+                "end_time": "05:30 PM",
+            }
+        ],
+        message="Saved",
+        level="success",
+    )
+    locations_html = _render_location_demo_page(
+        entries=[
+            {
+                "id": "loc-1",
+                "company": "eTrax Logistics",
+                "zone": "Central",
+                "telegram_group_id": "-1001234567890",
+                "location_name": "Main Office",
+                "location_code": "loc-0490",
+                "latitude": "11.562034951273636",
+                "longitude": "104.87029995007804",
+                "search_query": "Phnom Penh",
+            }
+        ],
+        selected_location_id="loc-1",
+        message="Saved",
+        level="success",
+    )
+
+    assert "Thursday" in working_hours_html
+    assert "08:00 AM" in working_hours_html
+    assert "Saved" in working_hours_html
+    assert "1 / 7 Rows" in working_hours_html
+    assert 'action="/ui/working-hours/save"' in working_hours_html
+    assert "/ui/working-hours/delete" in working_hours_html
+    assert "Main Office" in locations_html
+    assert "loc-0490" in locations_html
+    assert "Use My Location" in locations_html
+    assert "Load All To Map" in locations_html
+    assert "Generate Test Under 30 km" in locations_html
+    assert "data-location-search-button" in locations_html
+    assert "data-location-load-all-button" in locations_html
+    assert "data-location-map" in locations_html
+    assert "data-location-entry-id" in locations_html
+    assert "data-location-name" in locations_html
+    assert "data-location-code" in locations_html
+    assert "Telegram Group ID" in locations_html
+    assert "-1001234567890" in locations_html
+    assert "leaflet.js" in locations_html
+    assert "Main Office" in locations_html
+    assert "value='Central' selected" in locations_html
+    assert 'action="/ui/locations/save"' in locations_html
+    assert "/ui/locations/delete" in locations_html
+    assert "Central • Main Office" in locations_html
+    assert "â€¢" not in locations_html
+
+
+def test_render_working_hours_page_hides_add_form_at_seven_rows() -> None:
+    html = _render_working_hours_demo_page(
+        entries=[
+            {
+                "id": f"wh-{index}",
+                "working_day": day,
+                "start_time": "06:00 AM",
+                "end_time": "06:00 PM",
+            }
+            for index, day in enumerate(
+                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                start=1,
+            )
+        ]
+    )
+
+    assert "Maximum Reached" in html
+    assert "Working Hours is limited to 7 rows." in html
+    assert "+ Add New" not in html
+    assert "7 / 7 Rows" in html
+
+
+def test_normalize_working_hour_entries_sorts_by_weekday() -> None:
+    rows = _normalize_working_hour_entries(
+        [
+            {"id": "wh-3", "working_day": "Wednesday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+            {"id": "wh-1", "working_day": "Monday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+            {"id": "wh-2", "working_day": "Tuesday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+        ]
+    )
+
+    assert [row["working_day"] for row in rows] == ["Monday", "Tuesday", "Wednesday"]
+
+
+def test_working_day_conflicts_detects_duplicate_day() -> None:
+    entries = _normalize_working_hour_entries(
+        [
+            {"id": "wh-1", "working_day": "Monday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+            {"id": "wh-2", "working_day": "Tuesday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+        ]
+    )
+
+    assert _working_day_conflicts(entries, working_day="Monday") is True
+    assert _working_day_conflicts(entries, working_day="Monday", exclude_entry_id="wh-1") is False
+    assert _working_day_conflicts(entries, working_day="Wednesday") is False
+
+
+def test_next_available_working_day_uses_first_unused_day() -> None:
+    entries = _normalize_working_hour_entries(
+        [
+            {"id": "wh-1", "working_day": "Monday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+            {"id": "wh-2", "working_day": "Tuesday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+        ]
+    )
+    html = _render_working_hours_demo_page(entries=entries)
+
+    assert _next_available_working_day(entries) == "Wednesday"
+    assert "<option value='Wednesday' selected>Wednesday</option>" in html
+
+
+def test_available_working_day_options_only_returns_remaining_days() -> None:
+    entries = _normalize_working_hour_entries(
+        [
+            {"id": "wh-1", "working_day": "Monday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+            {"id": "wh-2", "working_day": "Tuesday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+        ]
+    )
+    html = _render_working_hours_demo_page(entries=entries)
+    add_section = html.split('id="new-working-hour"', 1)[1]
+
+    assert _available_working_day_options(entries) == [
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ]
+    assert "<option value='Monday'>Monday</option>" not in add_section
+    assert "<option value='Tuesday'>Tuesday</option>" not in add_section
+
+
+def test_available_working_day_options_keep_current_day_for_existing_row() -> None:
+    entries = _normalize_working_hour_entries(
+        [
+            {"id": "wh-1", "working_day": "Monday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+            {"id": "wh-2", "working_day": "Tuesday", "start_time": "06:00 AM", "end_time": "06:00 PM"},
+        ]
+    )
+
+    assert _available_working_day_options(entries, exclude_entry_id="wh-1") == [
+        "Monday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ]
+
+
+def test_extract_location_coordinates_supports_google_maps_urls() -> None:
+    assert _extract_location_coordinates("11.562034951273636, 104.87029995007804") == (
+        11.562034951273636,
+        104.87029995007804,
+    )
+    assert _extract_location_coordinates(
+        "https://www.google.com/maps/place/Test/@11.562034951273636,104.87029995007804,17z"
+    ) == (
+        11.562034951273636,
+        104.87029995007804,
+    )
+    assert _extract_location_coordinates(
+        '..."https://www.google.com/maps/preview/place/Main+Office/@11.562034951273636,104.87029995007804,3401a,13.1y/data\\\\u003d!4m2!3m1!1s0x0"...'
+    ) == (
+        11.562034951273636,
+        104.87029995007804,
+    )
+    assert _extract_location_coordinates(
+        "https://www.google.com/maps/place/Test/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d11.562034951273636!4d104.87029995007804"
+    ) == (
+        11.562034951273636,
+        104.87029995007804,
+    )
+
+
+def test_resolve_location_search_payload_short_circuits_direct_coordinates() -> None:
+    payload = _resolve_location_search_payload("11.562034951273636,104.87029995007804")
+
+    assert payload["ok"] is True
+    assert payload["source"] == "direct"
+    assert payload["latitude"] == 11.562034951273636
+    assert payload["longitude"] == 104.87029995007804
 
 
 def test_load_profile_log_context_keys_uses_active_bot_profile_fields_only(tmp_path: Path) -> None:
@@ -338,11 +596,10 @@ def test_pipeline_to_chain_steps_round_trips_share_location_step() -> None:
             "parse_mode": "HTML",
             "button_text": "Verify Location",
             "success_text_template": "Saved {location_latitude},{location_longitude}",
+            "invalid_text_template": "Too far from {closest_location_name}",
             "require_live_location": True,
-            "track_breadcrumb": True,
-            "store_history_by_day": True,
-            "breadcrumb_interval_minutes": 10,
-            "breadcrumb_min_distance_meters": 50,
+            "match_closest_saved_location": True,
+            "closest_location_tolerance_meters": 120,
             "run_if_context_keys": ["profile.phone_number"],
             "skip_if_context_keys": ["location_latitude"],
         },
@@ -358,11 +615,10 @@ def test_pipeline_to_chain_steps_round_trips_share_location_step() -> None:
             "parse_mode": "HTML",
             "button_text": "Verify Location",
             "success_text_template": "Saved {location_latitude},{location_longitude}",
+            "invalid_text_template": "Too far from {closest_location_name}",
             "require_live_location": True,
-            "track_breadcrumb": True,
-            "store_history_by_day": True,
-            "breadcrumb_interval_minutes": 10,
-            "breadcrumb_min_distance_meters": 50,
+            "match_closest_saved_location": True,
+            "closest_location_tolerance_meters": 120,
             "run_if_context_keys": ["profile.phone_number"],
             "skip_if_context_keys": ["location_latitude"],
         }
@@ -694,10 +950,18 @@ def test_build_command_module_entry_persists_share_location_live_flags() -> None
         contact_success_text="Saved {location_latitude},{location_longitude}",
         contact_invalid_text="",
         require_live_location="1",
-        track_breadcrumb="1",
-        store_history_by_day="1",
-        breadcrumb_interval_minutes="10",
-        breadcrumb_min_distance_meters="50",
+        find_closest_saved_location="",
+        match_closest_saved_location="1",
+        closest_location_tolerance_meters="120",
+        location_invalid_text="Too far from {closest_location_name}",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
         checkout_empty_text="",
         checkout_pay_button_text="",
         checkout_pay_callback_data="",
@@ -722,15 +986,146 @@ def test_build_command_module_entry_persists_share_location_live_flags() -> None
     )
 
     assert entry["require_live_location"] is True
-    assert entry["track_breadcrumb"] is True
-    assert entry["store_history_by_day"] is True
-    assert entry["breadcrumb_interval_minutes"] == 10.0
-    assert entry["breadcrumb_min_distance_meters"] == 50.0
-    assert entry["pipeline"][0]["require_live_location"] is True
-    assert entry["pipeline"][0]["track_breadcrumb"] is True
-    assert entry["pipeline"][0]["store_history_by_day"] is True
-    assert entry["pipeline"][0]["breadcrumb_interval_minutes"] == 10.0
-    assert entry["pipeline"][0]["breadcrumb_min_distance_meters"] == 50.0
+    assert entry["match_closest_saved_location"] is True
+    assert entry["closest_location_tolerance_meters"] == 120.0
+    assert entry["invalid_text_template"] == "Too far from {closest_location_name}"
+    assert "find_closest_saved_location" not in entry
+    assert "track_breadcrumb" not in entry
+    assert "breadcrumb_interval_minutes" not in entry
+    assert "breadcrumb_min_distance_meters" not in entry
+
+
+def test_build_command_module_entry_defaults_find_closest_success_text() -> None:
+    entry = _build_command_module_entry(
+        command_name="verify_location",
+        module_type="share_location",
+        text_template="Share your live location.",
+        hide_caption="",
+        parse_mode="HTML",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="Verify Location",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        require_live_location="1",
+        find_closest_saved_location="1",
+        match_closest_saved_location="",
+        closest_location_tolerance_meters="",
+        closest_location_group_text="Checked in near {closest_location_name}",
+        closest_location_group_send_timing="after_step",
+        closest_location_group_send_after_step="4",
+        location_invalid_text="",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["require_live_location"] is True
+    assert entry["find_closest_saved_location"] is True
+    assert entry["success_text_template"] == "Closest saved location is {closest_location_name}."
+    assert entry["closest_location_group_text_template"] == "Checked in near {closest_location_name}"
+    assert entry["closest_location_group_send_timing"] == "after_step"
+    assert entry["closest_location_group_send_after_step"] == 4
+
+
+def test_build_command_module_entry_ignores_share_location_special_modes_without_live_location() -> None:
+    entry = _build_command_module_entry(
+        command_name="verify_location",
+        module_type="share_location",
+        text_template="Share your location.",
+        hide_caption="",
+        parse_mode="HTML",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="Verify Location",
+        mini_app_button_text="",
+        contact_success_text="Saved {location_latitude},{location_longitude}",
+        contact_invalid_text="",
+        require_live_location="",
+        find_closest_saved_location="1",
+        match_closest_saved_location="1",
+        closest_location_tolerance_meters="120",
+        location_invalid_text="Too far from {closest_location_name}",
+        track_breadcrumb="1",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="10",
+        breadcrumb_min_distance_meters="50",
+        breadcrumb_started_text_template="Tap End Breadcrumb when finished.",
+        breadcrumb_interrupted_text_template="Live sharing stopped.",
+        breadcrumb_resumed_text_template="Breadcrumb resumed.",
+        breadcrumb_ended_text_template="Breadcrumb saved.",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert "require_live_location" not in entry
+    assert "find_closest_saved_location" not in entry
+    assert "match_closest_saved_location" not in entry
+    assert "closest_location_tolerance_meters" not in entry
+    assert "invalid_text_template" not in entry
+    assert "track_breadcrumb" not in entry
+    assert "breadcrumb_interval_minutes" not in entry
+    assert "breadcrumb_min_distance_meters" not in entry
 
 
 def test_extract_command_module_form_values_keeps_open_mini_app_url_and_button_text() -> None:
@@ -853,22 +1248,44 @@ def test_extract_command_module_form_values_keeps_share_location_live_flags() ->
             "text_template": "Share your live location.",
             "button_text": "Verify Location",
             "success_text_template": "Saved {location_latitude},{location_longitude}",
+            "invalid_text_template": "Too far from {closest_location_name}",
             "require_live_location": True,
+            "find_closest_saved_location": True,
+            "match_closest_saved_location": True,
+            "closest_location_tolerance_meters": 120,
+            "closest_location_group_text_template": "Checked in near {closest_location_name}",
+            "closest_location_group_send_timing": "after_step",
+            "closest_location_group_send_after_step": 4,
             "track_breadcrumb": True,
             "store_history_by_day": True,
             "breadcrumb_interval_minutes": 10,
             "breadcrumb_min_distance_meters": 50,
+            "breadcrumb_started_text_template": "Tap End Breadcrumb when finished.",
+            "breadcrumb_interrupted_text_template": "Live sharing stopped.",
+            "breadcrumb_resumed_text_template": "Breadcrumb resumed.",
+            "breadcrumb_ended_text_template": "Breadcrumb saved.",
             "pipeline": [
                 {
                     "module_type": "share_location",
                     "text_template": "Share your live location.",
                     "button_text": "Verify Location",
                     "success_text_template": "Saved {location_latitude},{location_longitude}",
+                    "invalid_text_template": "Too far from {closest_location_name}",
                     "require_live_location": True,
+                    "find_closest_saved_location": True,
+                    "match_closest_saved_location": True,
+                    "closest_location_tolerance_meters": 120,
+                    "closest_location_group_text_template": "Checked in near {closest_location_name}",
+                    "closest_location_group_send_timing": "after_step",
+                    "closest_location_group_send_after_step": 4,
                     "track_breadcrumb": True,
                     "store_history_by_day": True,
                     "breadcrumb_interval_minutes": 10,
                     "breadcrumb_min_distance_meters": 50,
+                    "breadcrumb_started_text_template": "Tap End Breadcrumb when finished.",
+                    "breadcrumb_interrupted_text_template": "Live sharing stopped.",
+                    "breadcrumb_resumed_text_template": "Breadcrumb resumed.",
+                    "breadcrumb_ended_text_template": "Breadcrumb saved.",
                 }
             ],
         },
@@ -879,10 +1296,21 @@ def test_extract_command_module_form_values_keeps_share_location_live_flags() ->
     assert values["contact_button_text"] == "Verify Location"
     assert values["contact_success_text"] == "Saved {location_latitude},{location_longitude}"
     assert values["require_live_location"] == "1"
+    assert values["find_closest_saved_location"] == "1"
+    assert values["match_closest_saved_location"] == "1"
+    assert values["closest_location_tolerance_meters"] == "120"
+    assert values["closest_location_group_text"] == "Checked in near {closest_location_name}"
+    assert values["closest_location_group_send_timing"] == "after_step"
+    assert values["closest_location_group_send_after_step"] == "4"
+    assert values["location_invalid_text"] == "Too far from {closest_location_name}"
     assert values["track_breadcrumb"] == "1"
     assert values["store_history_by_day"] == "1"
     assert values["breadcrumb_interval_minutes"] == "10"
     assert values["breadcrumb_min_distance_meters"] == "50"
+    assert values["breadcrumb_started_text_template"] == "Tap End Breadcrumb when finished."
+    assert values["breadcrumb_interrupted_text_template"] == "Live sharing stopped."
+    assert values["breadcrumb_resumed_text_template"] == "Breadcrumb resumed."
+    assert values["breadcrumb_ended_text_template"] == "Breadcrumb saved."
 
 
 def test_extract_command_rows_keeps_share_location_live_flags() -> None:
@@ -894,22 +1322,44 @@ def test_extract_command_rows_keeps_share_location_live_flags() -> None:
                 "text_template": "Share your live location.",
                 "button_text": "Verify Location",
                 "success_text_template": "Saved {location_latitude},{location_longitude}",
+                "invalid_text_template": "Too far from {closest_location_name}",
                 "require_live_location": True,
+                "find_closest_saved_location": True,
+                "match_closest_saved_location": True,
+                "closest_location_tolerance_meters": 120,
+                "closest_location_group_text_template": "Checked in near {closest_location_name}",
+                "closest_location_group_send_timing": "after_step",
+                "closest_location_group_send_after_step": 4,
                 "track_breadcrumb": True,
                 "store_history_by_day": True,
                 "breadcrumb_interval_minutes": 10,
                 "breadcrumb_min_distance_meters": 50,
+                "breadcrumb_started_text_template": "Tap End Breadcrumb when finished.",
+                "breadcrumb_interrupted_text_template": "Live sharing stopped.",
+                "breadcrumb_resumed_text_template": "Breadcrumb resumed.",
+                "breadcrumb_ended_text_template": "Breadcrumb saved.",
                 "pipeline": [
                     {
                         "module_type": "share_location",
                         "text_template": "Share your live location.",
                         "button_text": "Verify Location",
                         "success_text_template": "Saved {location_latitude},{location_longitude}",
+                        "invalid_text_template": "Too far from {closest_location_name}",
                         "require_live_location": True,
+                        "find_closest_saved_location": True,
+                        "match_closest_saved_location": True,
+                        "closest_location_tolerance_meters": 120,
+                        "closest_location_group_text_template": "Checked in near {closest_location_name}",
+                        "closest_location_group_send_timing": "after_step",
+                        "closest_location_group_send_after_step": 4,
                         "track_breadcrumb": True,
                         "store_history_by_day": True,
                         "breadcrumb_interval_minutes": 10,
                         "breadcrumb_min_distance_meters": 50,
+                        "breadcrumb_started_text_template": "Tap End Breadcrumb when finished.",
+                        "breadcrumb_interrupted_text_template": "Live sharing stopped.",
+                        "breadcrumb_resumed_text_template": "Breadcrumb resumed.",
+                        "breadcrumb_ended_text_template": "Breadcrumb saved.",
                     }
                 ],
             }
@@ -917,10 +1367,21 @@ def test_extract_command_rows_keeps_share_location_live_flags() -> None:
     )
 
     assert rows[0]["require_live_location"] == "1"
+    assert rows[0]["find_closest_saved_location"] == "1"
+    assert rows[0]["match_closest_saved_location"] == "1"
+    assert rows[0]["closest_location_tolerance_meters"] == "120"
+    assert rows[0]["closest_location_group_text"] == "Checked in near {closest_location_name}"
+    assert rows[0]["closest_location_group_send_timing"] == "after_step"
+    assert rows[0]["closest_location_group_send_after_step"] == "4"
+    assert rows[0]["location_invalid_text"] == "Too far from {closest_location_name}"
     assert rows[0]["track_breadcrumb"] == "1"
     assert rows[0]["store_history_by_day"] == "1"
     assert rows[0]["breadcrumb_interval_minutes"] == "10"
     assert rows[0]["breadcrumb_min_distance_meters"] == "50"
+    assert rows[0]["breadcrumb_started_text_template"] == "Tap End Breadcrumb when finished."
+    assert rows[0]["breadcrumb_interrupted_text_template"] == "Live sharing stopped."
+    assert rows[0]["breadcrumb_resumed_text_template"] == "Breadcrumb resumed."
+    assert rows[0]["breadcrumb_ended_text_template"] == "Breadcrumb saved."
 
 
 def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
@@ -931,22 +1392,44 @@ def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
                 "text_template": "Share your live location.",
                 "button_text": "Verify Location",
                 "success_text_template": "Saved {location_latitude},{location_longitude}",
+                "invalid_text_template": "Too far from {closest_location_name}",
                 "require_live_location": True,
+                "find_closest_saved_location": True,
+                "match_closest_saved_location": True,
+                "closest_location_tolerance_meters": 120,
+                "closest_location_group_text_template": "Checked in near {closest_location_name}",
+                "closest_location_group_send_timing": "after_step",
+                "closest_location_group_send_after_step": 4,
                 "track_breadcrumb": True,
                 "store_history_by_day": True,
                 "breadcrumb_interval_minutes": 10,
                 "breadcrumb_min_distance_meters": 50,
+                "breadcrumb_started_text_template": "Tap End Breadcrumb when finished.",
+                "breadcrumb_interrupted_text_template": "Live sharing stopped.",
+                "breadcrumb_resumed_text_template": "Breadcrumb resumed.",
+                "breadcrumb_ended_text_template": "Breadcrumb saved.",
                 "pipeline": [
                     {
                         "module_type": "share_location",
                         "text_template": "Share your live location.",
                         "button_text": "Verify Location",
                         "success_text_template": "Saved {location_latitude},{location_longitude}",
+                        "invalid_text_template": "Too far from {closest_location_name}",
                         "require_live_location": True,
+                        "find_closest_saved_location": True,
+                        "match_closest_saved_location": True,
+                        "closest_location_tolerance_meters": 120,
+                        "closest_location_group_text_template": "Checked in near {closest_location_name}",
+                        "closest_location_group_send_timing": "after_step",
+                        "closest_location_group_send_after_step": 4,
                         "track_breadcrumb": True,
                         "store_history_by_day": True,
                         "breadcrumb_interval_minutes": 10,
                         "breadcrumb_min_distance_meters": 50,
+                        "breadcrumb_started_text_template": "Tap End Breadcrumb when finished.",
+                        "breadcrumb_interrupted_text_template": "Live sharing stopped.",
+                        "breadcrumb_resumed_text_template": "Breadcrumb resumed.",
+                        "breadcrumb_ended_text_template": "Breadcrumb saved.",
                     }
                 ],
             }
@@ -954,10 +1437,130 @@ def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
     )
 
     assert rows[0]["require_live_location"] == "1"
+    assert rows[0]["find_closest_saved_location"] == "1"
+    assert rows[0]["match_closest_saved_location"] == "1"
+    assert rows[0]["closest_location_tolerance_meters"] == "120"
+    assert rows[0]["closest_location_group_text"] == "Checked in near {closest_location_name}"
+    assert rows[0]["closest_location_group_send_timing"] == "after_step"
+    assert rows[0]["closest_location_group_send_after_step"] == "4"
+    assert rows[0]["location_invalid_text"] == "Too far from {closest_location_name}"
     assert rows[0]["track_breadcrumb"] == "1"
     assert rows[0]["store_history_by_day"] == "1"
     assert rows[0]["breadcrumb_interval_minutes"] == "10"
     assert rows[0]["breadcrumb_min_distance_meters"] == "50"
+    assert rows[0]["breadcrumb_started_text_template"] == "Tap End Breadcrumb when finished."
+    assert rows[0]["breadcrumb_interrupted_text_template"] == "Live sharing stopped."
+    assert rows[0]["breadcrumb_resumed_text_template"] == "Breadcrumb resumed."
+    assert rows[0]["breadcrumb_ended_text_template"] == "Breadcrumb saved."
+
+
+def test_build_command_module_entry_persists_route_fields() -> None:
+    entry = _build_command_module_entry(
+        command_name="route",
+        module_type="route",
+        text_template="Distance: {route_total_distance_text}\nMap: {route_link}",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        route_empty_text="No route yet.",
+        route_max_link_points="25",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["text_template"] == "Distance: {route_total_distance_text}\nMap: {route_link}"
+    assert entry["empty_text_template"] == "No route yet."
+    assert entry["max_link_points"] == 25
+    assert entry["pipeline"][0]["module_type"] == "route"
+    assert entry["pipeline"][0]["empty_text_template"] == "No route yet."
+    assert entry["pipeline"][0]["max_link_points"] == 25
+
+
+def test_extract_command_module_form_values_keeps_route_fields() -> None:
+    values = _extract_command_module_form_values(
+        command_name="route",
+        raw_module={
+            "module_type": "route",
+            "text_template": "Distance: {route_total_distance_text}\nMap: {route_link}",
+            "empty_text_template": "No route yet.",
+            "max_link_points": 25,
+            "pipeline": [
+                {
+                    "module_type": "route",
+                    "text_template": "Distance: {route_total_distance_text}\nMap: {route_link}",
+                    "empty_text_template": "No route yet.",
+                    "max_link_points": 25,
+                }
+            ],
+        },
+        default_text_template="Command /route received.",
+        default_menu_title="Route Menu",
+    )
+
+    assert values["text_template"] == "Distance: {route_total_distance_text}\nMap: {route_link}"
+    assert values["route_empty_text"] == "No route yet."
+    assert values["route_max_link_points"] == "25"
+
+
+def test_pipeline_to_chain_steps_round_trips_route_step() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "route",
+            "text_template": "Distance: {route_total_distance_text}\nMap: {route_link}",
+            "empty_text_template": "No route yet.",
+            "max_link_points": 25,
+            "parse_mode": None,
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="route", raw=serialized)
+
+    assert steps == [
+        {
+            "module_type": "route",
+            "text_template": "Distance: {route_total_distance_text}\nMap: {route_link}",
+            "empty_text_template": "No route yet.",
+            "max_link_points": 25,
+            "parse_mode": None,
+        }
+    ]
 
 
 def test_build_callback_module_entry_persists_temporary_commands() -> None:

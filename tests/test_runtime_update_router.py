@@ -113,6 +113,25 @@ class FakeCommandMenuGateway:
         return payload
 
 
+class FakeTemporaryCommandMenuStateStore:
+    def __init__(self) -> None:
+        self.values: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def set_active_menu(self, *, bot_id: str, chat_id: str, source_callback_key: str) -> None:
+        self.values[(bot_id, chat_id)] = {
+            "bot_id": bot_id,
+            "chat_id": chat_id,
+            "source_callback_key": source_callback_key,
+        }
+
+    def get_active_menu(self, *, bot_id: str, chat_id: str) -> dict[str, Any] | None:
+        value = self.values.get((bot_id, chat_id))
+        return dict(value) if isinstance(value, dict) else None
+
+    def delete_active_menu(self, *, bot_id: str, chat_id: str) -> None:
+        self.values.pop((bot_id, chat_id), None)
+
+
 class FakeContactRequestStore:
     def __init__(self) -> None:
         self.pending: dict[tuple[str, str, str], object] = {}
@@ -500,7 +519,10 @@ def test_handle_callback_query_update_activates_temporary_command_menu_and_resto
     assert gateway.set_calls == [
         {
             "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
-            "commands": [{"command": "next", "description": "Next"}],
+            "commands": [
+                {"command": "next", "description": "Next"},
+                {"command": "restart", "description": "Restart bot"},
+            ],
             "scope": {"type": "chat", "chat_id": "12345"},
             "language_code": None,
         }
@@ -545,6 +567,7 @@ def test_handle_message_update_loads_callback_module_and_activates_temporary_com
     temporary_command_target = CaptureModule()
     gateway = FakeCommandMenuGateway()
     active_menus: dict[str, dict[str, Any]] = {}
+    state_store = FakeTemporaryCommandMenuStateStore()
 
     sent = handle_message_update(
         {
@@ -567,6 +590,7 @@ def test_handle_message_update_loads_callback_module_and_activates_temporary_com
             }
         },
         active_temporary_command_menus_by_chat=active_menus,
+        temporary_command_menu_state_store=state_store,
         gateway=gateway,
         bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
         start_returning_user=False,
@@ -575,10 +599,18 @@ def test_handle_message_update_loads_callback_module_and_activates_temporary_com
     assert sent == 2
     assert callback_target.contexts[0]["callback_data"] == "tracking location"
     assert active_menus["support-bot:12345"]["source_callback_key"] == "tracking location"
+    assert state_store.get_active_menu(bot_id="support-bot", chat_id="12345") == {
+        "bot_id": "support-bot",
+        "chat_id": "12345",
+        "source_callback_key": "tracking location",
+    }
     assert gateway.set_calls == [
         {
             "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
-            "commands": [{"command": "next", "description": "Next"}],
+            "commands": [
+                {"command": "next", "description": "Next"},
+                {"command": "restart", "description": "Restart bot"},
+            ],
             "scope": {"type": "chat", "chat_id": "12345"},
             "language_code": None,
         }
@@ -613,6 +645,162 @@ def test_handle_message_update_loads_callback_module_and_activates_temporary_com
             "language_code": None,
         }
     ]
+
+
+def test_handle_message_update_restart_restores_lazily_recovered_temporary_menu() -> None:
+    restart_target = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    state_store = FakeTemporaryCommandMenuStateStore()
+    state_store.set_active_menu(
+        bot_id="support-bot",
+        chat_id="12345",
+        source_callback_key="tracking location",
+    )
+    active_menus: dict[str, dict[str, Any]] = {}
+
+    restart_sent = handle_message_update(
+        {
+            "message": {
+                "text": "/restart",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_menu=[
+            {"command": "start", "description": "Start bot"},
+            {"command": "restart", "description": "Restart bot"},
+            {"command": "etrex", "description": "Open eTrax"},
+        ],
+        command_modules={"restart": [restart_target]},
+        start_returning_user=False,
+        temporary_command_menus={
+            "tracking location": {
+                "commands": [{"command": "next", "description": "Next", "restore_original_menu": False}],
+                "command_modules": {"next": [CaptureModule()]},
+            }
+        },
+        active_temporary_command_menus_by_chat=active_menus,
+        temporary_command_menu_state_store=state_store,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert restart_sent == 1
+    assert len(restart_target.contexts) == 1
+    assert restart_target.contexts[0]["command_name"] == "restart"
+    assert "temporary_command_source_callback_key" not in restart_target.contexts[0]
+    assert "support-bot:12345" not in active_menus
+    assert state_store.get_active_menu(bot_id="support-bot", chat_id="12345") is None
+    assert gateway.delete_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
+    assert gateway.set_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "commands": [
+                {"command": "start", "description": "Start bot"},
+                {"command": "restart", "description": "Restart bot"},
+                {"command": "etrex", "description": "Open eTrax"},
+            ],
+            "scope": None,
+            "language_code": None,
+        }
+    ]
+
+
+def test_handle_message_update_restart_restores_active_temporary_menu() -> None:
+    callback_target = CaptureModule()
+    temporary_command_target = CaptureModule()
+    restart_target = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    active_menus: dict[str, dict[str, Any]] = {}
+
+    sent = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-restart",
+                "data": "etrax",
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+                "message": {
+                    "message_id": 778,
+                    "chat": {"id": 12345},
+                    "text": "Open eTrax",
+                },
+            }
+        },
+        bot_id="support-bot",
+        callback_modules={"etrax": [callback_target]},
+        temporary_command_menus={
+            "etrax": {
+                "commands": [{"command": "next", "description": "Next"}],
+                "command_modules": {"next": [temporary_command_target]},
+            }
+        },
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert sent == 1
+    assert "support-bot:12345" in active_menus
+
+    restart_sent = handle_message_update(
+        {
+            "message": {
+                "text": "/restart",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_menu=[
+            {"command": "start", "description": "Start bot"},
+            {"command": "restart", "description": "Restart bot"},
+            {"command": "etrex", "description": "Open eTrax"},
+        ],
+        command_modules={"restart": [restart_target]},
+        start_returning_user=False,
+        active_temporary_command_menus_by_chat=active_menus,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert restart_sent == 1
+    assert len(restart_target.contexts) == 1
+    assert restart_target.contexts[0]["command_name"] == "restart"
+    assert "temporary_command_source_callback_key" not in restart_target.contexts[0]
+    assert "support-bot:12345" not in active_menus
+    assert gateway.delete_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
+    assert gateway.set_calls[-1] == {
+        "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        "commands": [
+            {"command": "start", "description": "Start bot"},
+            {"command": "restart", "description": "Restart bot"},
+            {"command": "etrex", "description": "Open eTrax"},
+        ],
+        "scope": None,
+        "language_code": None,
+    }
 
 
 def test_handle_message_update_keeps_temporary_command_menu_when_restore_flag_is_off() -> None:
@@ -711,6 +899,57 @@ def test_handle_message_update_keeps_temporary_command_menu_when_restore_flag_is
             "language_code": None,
         }
     ]
+
+
+def test_handle_message_update_restores_persisted_temporary_menu_after_restart() -> None:
+    temporary_command_target = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    state_store = FakeTemporaryCommandMenuStateStore()
+    state_store.set_active_menu(
+        bot_id="support-bot",
+        chat_id="12345",
+        source_callback_key="etrax",
+    )
+    active_menus: dict[str, dict[str, Any]] = {}
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/next",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        start_returning_user=False,
+        temporary_command_menus={
+            "etrax": {
+                "commands": [
+                    {"command": "next", "description": "Next", "restore_original_menu": False},
+                ],
+                "command_modules": {
+                    "next": [temporary_command_target],
+                },
+            }
+        },
+        active_temporary_command_menus_by_chat=active_menus,
+        temporary_command_menu_state_store=state_store,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert sent == 1
+    assert temporary_command_target.contexts[0]["temporary_command_source_callback_key"] == "etrax"
+    assert "support-bot:12345" in active_menus
+    assert state_store.get_active_menu(bot_id="support-bot", chat_id="12345") == {
+        "bot_id": "support-bot",
+        "chat_id": "12345",
+        "source_callback_key": "etrax",
+    }
 
 
 def test_handle_message_update_skips_callback_module_when_run_if_missing() -> None:

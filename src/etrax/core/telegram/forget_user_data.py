@@ -27,6 +27,7 @@ _PROFILE_CONTEXT_KEYS_TO_CLEAR = (
     "location_breadcrumb_count",
     "location_breadcrumb_total_distance_meters",
     "location_breadcrumb_active",
+    "location_breadcrumb_sessions",
     "last_command",
     "last_callback_data",
 )
@@ -67,6 +68,7 @@ _RESERVED_PROFILE_KEYS = {
     "location_breadcrumb_count",
     "location_breadcrumb_total_distance_meters",
     "location_breadcrumb_active",
+    "location_breadcrumb_sessions",
     "location_shared_at",
 }
 

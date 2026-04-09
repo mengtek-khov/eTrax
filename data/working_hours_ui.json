@@ -1,0 +1,46 @@
+{
+  "entries": [
+    {
+      "end_time": "06:00 PM",
+      "id": "wh-demo-monday",
+      "start_time": "06:00 AM",
+      "working_day": "Monday"
+    },
+    {
+      "end_time": "06:00 PM",
+      "id": "wh-1775631396564",
+      "start_time": "06:00 AM",
+      "working_day": "Tuesday"
+    },
+    {
+      "end_time": "06:00 PM",
+      "id": "wh-1775624420731",
+      "start_time": "06:00 AM",
+      "working_day": "Wednesday"
+    },
+    {
+      "end_time": "06:00 PM",
+      "id": "wh-1775624421955",
+      "start_time": "06:00 AM",
+      "working_day": "Thursday"
+    },
+    {
+      "end_time": "06:00 PM",
+      "id": "wh-1775631398931",
+      "start_time": "06:00 AM",
+      "working_day": "Friday"
+    },
+    {
+      "end_time": "06:00 PM",
+      "id": "wh-1775624426820",
+      "start_time": "06:00 AM",
+      "working_day": "Saturday"
+    },
+    {
+      "end_time": "06:00 PM",
+      "id": "wh-1775624428405",
+      "start_time": "06:00 AM",
+      "working_day": "Sunday"
+    }
+  ]
+}

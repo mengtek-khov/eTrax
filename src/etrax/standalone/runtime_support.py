@@ -109,10 +109,15 @@ def to_safe_filename(bot_id: str) -> str:
     return sanitized
 
 
-def print_runtime_error(bot_id: str, message: str) -> None:
+def print_runtime_error(bot_id: str, message: str, *, details: str = "") -> None:
     """Print runtime errors with a consistent timestamped prefix."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     print(f"[{timestamp}] [runtime:{bot_id}] ERROR: {message}", flush=True)
+    detail_text = str(details).strip()
+    if not detail_text:
+        return
+    for line in detail_text.splitlines():
+        print(f"[{timestamp}] [runtime:{bot_id}] TRACE: {line}", flush=True)
 
 
 def print_runtime_step(

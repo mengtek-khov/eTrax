@@ -16,9 +16,25 @@ DEFAULT_LOCATION_PROMPT = "Please share your location using the button below."
 DEFAULT_LIVE_LOCATION_PROMPT = "Please share a live location from Telegram's location menu."
 DEFAULT_LOCATION_BUTTON_TEXT = "Share My Location"
 DEFAULT_LOCATION_SUCCESS = "Thanks, your location was received."
+DEFAULT_FIND_CLOSEST_LOCATION_SUCCESS = "Closest saved location is {closest_location_name}."
+DEFAULT_LOCATION_INVALID = "You are at the wrong location."
 DEFAULT_LIVE_LOCATION_REQUIRED = "Please share a live location from Telegram's location menu."
+DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING = "end"
 DEFAULT_BREADCRUMB_MIN_DISTANCE_METERS = 5.0
 DEFAULT_BREADCRUMB_INTERVAL_MINUTES = 0.0
+DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS = 100.0
+DEFAULT_BREADCRUMB_STARTED = (
+    "Breadcrumb started. Tap End Breadcrumb when you finish. "
+    "If live location stops, share live location again to continue."
+)
+DEFAULT_BREADCRUMB_INTERRUPTED = (
+    "Live location stopped before the breadcrumb was ended. "
+    "Tap End Breadcrumb to finish now, or share live location again to continue."
+)
+DEFAULT_BREADCRUMB_RESUMED = "Breadcrumb resumed. Tap End Breadcrumb when you finish."
+DEFAULT_BREADCRUMB_ENDED = "Breadcrumb ended and saved."
+DEFAULT_BREADCRUMB_END_BUTTON_TEXT = "End Breadcrumb"
+END_BREADCRUMB_CALLBACK_DATA = "__end_breadcrumb__"
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,12 +46,23 @@ class ShareLocationConfig:
     text_template: str | None = None
     parse_mode: str | None = None
     button_text: str | None = None
-    success_text_template: str | None = DEFAULT_LOCATION_SUCCESS
+    success_text_template: str | None = None
+    closest_location_group_text_template: str | None = None
+    closest_location_group_send_timing: str = DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING
+    closest_location_group_send_after_step: int | None = None
+    invalid_text_template: str | None = DEFAULT_LOCATION_INVALID
     require_live_location: bool = False
+    find_closest_saved_location: bool = False
+    match_closest_saved_location: bool = False
+    closest_location_tolerance_meters: float = DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS
     track_breadcrumb: bool = False
     store_history_by_day: bool = False
     breadcrumb_interval_minutes: float = DEFAULT_BREADCRUMB_INTERVAL_MINUTES
     breadcrumb_min_distance_meters: float = DEFAULT_BREADCRUMB_MIN_DISTANCE_METERS
+    breadcrumb_started_text_template: str | None = None
+    breadcrumb_interrupted_text_template: str | None = None
+    breadcrumb_resumed_text_template: str | None = None
+    breadcrumb_ended_text_template: str | None = None
     run_if_context_keys: tuple[str, ...] = ()
     skip_if_context_keys: tuple[str, ...] = ()
     context_bot_id_key: str = "bot_id"
@@ -55,7 +82,14 @@ class PendingLocationRequest:
     parse_mode: str | None
     prompt_text_template: str | None
     success_text_template: str | None
+    closest_location_group_text_template: str | None
+    invalid_text_template: str | None
+    closest_location_group_send_timing: str = DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING
+    closest_location_group_send_after_step: int | None = None
     require_live_location: bool = False
+    find_closest_saved_location: bool = False
+    match_closest_saved_location: bool = False
+    closest_location_tolerance_meters: float = DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS
     track_breadcrumb: bool = False
     store_history_by_day: bool = False
     breadcrumb_interval_seconds: float = 0.0
@@ -63,8 +97,15 @@ class PendingLocationRequest:
     breadcrumb_started: bool = False
     live_message_id: str | None = None
     breadcrumb_last_point_at: float | None = None
+    breadcrumb_session_started_at: float | None = None
+    breadcrumb_interruption_notified: bool = False
+    closest_location_mismatch_notified: bool = False
     breadcrumb_points: list[tuple[float, float]] = field(default_factory=list)
     breadcrumb_total_distance_meters: float = 0.0
+    breadcrumb_started_text_template: str | None = None
+    breadcrumb_interrupted_text_template: str | None = None
+    breadcrumb_resumed_text_template: str | None = None
+    breadcrumb_ended_text_template: str | None = None
     context_snapshot: dict[str, Any] = field(default_factory=dict)
     continuation_modules: tuple[FlowModule, ...] = ()
 
@@ -199,11 +240,30 @@ class ShareLocationModule:
                 parse_mode=parse_mode,
                 prompt_text_template=self._config.text_template,
                 success_text_template=self._config.success_text_template,
+                closest_location_group_text_template=self._config.closest_location_group_text_template,
+                closest_location_group_send_timing=str(
+                    self._config.closest_location_group_send_timing
+                    or DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING
+                ).strip()
+                or DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING,
+                closest_location_group_send_after_step=(
+                    int(self._config.closest_location_group_send_after_step)
+                    if self._config.closest_location_group_send_after_step not in {None, ""}
+                    else None
+                ),
+                invalid_text_template=self._config.invalid_text_template,
                 require_live_location=self._config.require_live_location,
+                find_closest_saved_location=bool(self._config.find_closest_saved_location),
+                match_closest_saved_location=bool(self._config.match_closest_saved_location),
+                closest_location_tolerance_meters=max(0.0, float(self._config.closest_location_tolerance_meters)),
                 track_breadcrumb=bool(self._config.require_live_location and self._config.track_breadcrumb),
                 store_history_by_day=bool(self._config.store_history_by_day),
                 breadcrumb_interval_seconds=max(0.0, float(self._config.breadcrumb_interval_minutes) * 60.0),
                 breadcrumb_min_distance_meters=max(0.0, float(self._config.breadcrumb_min_distance_meters)),
+                breadcrumb_started_text_template=self._config.breadcrumb_started_text_template,
+                breadcrumb_interrupted_text_template=self._config.breadcrumb_interrupted_text_template,
+                breadcrumb_resumed_text_template=self._config.breadcrumb_resumed_text_template,
+                breadcrumb_ended_text_template=self._config.breadcrumb_ended_text_template,
                 context_snapshot={**render_context, **result_context},
                 continuation_modules=self._continuation_modules,
             )
@@ -257,6 +317,19 @@ def build_location_request_reply_markup(button_text: str) -> dict[str, Any]:
         ],
         "resize_keyboard": True,
         "one_time_keyboard": True,
+    }
+
+
+def build_breadcrumb_end_reply_markup() -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {
+                    "text": DEFAULT_BREADCRUMB_END_BUTTON_TEXT,
+                    "callback_data": END_BREADCRUMB_CALLBACK_DATA,
+                }
+            ]
+        ]
     }
 
 
@@ -335,9 +408,12 @@ def append_location_breadcrumb_point(
                 total_distance_meters=request.breadcrumb_total_distance_meters,
             )
         request.breadcrumb_total_distance_meters += segment_distance
+    elif request.breadcrumb_session_started_at is None:
+        request.breadcrumb_session_started_at = candidate_timestamp
 
     request.breadcrumb_points.append(candidate_point)
     request.breadcrumb_last_point_at = candidate_timestamp
+    request.breadcrumb_interruption_notified = False
     return build_location_breadcrumb_context(
         request.breadcrumb_points,
         total_distance_meters=request.breadcrumb_total_distance_meters,
@@ -348,6 +424,7 @@ def build_location_breadcrumb_context(
     points: Sequence[tuple[float, float]],
     *,
     total_distance_meters: float,
+    active: bool | None = None,
 ) -> dict[str, Any]:
     return {
         "location_breadcrumb_points": [
@@ -356,7 +433,7 @@ def build_location_breadcrumb_context(
         ],
         "location_breadcrumb_count": len(points),
         "location_breadcrumb_total_distance_meters": float(total_distance_meters),
-        "location_breadcrumb_active": bool(points),
+        "location_breadcrumb_active": bool(points) if active is None else bool(active),
     }
 
 
@@ -409,6 +486,25 @@ def build_breadcrumb_history_entry(
     entry["breadcrumb_count"] = len(request.breadcrumb_points)
     entry["breadcrumb_total_distance_meters"] = float(request.breadcrumb_total_distance_meters)
     return entry
+
+
+def build_breadcrumb_session_entry(
+    request: PendingLocationRequest,
+    *,
+    ended_at: object = None,
+    ended_reason: str = "ended_by_user",
+) -> dict[str, Any]:
+    return {
+        "started_at": _timestamp_to_iso(request.breadcrumb_session_started_at),
+        "ended_at": _timestamp_to_iso(ended_at),
+        "ended_reason": str(ended_reason or "").strip() or "ended_by_user",
+        "point_count": len(request.breadcrumb_points),
+        "total_distance_meters": float(request.breadcrumb_total_distance_meters),
+        "points": [
+            {"latitude": float(latitude), "longitude": float(longitude)}
+            for latitude, longitude in request.breadcrumb_points
+        ],
+    }
 
 
 def daily_history_key(recorded_at: object = None) -> str:

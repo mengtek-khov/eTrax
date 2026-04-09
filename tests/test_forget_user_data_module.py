@@ -76,6 +76,7 @@ def test_forget_user_data_module_clears_profile_cart_and_context() -> None:
             "location_breadcrumb_count": 1,
             "location_breadcrumb_total_distance_meters": 0.0,
             "location_breadcrumb_active": True,
+            "location_breadcrumb_sessions": [{"points": [{"latitude": 11.5564, "longitude": 104.9282}]}],
             "selected_role": "Driver",
             "start_returning_user": True,
         }
@@ -95,6 +96,7 @@ def test_forget_user_data_module_clears_profile_cart_and_context() -> None:
     assert outcome.context_updates["location_breadcrumb_count"] is None
     assert outcome.context_updates["location_breadcrumb_total_distance_meters"] is None
     assert outcome.context_updates["location_breadcrumb_active"] is None
+    assert outcome.context_updates["location_breadcrumb_sessions"] is None
     assert outcome.context_updates["selected_role"] is None
     assert outcome.context_updates["start_returning_user"] is False
     assert outcome.context_updates["forget_user_data_result"] == {

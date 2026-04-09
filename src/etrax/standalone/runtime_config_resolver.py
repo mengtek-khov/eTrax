@@ -63,6 +63,7 @@ def resolve_command_menu(config_payload: dict[str, Any]) -> list[dict[str, str]]
         add_command("start", start_description)
     if include_menu:
         add_command("menu", menu_description)
+    add_command("restart", "Restart bot")
 
     command_menu_commands = command_menu.get("commands", [])
     if isinstance(command_menu_commands, list):
@@ -93,19 +94,19 @@ def resolve_command_send_configs(
             continue
         module_config_raw = command_modules.get(command_name, {})
         module_config = module_config_raw if isinstance(module_config_raw, dict) else {}
-        if command_name == "start" and not module_config:
-            scenario_send_config = resolve_start_send_config(config_payload, bot_id)
-            if scenario_send_config is not None:
-                module_config = {
-                    "module_type": "send_message",
-                    "text_template": scenario_send_config.text_template,
-                    "parse_mode": scenario_send_config.parse_mode,
-                }
-        start_returning_text_template = str(module_config.get("start_returning_text_template", "")).strip()
-        if not start_returning_text_template:
-            start_returning_text_template = str(module_config.get("welcome_back_template", "")).strip()
-        if command_name == "start" and not start_returning_text_template:
-            start_returning_text_template = "Welcome back, {user_first_name}."
+        if command_name == "restart":
+            module_config, start_returning_text_template = _resolve_restart_module_config(
+                config_payload=config_payload,
+                bot_id=bot_id,
+                command_modules=command_modules,
+            )
+        else:
+            module_config, start_returning_text_template = _resolve_start_like_module_config(
+                config_payload=config_payload,
+                bot_id=bot_id,
+                command_name=command_name,
+                module_config=module_config,
+            )
         resolved[command_name] = _resolve_named_send_config_pipeline(
             bot_id=bot_id,
             route_label=f"/{command_name}",
@@ -116,6 +117,17 @@ def resolve_command_send_configs(
                 start_returning_text_template if command_name == "start" else ""
             ),
         )
+    resolved["restart"] = _resolve_named_send_config_pipeline(
+        bot_id=bot_id,
+        route_label="/restart",
+        route_key="cmd_restart",
+        default_text_template=_default_command_text_template("start"),
+        module_config=_resolve_restart_module_config(
+            config_payload=config_payload,
+            bot_id=bot_id,
+            command_modules=command_modules,
+        )[0],
+    )
     return resolved
 
 
@@ -160,7 +172,7 @@ def resolve_callback_temporary_command_menus(
         if not callback_key:
             continue
         module_config = module_config_raw if isinstance(module_config_raw, dict) else {}
-        commands = _resolve_temporary_command_menu_commands(module_config)
+        commands = _ensure_restart_temporary_command(_resolve_temporary_command_menu_commands(module_config))
         if not commands:
             continue
         raw_command_modules = module_config.get("temporary_command_modules", {})
@@ -169,6 +181,8 @@ def resolve_callback_temporary_command_menus(
         for command in commands:
             command_name = _normalize_command(str(command.get("command", "")))
             if not command_name:
+                continue
+            if command_name == "restart":
                 continue
             temporary_module_raw = temporary_command_modules.get(command_name, {})
             temporary_module = temporary_module_raw if isinstance(temporary_module_raw, dict) else {}
@@ -185,6 +199,20 @@ def resolve_callback_temporary_command_menus(
                 "command_modules": resolved_pipelines,
             }
     return resolved
+
+
+def _ensure_restart_temporary_command(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_commands = [dict(item) for item in commands if isinstance(item, dict)]
+    seen = {str(item.get("command", "")).strip() for item in normalized_commands}
+    if "restart" not in seen:
+        normalized_commands.append(
+            {
+                "command": "restart",
+                "description": "Restart bot",
+                "restore_original_menu": True,
+            }
+        )
+    return normalized_commands
 
 
 def _resolve_named_send_config_pipeline(
@@ -226,6 +254,46 @@ def _resolve_named_send_config_pipeline(
             step=module_config,
         )
     ]
+
+
+def _resolve_start_like_module_config(
+    *,
+    config_payload: dict[str, Any],
+    bot_id: str,
+    command_name: str,
+    module_config: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    resolved_module_config = dict(module_config)
+    if command_name == "start" and not resolved_module_config:
+        scenario_send_config = resolve_start_send_config(config_payload, bot_id)
+        if scenario_send_config is not None:
+            resolved_module_config = {
+                "module_type": "send_message",
+                "text_template": scenario_send_config.text_template,
+                "parse_mode": scenario_send_config.parse_mode,
+            }
+    start_returning_text_template = str(resolved_module_config.get("start_returning_text_template", "")).strip()
+    if not start_returning_text_template:
+        start_returning_text_template = str(resolved_module_config.get("welcome_back_template", "")).strip()
+    if command_name == "start" and not start_returning_text_template:
+        start_returning_text_template = "Welcome back, {user_first_name}."
+    return resolved_module_config, start_returning_text_template
+
+
+def _resolve_restart_module_config(
+    *,
+    config_payload: dict[str, Any],
+    bot_id: str,
+    command_modules: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    start_module_config_raw = command_modules.get("start", {})
+    start_module_config = start_module_config_raw if isinstance(start_module_config_raw, dict) else {}
+    return _resolve_start_like_module_config(
+        config_payload=config_payload,
+        bot_id=bot_id,
+        command_name="start",
+        module_config=start_module_config,
+    )
 
 
 def _resolve_named_step_config(

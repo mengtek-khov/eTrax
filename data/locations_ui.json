@@ -1,0 +1,115 @@
+{
+  "entries": [
+    {
+      "company": "eTrax Logistics",
+      "id": "loc-1775620773133",
+      "latitude": "11.562034951274",
+      "location_code": "loc-0490",
+      "location_name": "My office",
+      "longitude": "104.870299950078",
+      "search_query": "",
+      "telegram_group_id": "-1003692949770",
+      "updated_at": "2026-04-09T04:36:31.171431+00:00",
+      "zone": "North"
+    },
+    {
+      "company": "",
+      "id": "loc-1775622175910",
+      "latitude": "11.703122161493",
+      "location_code": "test-08112255",
+      "location_name": "Test Location 20260408112255",
+      "longitude": "105.097868024303",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:22:55.910079+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622179150",
+      "latitude": "11.792685354967",
+      "location_code": "test-08112259",
+      "location_name": "Test Location 20260408112259",
+      "longitude": "104.896599417992",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:22:59.150161+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622182313",
+      "latitude": "11.487627401843",
+      "location_code": "test-08112302",
+      "location_name": "Test Location 20260408112302",
+      "longitude": "105.073483825717",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:23:02.313274+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622188351",
+      "latitude": "11.702743179256",
+      "location_code": "test-08112308",
+      "location_name": "Test Location 20260408112308",
+      "longitude": "104.832494974161",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:23:08.351235+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622224213",
+      "latitude": "11.588567081776",
+      "location_code": "test-08112344",
+      "location_name": "Test Location 20260408112344",
+      "longitude": "105.014660240303",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:23:44.213730+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622237326",
+      "latitude": "11.629528810476",
+      "location_code": "test-08112357",
+      "location_name": "Test Location 20260408112357",
+      "longitude": "104.807192641803",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:23:57.326989+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622238580",
+      "latitude": "11.558785978513",
+      "location_code": "test-08112358",
+      "location_name": "Test Location 20260408112358",
+      "longitude": "104.861735793751",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:23:58.580938+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622239364",
+      "latitude": "11.48943578916",
+      "location_code": "test-08112359",
+      "location_name": "Test Location 20260408112359",
+      "longitude": "104.909631901479",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:23:59.364845+00:00",
+      "zone": ""
+    },
+    {
+      "company": "",
+      "id": "loc-1775622240447",
+      "latitude": "11.494506888285",
+      "location_code": "test-08112400",
+      "location_name": "Test Location 20260408112400",
+      "longitude": "104.801290544347",
+      "search_query": "Generated test location",
+      "updated_at": "2026-04-08T04:24:00.448004+00:00",
+      "zone": ""
+    }
+  ]
+}

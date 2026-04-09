@@ -12,6 +12,13 @@
   }
 
   const helpers = moduleSystem.helpers;
+  let nextEntryId = 1;
+
+  function allocateEntryId() {
+    const current = nextEntryId;
+    nextEntryId += 1;
+    return current;
+  }
 
   function parseSerializedChainStep(rawLine) {
     // Supports the newer JSON-per-line chain-step format saved by the backend.
@@ -129,9 +136,14 @@
     if (!("empty_text_template" in normalized)) {
       if ("checkout_empty_text" in source && String(source.checkout_empty_text || "").trim()) {
         normalized.empty_text_template = source.checkout_empty_text;
+      } else if ("route_empty_text" in source && String(source.route_empty_text || "").trim()) {
+        normalized.empty_text_template = source.route_empty_text;
       } else if ("payment_empty_text" in source) {
         normalized.empty_text_template = source.payment_empty_text;
       }
+    }
+    if (!("max_link_points" in normalized) && "route_max_link_points" in source) {
+      normalized.max_link_points = source.route_max_link_points;
     }
     if (!("pay_button_text" in normalized) && "checkout_pay_button_text" in source) {
       normalized.pay_button_text = source.checkout_pay_button_text;
@@ -207,6 +219,7 @@
       button_text: "",
       success_text_template: "",
       invalid_text_template: "",
+      max_link_points: "60",
       empty_text_template: "",
       pay_button_text: "",
       pay_callback_data: "",
@@ -245,6 +258,7 @@
         || rawRestoreOriginalMenu === "False"
         || rawRestoreOriginalMenu === ""
       ),
+      _entry_id: allocateEntryId(),
       editor: createEditor(source),
     };
   }
@@ -259,6 +273,7 @@
       (entry) => normalizeCommandKey(entry && entry.command ? entry.command : "").length > 0
     );
     return {
+      _entry_id: allocateEntryId(),
       callback_key: source.callback_key ? String(source.callback_key) : "",
       editor: createEditor(source),
       temporaryCommandEntries: temporaryCommands,
@@ -411,10 +426,22 @@
   <input type="hidden" name="start_contact_success_text" :value="startPrimary.success_text_template">
   <input type="hidden" name="start_contact_invalid_text" :value="startPrimary.invalid_text_template">
   <input type="hidden" name="start_require_live_location" :value="startPrimary.require_live_location ? '1' : ''">
+  <input type="hidden" name="start_find_closest_saved_location" :value="startPrimary.find_closest_saved_location ? '1' : ''">
+  <input type="hidden" name="start_match_closest_saved_location" :value="startPrimary.match_closest_saved_location ? '1' : ''">
+  <input type="hidden" name="start_closest_location_tolerance_meters" :value="startPrimary.closest_location_tolerance_meters">
+  <input type="hidden" name="start_closest_location_group_text" :value="startPrimary.closest_location_group_text_template">
+  <input type="hidden" name="start_closest_location_group_send_timing" :value="startPrimary.closest_location_group_send_timing">
+  <input type="hidden" name="start_closest_location_group_send_after_step" :value="startPrimary.closest_location_group_send_after_step">
+  <input type="hidden" name="start_location_invalid_text" :value="startPrimary.invalid_text_template">
   <input type="hidden" name="start_track_breadcrumb" :value="startPrimary.track_breadcrumb ? '1' : ''">
-  <input type="hidden" name="start_store_history_by_day" :value="startPrimary.store_history_by_day ? '1' : ''">
   <input type="hidden" name="start_breadcrumb_interval_minutes" :value="startPrimary.breadcrumb_interval_minutes">
   <input type="hidden" name="start_breadcrumb_min_distance_meters" :value="startPrimary.breadcrumb_min_distance_meters">
+  <input type="hidden" name="start_breadcrumb_started_text_template" :value="startPrimary.breadcrumb_started_text_template">
+  <input type="hidden" name="start_breadcrumb_interrupted_text_template" :value="startPrimary.breadcrumb_interrupted_text_template">
+  <input type="hidden" name="start_breadcrumb_resumed_text_template" :value="startPrimary.breadcrumb_resumed_text_template">
+  <input type="hidden" name="start_breadcrumb_ended_text_template" :value="startPrimary.breadcrumb_ended_text_template">
+  <input type="hidden" name="start_route_empty_text" :value="startPrimary.empty_text_template">
+  <input type="hidden" name="start_route_max_link_points" :value="startPrimary.max_link_points">
   <input type="hidden" name="start_checkout_empty_text" :value="startPrimary.empty_text_template">
   <input type="hidden" name="start_checkout_pay_button_text" :value="startPrimary.pay_button_text">
   <input type="hidden" name="start_checkout_pay_callback_data" :value="startPrimary.pay_callback_data">
@@ -441,7 +468,7 @@
 	  <label>Custom Commands</label>
 	  <p class="hint">Each command has its own process module setup panel.</p>
 	  <div id="command-list" class="command-list">
-	    <div class="command-entry" v-for="(entry, commandIndex) in commandEntries" :key="'cmd-' + commandIndex">
+	    <div class="command-entry" v-for="(entry, commandIndex) in commandEntries" :key="'cmd-' + entry._entry_id">
       <p class="command-panel-title">[[ commandPanelTitle(entry.command) ]]</p>
       <div class="command-row">
         <input placeholder="/help" v-model="entry.command">
@@ -500,13 +527,25 @@
 	      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
 	      <input type="hidden" name="command_contact_button_text" :value="primaryStep(entry.editor).button_text">
 	      <input type="hidden" name="command_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
-      <input type="hidden" name="command_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
-      <input type="hidden" name="command_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
-      <input type="hidden" name="command_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
-      <input type="hidden" name="command_track_breadcrumb" :value="primaryStep(entry.editor).track_breadcrumb ? '1' : ''">
-      <input type="hidden" name="command_store_history_by_day" :value="primaryStep(entry.editor).store_history_by_day ? '1' : ''">
-      <input type="hidden" name="command_breadcrumb_interval_minutes" :value="primaryStep(entry.editor).breadcrumb_interval_minutes">
-      <input type="hidden" name="command_breadcrumb_min_distance_meters" :value="primaryStep(entry.editor).breadcrumb_min_distance_meters">
+	      <input type="hidden" name="command_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
+	      <input type="hidden" name="command_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+	      <input type="hidden" name="command_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
+	      <input type="hidden" name="command_find_closest_saved_location" :value="primaryStep(entry.editor).find_closest_saved_location ? '1' : ''">
+	      <input type="hidden" name="command_match_closest_saved_location" :value="primaryStep(entry.editor).match_closest_saved_location ? '1' : ''">
+	      <input type="hidden" name="command_closest_location_tolerance_meters" :value="primaryStep(entry.editor).closest_location_tolerance_meters">
+	      <input type="hidden" name="command_closest_location_group_text" :value="primaryStep(entry.editor).closest_location_group_text_template">
+	      <input type="hidden" name="command_closest_location_group_send_timing" :value="primaryStep(entry.editor).closest_location_group_send_timing">
+	      <input type="hidden" name="command_closest_location_group_send_after_step" :value="primaryStep(entry.editor).closest_location_group_send_after_step">
+	      <input type="hidden" name="command_location_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+	      <input type="hidden" name="command_track_breadcrumb" :value="primaryStep(entry.editor).track_breadcrumb ? '1' : ''">
+	      <input type="hidden" name="command_breadcrumb_interval_minutes" :value="primaryStep(entry.editor).breadcrumb_interval_minutes">
+	      <input type="hidden" name="command_breadcrumb_min_distance_meters" :value="primaryStep(entry.editor).breadcrumb_min_distance_meters">
+	      <input type="hidden" name="command_breadcrumb_started_text_template" :value="primaryStep(entry.editor).breadcrumb_started_text_template">
+	      <input type="hidden" name="command_breadcrumb_interrupted_text_template" :value="primaryStep(entry.editor).breadcrumb_interrupted_text_template">
+	      <input type="hidden" name="command_breadcrumb_resumed_text_template" :value="primaryStep(entry.editor).breadcrumb_resumed_text_template">
+	      <input type="hidden" name="command_breadcrumb_ended_text_template" :value="primaryStep(entry.editor).breadcrumb_ended_text_template">
+      <input type="hidden" name="command_route_empty_text" :value="primaryStep(entry.editor).empty_text_template">
+      <input type="hidden" name="command_route_max_link_points" :value="primaryStep(entry.editor).max_link_points">
       <input type="hidden" name="command_checkout_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="command_payment_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="command_checkout_pay_button_text" :value="primaryStep(entry.editor).pay_button_text">
@@ -547,7 +586,7 @@
 		    <option v-for="callbackKey in callbackOptions" :key="'callback-data-opt-' + callbackKey" :value="callbackKey">[[ callbackKey ]]</option>
 		  </datalist>
 		  <div id="callback-list" class="command-list">
-	    <div class="command-entry" v-for="(entry, callbackIndex) in callbackEntries" :key="'callback-' + (entry.callback_key || callbackIndex)">
+	    <div class="command-entry" v-for="(entry, callbackIndex) in callbackEntries" :key="'callback-' + entry._entry_id">
 	      <p class="command-panel-title">[[ callbackPanelTitle(entry.callback_key) ]]</p>
 	      <div class="command-row">
 	        <input placeholder="Driver" list="callback-key-options" v-model="entry.callback_key">
@@ -599,7 +638,7 @@
           <button type="button" class="secondary" @click="clearTemporaryCommands(entry)">Clear Temporary Commands</button>
         </div>
         <div class="command-list">
-          <div class="command-entry" v-for="(tempEntry, tempCommandIndex) in entry.temporaryCommandEntries" :key="'callback-temp-' + (entry.callback_key || callbackIndex) + '-' + (tempEntry.command || tempCommandIndex)">
+          <div class="command-entry" v-for="(tempEntry, tempCommandIndex) in entry.temporaryCommandEntries" :key="'callback-temp-' + tempEntry._entry_id">
             <p class="command-panel-title">[[ commandPanelTitle(tempEntry.command) ]]</p>
             <div class="command-row">
               <input placeholder="/next" v-model="tempEntry.command">
@@ -670,13 +709,25 @@
       <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
       <input type="hidden" name="callback_contact_button_text" :value="primaryStep(entry.editor).button_text">
       <input type="hidden" name="callback_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
-      <input type="hidden" name="callback_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
-      <input type="hidden" name="callback_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
-      <input type="hidden" name="callback_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
-      <input type="hidden" name="callback_track_breadcrumb" :value="primaryStep(entry.editor).track_breadcrumb ? '1' : ''">
-      <input type="hidden" name="callback_store_history_by_day" :value="primaryStep(entry.editor).store_history_by_day ? '1' : ''">
-      <input type="hidden" name="callback_breadcrumb_interval_minutes" :value="primaryStep(entry.editor).breadcrumb_interval_minutes">
-      <input type="hidden" name="callback_breadcrumb_min_distance_meters" :value="primaryStep(entry.editor).breadcrumb_min_distance_meters">
+	      <input type="hidden" name="callback_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
+	      <input type="hidden" name="callback_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+	      <input type="hidden" name="callback_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
+	      <input type="hidden" name="callback_find_closest_saved_location" :value="primaryStep(entry.editor).find_closest_saved_location ? '1' : ''">
+	      <input type="hidden" name="callback_match_closest_saved_location" :value="primaryStep(entry.editor).match_closest_saved_location ? '1' : ''">
+	      <input type="hidden" name="callback_closest_location_tolerance_meters" :value="primaryStep(entry.editor).closest_location_tolerance_meters">
+	      <input type="hidden" name="callback_closest_location_group_text" :value="primaryStep(entry.editor).closest_location_group_text_template">
+	      <input type="hidden" name="callback_closest_location_group_send_timing" :value="primaryStep(entry.editor).closest_location_group_send_timing">
+	      <input type="hidden" name="callback_closest_location_group_send_after_step" :value="primaryStep(entry.editor).closest_location_group_send_after_step">
+	      <input type="hidden" name="callback_location_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
+	      <input type="hidden" name="callback_track_breadcrumb" :value="primaryStep(entry.editor).track_breadcrumb ? '1' : ''">
+	      <input type="hidden" name="callback_breadcrumb_interval_minutes" :value="primaryStep(entry.editor).breadcrumb_interval_minutes">
+	      <input type="hidden" name="callback_breadcrumb_min_distance_meters" :value="primaryStep(entry.editor).breadcrumb_min_distance_meters">
+	      <input type="hidden" name="callback_breadcrumb_started_text_template" :value="primaryStep(entry.editor).breadcrumb_started_text_template">
+	      <input type="hidden" name="callback_breadcrumb_interrupted_text_template" :value="primaryStep(entry.editor).breadcrumb_interrupted_text_template">
+	      <input type="hidden" name="callback_breadcrumb_resumed_text_template" :value="primaryStep(entry.editor).breadcrumb_resumed_text_template">
+	      <input type="hidden" name="callback_breadcrumb_ended_text_template" :value="primaryStep(entry.editor).breadcrumb_ended_text_template">
+      <input type="hidden" name="callback_route_empty_text" :value="primaryStep(entry.editor).empty_text_template">
+      <input type="hidden" name="callback_route_max_link_points" :value="primaryStep(entry.editor).max_link_points">
       <input type="hidden" name="callback_checkout_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="callback_payment_empty_text" :value="primaryStep(entry.editor).empty_text_template">
       <input type="hidden" name="callback_checkout_pay_button_text" :value="primaryStep(entry.editor).pay_button_text">
@@ -713,6 +764,14 @@
 
   function buildVueOptions(initialState) {
     // Build the Vue app that manages module editing, ordering, and serialization.
+    const emptyInlineButtonDraft = Object.freeze({
+      text: "",
+      action: "callback_data",
+      value: "",
+      actual_value: "",
+      row: 1,
+      edit_index: null,
+    });
     return {
       delimiters: ["[[", "]]"],
       data() {
@@ -874,7 +933,7 @@
         },
         currentStepButtons(editor) {
           const step = this.currentStep(editor);
-          return helpers.normalizeInlineButtons(step.buttons || []);
+          return Array.isArray(step.buttons) ? step.buttons : [];
         },
         ensureStepButtons(editor) {
           const step = this.currentStep(editor);
@@ -896,7 +955,8 @@
         },
         inlineButtonDraft(editor) {
           const step = this.currentStep(editor);
-          return this.normalizeInlineButtonDraft(step._inline_button_draft);
+          const draft = step._inline_button_draft;
+          return draft && typeof draft === "object" ? draft : emptyInlineButtonDraft;
         },
         ensureInlineButtonDraft(editor) {
           const step = this.currentStep(editor);
@@ -1373,13 +1433,26 @@
             photo_url: primary.photo_url,
             contact_button_text: primary.button_text,
             mini_app_button_text: primary.button_text,
-            contact_success_text: primary.success_text_template,
-            contact_invalid_text: primary.invalid_text_template,
-            require_live_location: primary.require_live_location ? "1" : "",
-            track_breadcrumb: primary.track_breadcrumb ? "1" : "",
+	            contact_success_text: primary.success_text_template,
+	            contact_invalid_text: primary.invalid_text_template,
+	            require_live_location: primary.require_live_location ? "1" : "",
+	            find_closest_saved_location: primary.find_closest_saved_location ? "1" : "",
+	            match_closest_saved_location: primary.match_closest_saved_location ? "1" : "",
+	            closest_location_tolerance_meters: primary.closest_location_tolerance_meters,
+	            closest_location_group_text: primary.closest_location_group_text_template,
+	            closest_location_group_send_timing: primary.closest_location_group_send_timing,
+	            closest_location_group_send_after_step: primary.closest_location_group_send_after_step,
+	            location_invalid_text: primary.invalid_text_template,
+	            track_breadcrumb: primary.track_breadcrumb ? "1" : "",
             store_history_by_day: primary.store_history_by_day ? "1" : "",
             breadcrumb_interval_minutes: primary.breadcrumb_interval_minutes,
             breadcrumb_min_distance_meters: primary.breadcrumb_min_distance_meters,
+            breadcrumb_started_text_template: primary.breadcrumb_started_text_template,
+            breadcrumb_interrupted_text_template: primary.breadcrumb_interrupted_text_template,
+            breadcrumb_resumed_text_template: primary.breadcrumb_resumed_text_template,
+            breadcrumb_ended_text_template: primary.breadcrumb_ended_text_template,
+            route_empty_text: primary.empty_text_template,
+            route_max_link_points: primary.max_link_points,
             checkout_empty_text: primary.empty_text_template,
             payment_empty_text: primary.empty_text_template,
             checkout_pay_button_text: primary.pay_button_text,

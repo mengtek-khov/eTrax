@@ -2,6 +2,9 @@ from __future__ import annotations
 
 """Standalone Telegram runtime manager for bot polling, lifecycle, and hot-reload orchestration."""
 
+import hashlib
+import os
+import traceback
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +13,7 @@ from typing import Any, Callable
 
 from etrax.adapters.local.bot_process_scaffold_store import JsonBotProcessScaffoldStore
 from etrax.adapters.local.json_cart_state_store import JsonCartStateStore
+from etrax.adapters.local.json_temporary_command_menu_state_store import JsonTemporaryCommandMenuStateStore
 from etrax.adapters.local.json_user_profile_log_store import JsonUserProfileLogStore
 from etrax.adapters.telegram import TelegramBotApiGateway
 from etrax.core.telegram import (
@@ -34,7 +38,11 @@ from etrax.standalone.runtime_config_resolver import (
     resolve_scenario_send_config,
     resolve_start_send_config,
 )
-from etrax.standalone.runtime_contracts import BotProcessScaffoldStore, UserProfileLogStore
+from etrax.standalone.runtime_contracts import (
+    BotProcessScaffoldStore,
+    TemporaryCommandMenuStateStore,
+    UserProfileLogStore,
+)
 from etrax.standalone.runtime_module_factory import build_runtime_modules as _build_runtime_modules
 from etrax.standalone.runtime_support import (
     bot_config_path as _bot_config_path,
@@ -72,6 +80,7 @@ class BotRuntimeController:
 class RuntimeSnapshot:
     """In-memory executable runtime state built from the current bot config file."""
 
+    command_menu: list[dict[str, str]]
     command_modules: dict[str, list[FlowModule]]
     callback_modules: dict[str, list[FlowModule]]
     temporary_command_menus: dict[str, dict[str, object]]
@@ -89,6 +98,75 @@ class RuntimeSnapshot:
             or self.checkout_modules
             or self.temporary_command_menus
         )
+
+
+class _PollingTokenLock:
+    """Process-held lock that prevents duplicate local getUpdates polling per token."""
+
+    def __init__(self, *, path: Path) -> None:
+        self._path = path
+
+    @staticmethod
+    def acquire(*, root_dir: Path, token: str, bot_id: str) -> "_PollingTokenLock | None":
+        token_fingerprint = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        lock_path = root_dir / f"{token_fingerprint}.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = f"{os.getpid()}\n{bot_id}\n".encode("utf-8")
+        while True:
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                existing_pid = _read_lock_pid(lock_path)
+                if existing_pid is None or not _process_exists(existing_pid):
+                    try:
+                        lock_path.unlink()
+                        continue
+                    except FileNotFoundError:
+                        continue
+                    except OSError:
+                        return None
+                return None
+            else:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(payload)
+                return _PollingTokenLock(path=lock_path)
+
+    def release(self) -> None:
+        try:
+            self._path.unlink()
+        except FileNotFoundError:
+            return
+
+
+def _read_lock_pid(path: Path) -> int | None:
+    try:
+        raw = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    try:
+        pid = int(str(raw[0]).strip())
+    except ValueError:
+        return None
+    return pid if pid > 0 else None
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as exc:
+        # Windows can raise loader/parameter errors for stale or invalid PIDs
+        # when probing with signal 0. Treat those as "process not running" so
+        # stale polling lock files can be cleaned up instead of crashing.
+        if getattr(exc, "winerror", None) in {11, 87}:
+            return False
+        raise
+    return True
 
 
 class _InMemoryContactRequestStore(ContactRequestStore):
@@ -149,6 +227,7 @@ class BotRuntimeManager:
     """Runs per-bot long-poll workers and delegates module-specific work to focused runtime helpers."""
 
     ERROR_LOG_COOLDOWN_SECONDS = 30.0
+    STOP_JOIN_BUFFER_SECONDS = 2.0
 
     def __init__(
         self,
@@ -158,8 +237,10 @@ class BotRuntimeManager:
         state_file: Path,
         cart_state_file: Path | None = None,
         profile_log_file: Path | None = None,
+        temporary_command_menu_state_file: Path | None = None,
         cart_state_store: object | None = None,
         profile_log_store: UserProfileLogStore | None = None,
+        temporary_command_menu_state_store: TemporaryCommandMenuStateStore | None = None,
         scaffold_store: BotProcessScaffoldStore | None = None,
         poll_timeout_seconds: int = 25,
         poll_interval_seconds: float = 0.5,
@@ -174,6 +255,9 @@ class BotRuntimeManager:
         )
         self._profile_log_store = profile_log_store or JsonUserProfileLogStore(
             profile_log_file or state_file.with_name("profile_log.json")
+        )
+        self._temporary_command_menu_state_store = temporary_command_menu_state_store or JsonTemporaryCommandMenuStateStore(
+            temporary_command_menu_state_file or state_file.with_name("temporary_command_menus.json")
         )
         self._scaffold_store = scaffold_store or JsonBotProcessScaffoldStore(bot_config_dir)
         self._poll_timeout_seconds = poll_timeout_seconds
@@ -194,8 +278,14 @@ class BotRuntimeManager:
 
         with self._lock:
             controller = self._controllers.get(normalized_bot_id)
-            if controller and controller.active:
-                return False, "already running"
+            if controller is not None:
+                thread = controller.thread
+                if thread is not None and thread.is_alive():
+                    if controller.stop_event.is_set():
+                        return False, "stopping"
+                    return False, "already running"
+                controller.thread = None
+                controller.active = False
 
             if controller is None:
                 controller = BotRuntimeController(bot_id=normalized_bot_id)
@@ -224,15 +314,24 @@ class BotRuntimeManager:
 
         with self._lock:
             controller = self._controllers.get(normalized_bot_id)
-            if controller is None or not controller.active:
+            if controller is None:
                 return False, "not running"
             thread = controller.thread
+            if thread is None or not thread.is_alive():
+                controller.thread = None
+                controller.active = False
+                return False, "not running"
+            if controller.stop_event.is_set():
+                return False, "stopping"
             controller.stop_event.set()
 
-        if thread is not None:
-            thread.join(timeout=2.0)
+        thread.join(timeout=self._stop_join_timeout_seconds())
 
         with self._lock:
+            if thread.is_alive():
+                return False, "stopping"
+            if controller.thread is thread:
+                controller.thread = None
             controller.active = False
         return True, "stopped"
 
@@ -270,88 +369,176 @@ class BotRuntimeManager:
         offset = _load_offset(self._state_file, bot_id)
         callback_continuation_by_message: dict[str, list[FlowModule]] = {}
         callback_context_updates_by_message: dict[str, dict[str, object]] = {}
+        processed_callback_query_ids: dict[str, float] = {}
         active_temporary_command_menus_by_chat: dict[str, dict[str, object]] = {}
+        polling_token_lock: _PollingTokenLock | None = None
+        polling_token_value = ""
 
-        while not controller.stop_event.is_set():
-            try:
-                token = self._token_service.get_token(bot_id)
-                if token is None:
-                    raise RuntimeError(f"no token configured for bot_id '{bot_id}'")
-
-                runtime_snapshot = self._load_runtime_snapshot(
-                    bot_id=bot_id,
-                    bot_token=token,
-                    gateway=gateway,
-                    controller=controller,
-                )
-                if runtime_snapshot.is_empty():
-                    time.sleep(max(self._poll_interval_seconds, 0.2))
-                    continue
-
-                updates = gateway.get_updates(
-                    bot_token=token,
-                    offset=offset,
-                    timeout=self._poll_timeout_seconds,
-                    allowed_updates=["message", "edited_message", "callback_query"],
-                )
-                raw_updates = updates.get("result", [])
-                if not isinstance(raw_updates, list):
-                    raise RuntimeError("telegram getUpdates returned invalid result payload")
-
-                for item in raw_updates:
-                    if not isinstance(item, dict):
-                        continue
-                    controller.updates_seen += 1
-                    update_id = item.get("update_id")
-                    if isinstance(update_id, int):
-                        offset = update_id + 1
-                        _save_offset(self._state_file, bot_id, offset)
-
-                    if _update_requires_start_reload(item):
-                        runtime_snapshot = self._load_runtime_snapshot(
+        try:
+            while not controller.stop_event.is_set():
+                try:
+                    token = self._token_service.get_token(bot_id)
+                    if token is None:
+                        raise RuntimeError(f"no token configured for bot_id '{bot_id}'")
+                    if polling_token_value != token:
+                        if polling_token_lock is not None:
+                            polling_token_lock.release()
+                            polling_token_lock = None
+                            polling_token_value = ""
+                        polling_token_lock = _PollingTokenLock.acquire(
+                            root_dir=self._state_file.with_name("polling_locks"),
+                            token=token,
                             bot_id=bot_id,
-                            bot_token=token,
-                            gateway=gateway,
-                            controller=controller,
                         )
+                        if polling_token_lock is None:
+                            raise RuntimeError(
+                                "local Telegram polling lock already held for this token; "
+                                "stop the other eTrax runtime instance before starting this bot"
+                            )
+                        polling_token_value = token
 
-                    sent_count = _handle_update(
-                        item,
+                    runtime_snapshot = self._load_runtime_snapshot(
                         bot_id=bot_id,
-                        command_modules=runtime_snapshot.command_modules,
-                        callback_modules=runtime_snapshot.callback_modules,
-                        temporary_command_menus=runtime_snapshot.temporary_command_menus,
-                        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
-                        cart_modules=runtime_snapshot.cart_modules,
-                        callback_continuation_modules=runtime_snapshot.callback_continuation_modules,
-                        callback_continuation_by_message=callback_continuation_by_message,
-                        callback_context_updates=runtime_snapshot.callback_context_updates,
-                        callback_context_updates_by_message=callback_context_updates_by_message,
-                        checkout_modules=runtime_snapshot.checkout_modules,
-                        gateway=gateway,
                         bot_token=token,
-                        contact_request_store=self._contact_request_store,
-                        location_request_store=self._location_request_store,
-                        profile_log_store=self._profile_log_store,
+                        gateway=gateway,
+                        controller=controller,
                     )
-                    if sent_count > 0:
-                        controller.messages_sent += sent_count
+                    if runtime_snapshot.is_empty():
+                        time.sleep(max(self._poll_interval_seconds, 0.2))
+                        continue
+                    self._restore_persisted_temporary_command_menus(
+                        bot_id=bot_id,
+                        bot_token=token,
+                        gateway=gateway,
+                        runtime_snapshot=runtime_snapshot,
+                        active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                    )
 
-                if not raw_updates and self._poll_interval_seconds > 0:
-                    time.sleep(self._poll_interval_seconds)
-                controller.last_error = None
-                controller.last_error_logged = None
-                controller.last_error_logged_at_epoch = 0.0
-            except Exception as exc:
-                error_message = str(exc)
-                controller.last_error = error_message
-                if self._should_log_error(controller, error_message):
-                    _print_runtime_error(bot_id, error_message)
-                    controller.last_error_logged = error_message
-                    controller.last_error_logged_at_epoch = time.time()
-                time.sleep(max(self._poll_interval_seconds, 0.5))
+                    updates = gateway.get_updates(
+                        bot_token=token,
+                        offset=offset,
+                        timeout=self._poll_timeout_seconds,
+                        allowed_updates=["message", "edited_message", "callback_query"],
+                    )
+                    raw_updates = updates.get("result", [])
+                    if not isinstance(raw_updates, list):
+                        raise RuntimeError("telegram getUpdates returned invalid result payload")
 
-        controller.active = False
+                    for item in raw_updates:
+                        if not isinstance(item, dict):
+                            continue
+                        controller.updates_seen += 1
+                        update_id = item.get("update_id")
+                        if isinstance(update_id, int):
+                            offset = update_id + 1
+                            _save_offset(self._state_file, bot_id, offset)
+
+                        if _update_requires_start_reload(item):
+                            runtime_snapshot = self._load_runtime_snapshot(
+                                bot_id=bot_id,
+                                bot_token=token,
+                                gateway=gateway,
+                                controller=controller,
+                            )
+
+                        sent_count = _handle_update(
+                            item,
+                            bot_id=bot_id,
+                            command_menu=runtime_snapshot.command_menu,
+                            command_modules=runtime_snapshot.command_modules,
+                            callback_modules=runtime_snapshot.callback_modules,
+                            temporary_command_menus=runtime_snapshot.temporary_command_menus,
+                            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                            temporary_command_menu_state_store=self._temporary_command_menu_state_store,
+                            cart_modules=runtime_snapshot.cart_modules,
+                            callback_continuation_modules=runtime_snapshot.callback_continuation_modules,
+                            callback_continuation_by_message=callback_continuation_by_message,
+                            callback_context_updates=runtime_snapshot.callback_context_updates,
+                            callback_context_updates_by_message=callback_context_updates_by_message,
+                            checkout_modules=runtime_snapshot.checkout_modules,
+                            gateway=gateway,
+                            bot_token=token,
+                            contact_request_store=self._contact_request_store,
+                            location_request_store=self._location_request_store,
+                            profile_log_store=self._profile_log_store,
+                            processed_callback_query_ids=processed_callback_query_ids,
+                            locations_file=self._state_file.with_name("locations_ui.json"),
+                        )
+                        if sent_count > 0:
+                            controller.messages_sent += sent_count
+
+                    if not raw_updates and self._poll_interval_seconds > 0:
+                        time.sleep(self._poll_interval_seconds)
+                    controller.last_error = None
+                    controller.last_error_logged = None
+                    controller.last_error_logged_at_epoch = 0.0
+                except Exception as exc:
+                    raw_error_message = str(exc).strip()
+                    error_message = f"{type(exc).__name__}: {raw_error_message}" if raw_error_message else type(exc).__name__
+                    error_details = traceback.format_exc()
+                    controller.last_error = error_message
+                    if self._should_log_error(controller, error_message):
+                        _print_runtime_error(bot_id, error_message, details=error_details)
+                        controller.last_error_logged = error_message
+                        controller.last_error_logged_at_epoch = time.time()
+                    time.sleep(max(self._poll_interval_seconds, 0.5))
+        finally:
+            if polling_token_lock is not None:
+                polling_token_lock.release()
+            controller.active = False
+
+    def _restore_persisted_temporary_command_menus(
+        self,
+        *,
+        bot_id: str,
+        bot_token: str,
+        gateway: TelegramBotApiGateway,
+        runtime_snapshot: RuntimeSnapshot,
+        active_temporary_command_menus_by_chat: dict[str, dict[str, object]],
+    ) -> None:
+        """Restore persisted chat-scoped temp menus after a process restart."""
+        stored_menus = self._temporary_command_menu_state_store.list_active_menus(bot_id=bot_id)
+        if not stored_menus:
+            return
+        for stored in stored_menus:
+            chat_id = str(stored.get("chat_id", "")).strip()
+            callback_key = str(stored.get("source_callback_key", "")).strip()
+            if not chat_id or not callback_key:
+                continue
+            state_key = f"{bot_id}:{chat_id}"
+            if state_key in active_temporary_command_menus_by_chat:
+                continue
+            menu_payload = runtime_snapshot.temporary_command_menus.get(callback_key)
+            if not isinstance(menu_payload, dict):
+                self._temporary_command_menu_state_store.delete_active_menu(bot_id=bot_id, chat_id=chat_id)
+                continue
+            commands_raw = menu_payload.get("commands", [])
+            command_modules_raw = menu_payload.get("command_modules", {})
+            if not isinstance(commands_raw, list) or not isinstance(command_modules_raw, dict):
+                self._temporary_command_menu_state_store.delete_active_menu(bot_id=bot_id, chat_id=chat_id)
+                continue
+            commands = [dict(item) for item in commands_raw if isinstance(item, dict)]
+            if not commands or not command_modules_raw:
+                self._temporary_command_menu_state_store.delete_active_menu(bot_id=bot_id, chat_id=chat_id)
+                continue
+            active_temporary_command_menus_by_chat[state_key] = {
+                "commands": commands,
+                "command_modules": command_modules_raw,
+                "source_callback_key": callback_key,
+            }
+            telegram_commands = []
+            for command in commands:
+                command_name = str(command.get("command", "")).strip()
+                description = str(command.get("description", "")).strip()
+                if not command_name:
+                    continue
+                telegram_commands.append({"command": command_name, "description": description or "Command"})
+            if telegram_commands:
+                gateway.set_my_commands(
+                    bot_token=bot_token,
+                    commands=telegram_commands,
+                    scope={"type": "chat", "chat_id": chat_id},
+                )
 
     def _load_runtime_snapshot(
         self,
@@ -491,6 +678,7 @@ class BotRuntimeManager:
                             checkout_modules[module_key] = module
 
         return RuntimeSnapshot(
+            command_menu=command_menu,
             command_modules=command_modules,
             callback_modules=callback_modules,
             temporary_command_menus=built_temporary_command_menus,
@@ -506,6 +694,10 @@ class BotRuntimeManager:
             return True
         elapsed = time.time() - controller.last_error_logged_at_epoch
         return elapsed >= self.ERROR_LOG_COOLDOWN_SECONDS
+
+    def _stop_join_timeout_seconds(self) -> float:
+        """Return the maximum time stop() should wait for the polling thread to release resources."""
+        return max(self.STOP_JOIN_BUFFER_SECONDS, float(self._poll_timeout_seconds) + self.STOP_JOIN_BUFFER_SECONDS)
 
 
 def _build_callback_continuation_modules(

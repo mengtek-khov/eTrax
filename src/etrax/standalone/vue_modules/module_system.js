@@ -179,6 +179,8 @@
     const source = rawStep && typeof rawStep === "object" ? rawStep : {};
     const hideCaption = normalizeCheckboxValue(source.hide_caption);
     const requireLiveLocation = normalizeCheckboxValue(source.require_live_location);
+    const findClosestSavedLocation = normalizeCheckboxValue(source.find_closest_saved_location);
+    const matchClosestSavedLocation = normalizeCheckboxValue(source.match_closest_saved_location);
     const trackBreadcrumb = requireLiveLocation && normalizeCheckboxValue(source.track_breadcrumb);
     const storeHistoryByDay = normalizeCheckboxValue(source.store_history_by_day);
     return {
@@ -187,6 +189,8 @@
       parse_mode: source.parse_mode == null ? "" : String(source.parse_mode),
       hide_caption: hideCaption,
       require_live_location: requireLiveLocation,
+      find_closest_saved_location: findClosestSavedLocation,
+      match_closest_saved_location: matchClosestSavedLocation,
       track_breadcrumb: trackBreadcrumb,
       store_history_by_day: storeHistoryByDay,
       title: source.title == null ? "Main Menu" : String(source.title),
@@ -208,10 +212,27 @@
       photo_url: source.photo_url == null ? "" : String(source.photo_url),
       button_text: source.button_text == null ? "" : String(source.button_text),
       success_text_template: source.success_text_template == null ? "" : String(source.success_text_template),
+      closest_location_group_text_template:
+        source.closest_location_group_text_template == null ? "" : String(source.closest_location_group_text_template),
+      closest_location_group_send_timing:
+        source.closest_location_group_send_timing == null ? "end" : String(source.closest_location_group_send_timing),
+      closest_location_group_send_after_step:
+        source.closest_location_group_send_after_step == null ? "" : String(source.closest_location_group_send_after_step),
       invalid_text_template: source.invalid_text_template == null ? "" : String(source.invalid_text_template),
+      closest_location_tolerance_meters:
+        source.closest_location_tolerance_meters == null ? "" : String(source.closest_location_tolerance_meters),
       breadcrumb_interval_minutes: source.breadcrumb_interval_minutes == null ? "" : String(source.breadcrumb_interval_minutes),
       breadcrumb_min_distance_meters:
         source.breadcrumb_min_distance_meters == null ? "" : String(source.breadcrumb_min_distance_meters),
+      breadcrumb_started_text_template:
+        source.breadcrumb_started_text_template == null ? "" : String(source.breadcrumb_started_text_template),
+      breadcrumb_interrupted_text_template:
+        source.breadcrumb_interrupted_text_template == null ? "" : String(source.breadcrumb_interrupted_text_template),
+      breadcrumb_resumed_text_template:
+        source.breadcrumb_resumed_text_template == null ? "" : String(source.breadcrumb_resumed_text_template),
+      breadcrumb_ended_text_template:
+        source.breadcrumb_ended_text_template == null ? "" : String(source.breadcrumb_ended_text_template),
+      max_link_points: source.max_link_points == null ? "" : String(source.max_link_points),
       empty_text_template: source.empty_text_template == null ? "" : String(source.empty_text_template),
       pay_button_text: source.pay_button_text == null ? "" : String(source.pay_button_text),
       pay_callback_data: source.pay_callback_data == null ? "" : String(source.pay_callback_data),

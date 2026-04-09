@@ -6,6 +6,7 @@ import argparse
 import html
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Iterable
@@ -15,7 +16,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Thread
 from typing import Callable
-from urllib.parse import parse_qs, quote_plus, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote_plus, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 # Support direct execution from IDE (e.g., running token_ui.py directly).
 if __package__ in {None, ""}:
@@ -59,6 +62,8 @@ def run_token_config_ui(
     service = BotTokenService(store, cipher)
     scaffold_store = JsonBotProcessScaffoldStore(bot_config_dir)
     resolved_profile_log_file = profile_log_file or state_file.with_name("profile_log.json")
+    working_hours_file = state_file.with_name("working_hours_ui.json")
+    locations_file = state_file.with_name("locations_ui.json")
     runtime_manager = BotRuntimeManager(
         token_service=service,
         bot_config_dir=bot_config_dir,
@@ -72,6 +77,8 @@ def run_token_config_ui(
         runtime_manager,
         bot_config_dir,
         resolved_profile_log_file,
+        working_hours_file,
+        locations_file,
     )
     server = ThreadingHTTPServer((host, port), handler_class)
     print(f"Token config UI running at http://{host}:{port}")
@@ -130,6 +137,8 @@ def _build_handler(
     runtime_manager: BotRuntimeManager,
     bot_config_dir: Path,
     profile_log_file: Path,
+    working_hours_file: Path,
+    locations_file: Path,
 ):
     """Build the request handler class bound to the current service/runtime instances."""
 
@@ -147,6 +156,53 @@ def _build_handler(
                 self._send_html(HTTPStatus.OK, payload)
                 return
 
+            if parsed.path == "/ui/working-hours":
+                params = parse_qs(parsed.query)
+                message = params.get("message", [""])[0]
+                level = params.get("level", ["info"])[0]
+                entries = _load_standalone_ui_entries(working_hours_file)
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_working_hours_demo_page(entries=entries, message=message, level=level),
+                )
+                return
+            if parsed.path == "/ui/general-details":
+                params = parse_qs(parsed.query)
+                message = params.get("message", [""])[0]
+                level = params.get("level", ["info"])[0]
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_general_details_demo_page(message=message, level=level),
+                )
+                return
+            if parsed.path == "/ui/locations":
+                params = parse_qs(parsed.query)
+                message = params.get("message", [""])[0]
+                level = params.get("level", ["info"])[0]
+                location_id = params.get("location_id", [""])[0].strip()
+                entries = _load_standalone_ui_entries(locations_file)
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_location_demo_page(
+                        entries=entries,
+                        selected_location_id=location_id,
+                        message=message,
+                        level=level,
+                    ),
+                )
+                return
+            if parsed.path == "/ui/location-search":
+                params = parse_qs(parsed.query)
+                query = params.get("q", [""])[0]
+                try:
+                    payload = _resolve_location_search_payload(query)
+                    self._send_json(HTTPStatus.OK, payload)
+                except ValueError as exc:
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+                except RuntimeError as exc:
+                    _print_terminal_error("location-search", str(exc))
+                    self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": str(exc)})
+                return
             if parsed.path == "/config":
                 self._handle_config_page(parsed)
                 return
@@ -173,6 +229,9 @@ def _build_handler(
                 return
             if parsed.path == "/module-share-location.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_location_module.js"))
+                return
+            if parsed.path == "/module-route.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("route_module.js"))
                 return
             if parsed.path == "/module-checkout.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("checkout_module.js"))
@@ -229,6 +288,18 @@ def _build_handler(
                 return
             if parsed.path == "/duplicate-config":
                 self._handle_duplicate_config(form)
+                return
+            if parsed.path == "/ui/working-hours/save":
+                self._handle_working_hours_save(form)
+                return
+            if parsed.path == "/ui/working-hours/delete":
+                self._handle_working_hours_delete(form)
+                return
+            if parsed.path == "/ui/locations/save":
+                self._handle_locations_save(form)
+                return
+            if parsed.path == "/ui/locations/delete":
+                self._handle_locations_delete(form)
                 return
 
             self._send_text(HTTPStatus.NOT_FOUND, "Not Found")
@@ -302,6 +373,120 @@ def _build_handler(
                 _print_terminal_error("duplicate-config", str(exc))
                 self._redirect(f"/?level=error&message={quote_plus(str(exc))}")
 
+        def _handle_working_hours_save(self, form: dict[str, list[str]]) -> None:
+            """Create or update one working-hours row in the standalone demo page."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            working_day = form.get("working_day", [""])[0].strip()
+            start_time = form.get("start_time", [""])[0].strip()
+            end_time = form.get("end_time", [""])[0].strip()
+            try:
+                if not working_day:
+                    raise ValueError("working day is required")
+                if not start_time:
+                    raise ValueError("start time is required")
+                if not end_time:
+                    raise ValueError("end time is required")
+                entries = _normalize_working_hour_entries(_load_standalone_ui_entries(working_hours_file))
+                if not entry_id and len(entries) >= _MAX_WORKING_HOUR_ROWS:
+                    raise ValueError(f"working hours is limited to {_MAX_WORKING_HOUR_ROWS} rows")
+                if _working_day_conflicts(entries, working_day=working_day, exclude_entry_id=entry_id):
+                    raise ValueError(f"working day {working_day} already exists")
+                normalized_entry = {
+                    "id": entry_id or _new_standalone_ui_entry_id(prefix="wh"),
+                    "working_day": working_day,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                }
+                saved_entries = _normalize_working_hour_entries(
+                    _upsert_standalone_ui_entry(entries, normalized_entry)
+                )
+                _save_standalone_ui_entries(working_hours_file, saved_entries)
+                self._redirect(
+                    _with_message(
+                        "/ui/working-hours",
+                        "success",
+                        f"Working hour saved for {working_day} ({start_time} - {end_time})",
+                    )
+                )
+            except ValueError as exc:
+                _print_terminal_error("working-hours-save", str(exc))
+                self._redirect(_with_message("/ui/working-hours", "error", str(exc)))
+
+        def _handle_working_hours_delete(self, form: dict[str, list[str]]) -> None:
+            """Delete one working-hours row from the standalone demo page."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                if not entry_id:
+                    raise ValueError("working hour id is required")
+                entries = _load_standalone_ui_entries(working_hours_file)
+                saved_entries, deleted = _delete_standalone_ui_entry(entries, entry_id)
+                if not deleted:
+                    raise ValueError("working hour entry not found")
+                _save_standalone_ui_entries(working_hours_file, saved_entries)
+                self._redirect(_with_message("/ui/working-hours", "success", "Working hour deleted"))
+            except ValueError as exc:
+                _print_terminal_error("working-hours-delete", str(exc))
+                self._redirect(_with_message("/ui/working-hours", "error", str(exc)))
+
+        def _handle_locations_save(self, form: dict[str, list[str]]) -> None:
+            """Create or update one location entry in the standalone demo page."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            company = form.get("company", [""])[0].strip()
+            zone = form.get("zone", [""])[0].strip()
+            telegram_group_id = form.get("telegram_group_id", [""])[0].strip()
+            location_name = form.get("location_name", [""])[0].strip()
+            location_code = form.get("location_code", [""])[0].strip()
+            latitude = form.get("latitude", [""])[0].strip()
+            longitude = form.get("longitude", [""])[0].strip()
+            search_query = form.get("search_query", [""])[0].strip()
+            try:
+                if not location_name:
+                    raise ValueError("location name is required")
+                latitude_value = _normalize_location_coordinate(latitude, "latitude")
+                longitude_value = _normalize_location_coordinate(longitude, "longitude")
+                entries = _load_standalone_ui_entries(locations_file)
+                generated_code = location_code or _next_location_code(entries)
+                normalized_entry = {
+                    "id": entry_id or _new_standalone_ui_entry_id(prefix="loc"),
+                    "company": company,
+                    "zone": zone,
+                    "telegram_group_id": telegram_group_id,
+                    "location_name": location_name,
+                    "location_code": generated_code,
+                    "latitude": latitude_value,
+                    "longitude": longitude_value,
+                    "search_query": search_query,
+                    "updated_at": datetime.now(tz=timezone.utc).isoformat(),
+                }
+                saved_entries = _upsert_standalone_ui_entry(entries, normalized_entry)
+                _save_standalone_ui_entries(locations_file, saved_entries)
+                self._redirect(
+                    _with_message(
+                        "/ui/locations",
+                        "success",
+                        f"Location saved for {location_name} ({generated_code})",
+                    )
+                )
+            except ValueError as exc:
+                _print_terminal_error("locations-save", str(exc))
+                self._redirect(_with_message("/ui/locations", "error", str(exc)))
+
+        def _handle_locations_delete(self, form: dict[str, list[str]]) -> None:
+            """Delete one saved location from the standalone demo page."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                if not entry_id:
+                    raise ValueError("location id is required")
+                entries = _load_standalone_ui_entries(locations_file)
+                saved_entries, deleted = _delete_standalone_ui_entry(entries, entry_id)
+                if not deleted:
+                    raise ValueError("location entry not found")
+                _save_standalone_ui_entries(locations_file, saved_entries)
+                self._redirect(_with_message("/ui/locations", "success", "Location deleted"))
+            except ValueError as exc:
+                _print_terminal_error("locations-delete", str(exc))
+                self._redirect(_with_message("/ui/locations", "error", str(exc)))
+
         def _handle_config_save(self, form: dict[str, list[str]]) -> None:
             """Convert the submitted editor form back into the stored JSON config format."""
             bot_id = form.get("bot_id", [""])[0].strip()
@@ -328,10 +513,23 @@ def _build_handler(
             command_contact_success_texts = form.get("command_contact_success_text", [])
             command_contact_invalid_texts = form.get("command_contact_invalid_text", [])
             command_require_live_locations = form.get("command_require_live_location", [])
+            command_find_closest_saved_locations = form.get("command_find_closest_saved_location", [])
+            command_match_closest_saved_locations = form.get("command_match_closest_saved_location", [])
+            command_closest_location_tolerance_meters = form.get("command_closest_location_tolerance_meters", [])
+            command_closest_location_group_texts = form.get("command_closest_location_group_text", [])
+            command_closest_location_group_send_timings = form.get("command_closest_location_group_send_timing", [])
+            command_closest_location_group_send_after_steps = form.get("command_closest_location_group_send_after_step", [])
+            command_location_invalid_texts = form.get("command_location_invalid_text", [])
             command_track_breadcrumbs = form.get("command_track_breadcrumb", [])
             command_store_history_by_days = form.get("command_store_history_by_day", [])
             command_breadcrumb_interval_minutes = form.get("command_breadcrumb_interval_minutes", [])
             command_breadcrumb_min_distance_meters = form.get("command_breadcrumb_min_distance_meters", [])
+            command_breadcrumb_started_text_templates = form.get("command_breadcrumb_started_text_template", [])
+            command_breadcrumb_interrupted_text_templates = form.get("command_breadcrumb_interrupted_text_template", [])
+            command_breadcrumb_resumed_text_templates = form.get("command_breadcrumb_resumed_text_template", [])
+            command_breadcrumb_ended_text_templates = form.get("command_breadcrumb_ended_text_template", [])
+            command_route_empty_texts = form.get("command_route_empty_text", [])
+            command_route_max_link_points = form.get("command_route_max_link_points", [])
             command_checkout_empty_texts = form.get("command_checkout_empty_text", [])
             command_checkout_pay_button_texts = form.get("command_checkout_pay_button_text", [])
             command_checkout_pay_callback_datas = form.get("command_checkout_pay_callback_data", [])
@@ -372,10 +570,23 @@ def _build_handler(
             callback_contact_success_texts = form.get("callback_contact_success_text", [])
             callback_contact_invalid_texts = form.get("callback_contact_invalid_text", [])
             callback_require_live_locations = form.get("callback_require_live_location", [])
+            callback_find_closest_saved_locations = form.get("callback_find_closest_saved_location", [])
+            callback_match_closest_saved_locations = form.get("callback_match_closest_saved_location", [])
+            callback_closest_location_tolerance_meters = form.get("callback_closest_location_tolerance_meters", [])
+            callback_closest_location_group_texts = form.get("callback_closest_location_group_text", [])
+            callback_closest_location_group_send_timings = form.get("callback_closest_location_group_send_timing", [])
+            callback_closest_location_group_send_after_steps = form.get("callback_closest_location_group_send_after_step", [])
+            callback_location_invalid_texts = form.get("callback_location_invalid_text", [])
             callback_track_breadcrumbs = form.get("callback_track_breadcrumb", [])
             callback_store_history_by_days = form.get("callback_store_history_by_day", [])
             callback_breadcrumb_interval_minutes = form.get("callback_breadcrumb_interval_minutes", [])
             callback_breadcrumb_min_distance_meters = form.get("callback_breadcrumb_min_distance_meters", [])
+            callback_breadcrumb_started_text_templates = form.get("callback_breadcrumb_started_text_template", [])
+            callback_breadcrumb_interrupted_text_templates = form.get("callback_breadcrumb_interrupted_text_template", [])
+            callback_breadcrumb_resumed_text_templates = form.get("callback_breadcrumb_resumed_text_template", [])
+            callback_breadcrumb_ended_text_templates = form.get("callback_breadcrumb_ended_text_template", [])
+            callback_route_empty_texts = form.get("callback_route_empty_text", [])
+            callback_route_max_link_points = form.get("callback_route_max_link_points", [])
             callback_checkout_empty_texts = form.get("callback_checkout_empty_text", [])
             callback_checkout_pay_button_texts = form.get("callback_checkout_pay_button_text", [])
             callback_checkout_pay_callback_datas = form.get("callback_checkout_pay_callback_data", [])
@@ -417,10 +628,27 @@ def _build_handler(
             start_contact_success_text = form.get("start_contact_success_text", [""])[0].strip()
             start_contact_invalid_text = form.get("start_contact_invalid_text", [""])[0].strip()
             start_require_live_location = form.get("start_require_live_location", [""])[0].strip()
+            start_find_closest_saved_location = form.get("start_find_closest_saved_location", [""])[0].strip()
+            start_match_closest_saved_location = form.get("start_match_closest_saved_location", [""])[0].strip()
+            start_closest_location_tolerance_meters = form.get("start_closest_location_tolerance_meters", [""])[0].strip()
+            start_closest_location_group_text = form.get("start_closest_location_group_text", [""])[0].strip()
+            start_closest_location_group_send_timing = form.get(
+                "start_closest_location_group_send_timing", [""]
+            )[0].strip()
+            start_closest_location_group_send_after_step = form.get(
+                "start_closest_location_group_send_after_step", [""]
+            )[0].strip()
+            start_location_invalid_text = form.get("start_location_invalid_text", [""])[0].strip()
             start_track_breadcrumb = form.get("start_track_breadcrumb", [""])[0].strip()
             start_store_history_by_day = form.get("start_store_history_by_day", [""])[0].strip()
             start_breadcrumb_interval_minutes = form.get("start_breadcrumb_interval_minutes", [""])[0].strip()
             start_breadcrumb_min_distance_meters = form.get("start_breadcrumb_min_distance_meters", [""])[0].strip()
+            start_breadcrumb_started_text_template = form.get("start_breadcrumb_started_text_template", [""])[0].strip()
+            start_breadcrumb_interrupted_text_template = form.get("start_breadcrumb_interrupted_text_template", [""])[0].strip()
+            start_breadcrumb_resumed_text_template = form.get("start_breadcrumb_resumed_text_template", [""])[0].strip()
+            start_breadcrumb_ended_text_template = form.get("start_breadcrumb_ended_text_template", [""])[0].strip()
+            start_route_empty_text = form.get("start_route_empty_text", [""])[0].strip()
+            start_route_max_link_points = form.get("start_route_max_link_points", [""])[0].strip()
             start_checkout_empty_text = form.get("start_checkout_empty_text", [""])[0].strip()
             start_checkout_pay_button_text = form.get("start_checkout_pay_button_text", [""])[0].strip()
             start_checkout_pay_callback_data = form.get("start_checkout_pay_callback_data", [""])[0].strip()
@@ -479,10 +707,23 @@ def _build_handler(
                     command_contact_success_texts=command_contact_success_texts,
                     command_contact_invalid_texts=command_contact_invalid_texts,
                     command_require_live_locations=command_require_live_locations,
+                    command_find_closest_saved_locations=command_find_closest_saved_locations,
+                    command_match_closest_saved_locations=command_match_closest_saved_locations,
+                    command_closest_location_tolerance_meters=command_closest_location_tolerance_meters,
+                    command_closest_location_group_texts=command_closest_location_group_texts,
+                    command_closest_location_group_send_timings=command_closest_location_group_send_timings,
+                    command_closest_location_group_send_after_steps=command_closest_location_group_send_after_steps,
+                    command_location_invalid_texts=command_location_invalid_texts,
                     command_track_breadcrumbs=command_track_breadcrumbs,
                     command_store_history_by_days=command_store_history_by_days,
                     command_breadcrumb_interval_minutes=command_breadcrumb_interval_minutes,
                     command_breadcrumb_min_distance_meters=command_breadcrumb_min_distance_meters,
+                    command_breadcrumb_started_text_templates=command_breadcrumb_started_text_templates,
+                    command_breadcrumb_interrupted_text_templates=command_breadcrumb_interrupted_text_templates,
+                    command_breadcrumb_resumed_text_templates=command_breadcrumb_resumed_text_templates,
+                    command_breadcrumb_ended_text_templates=command_breadcrumb_ended_text_templates,
+                    command_route_empty_texts=command_route_empty_texts,
+                    command_route_max_link_points=command_route_max_link_points,
                     command_checkout_empty_texts=command_checkout_empty_texts,
                     command_checkout_pay_button_texts=command_checkout_pay_button_texts,
                     command_checkout_pay_callback_datas=command_checkout_pay_callback_datas,
@@ -527,10 +768,23 @@ def _build_handler(
                         contact_success_text=start_contact_success_text,
                         contact_invalid_text=start_contact_invalid_text,
                         require_live_location=start_require_live_location,
+                        find_closest_saved_location=start_find_closest_saved_location,
+                        match_closest_saved_location=start_match_closest_saved_location,
+                        closest_location_tolerance_meters=start_closest_location_tolerance_meters,
+                        closest_location_group_text=start_closest_location_group_text,
+                        closest_location_group_send_timing=start_closest_location_group_send_timing,
+                        closest_location_group_send_after_step=start_closest_location_group_send_after_step,
+                        location_invalid_text=start_location_invalid_text,
                         track_breadcrumb=start_track_breadcrumb,
                         store_history_by_day=start_store_history_by_day,
                         breadcrumb_interval_minutes=start_breadcrumb_interval_minutes,
                         breadcrumb_min_distance_meters=start_breadcrumb_min_distance_meters,
+                        breadcrumb_started_text_template=start_breadcrumb_started_text_template,
+                        breadcrumb_interrupted_text_template=start_breadcrumb_interrupted_text_template,
+                        breadcrumb_resumed_text_template=start_breadcrumb_resumed_text_template,
+                        breadcrumb_ended_text_template=start_breadcrumb_ended_text_template,
+                        route_empty_text=start_route_empty_text,
+                        route_max_link_points=start_route_max_link_points,
                         checkout_empty_text=start_checkout_empty_text,
                         checkout_pay_button_text=start_checkout_pay_button_text,
                         checkout_pay_callback_data=start_checkout_pay_callback_data,
@@ -575,10 +829,23 @@ def _build_handler(
                     callback_contact_success_texts=callback_contact_success_texts,
                     callback_contact_invalid_texts=callback_contact_invalid_texts,
                     callback_require_live_locations=callback_require_live_locations,
+                    callback_find_closest_saved_locations=callback_find_closest_saved_locations,
+                    callback_match_closest_saved_locations=callback_match_closest_saved_locations,
+                    callback_closest_location_tolerance_meters=callback_closest_location_tolerance_meters,
+                    callback_closest_location_group_texts=callback_closest_location_group_texts,
+                    callback_closest_location_group_send_timings=callback_closest_location_group_send_timings,
+                    callback_closest_location_group_send_after_steps=callback_closest_location_group_send_after_steps,
+                    callback_location_invalid_texts=callback_location_invalid_texts,
                     callback_track_breadcrumbs=callback_track_breadcrumbs,
                     callback_store_history_by_days=callback_store_history_by_days,
                     callback_breadcrumb_interval_minutes=callback_breadcrumb_interval_minutes,
                     callback_breadcrumb_min_distance_meters=callback_breadcrumb_min_distance_meters,
+                    callback_breadcrumb_started_text_templates=callback_breadcrumb_started_text_templates,
+                    callback_breadcrumb_interrupted_text_templates=callback_breadcrumb_interrupted_text_templates,
+                    callback_breadcrumb_resumed_text_templates=callback_breadcrumb_resumed_text_templates,
+                    callback_breadcrumb_ended_text_templates=callback_breadcrumb_ended_text_templates,
+                    callback_route_empty_texts=callback_route_empty_texts,
+                    callback_route_max_link_points=callback_route_max_link_points,
                     callback_checkout_empty_texts=callback_checkout_empty_texts,
                     callback_checkout_pay_button_texts=callback_checkout_pay_button_texts,
                     callback_checkout_pay_callback_datas=callback_checkout_pay_callback_datas,
@@ -708,6 +975,16 @@ def _build_handler(
             encoded = body.encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self._send_no_cache_headers()
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def _send_json(self, status: HTTPStatus, payload: dict[str, object]) -> None:
+            """Send a JSON response body."""
+            encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
             self._send_no_cache_headers()
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
@@ -988,6 +1265,14 @@ def _render_page(
     <div class="panel">
       <h1>Telegram Bot Token Config</h1>
       <p>Standalone configuration UI. Tokens are encrypted before saving to local storage.</p>
+      <div class="action-row" style="margin-top: 14px;">
+        <form method="get" action="/ui/working-hours">
+          <button class="secondary" type="submit">Working Hours</button>
+        </form>
+        <form method="get" action="/ui/locations">
+          <button class="secondary" type="submit">Locations</button>
+        </form>
+      </div>
     </div>
     {status_html}
     <div class="panel">
@@ -1014,9 +1299,1582 @@ def _render_page(
         </tbody>
       </table>
     </div>
+    <div class="panel">
+      <h1>UI Prototype Routes</h1>
+      <p>Standalone route samples for the requested working-hours and location screens.</p>
+      <div class="action-row" style="margin-top: 14px;">
+        <form method="get" action="/ui/working-hours">
+          <button class="secondary" type="submit">Working Hours Demo</button>
+        </form>
+        <form method="get" action="/ui/locations">
+          <button class="secondary" type="submit">Location Demo</button>
+        </form>
+      </div>
+    </div>
   </div>
 </body>
 </html>"""
+
+
+def _render_demo_page_shell(
+    *,
+    title: str,
+    active_tab: str,
+    content_html: str,
+    toolbar_html: str,
+    status_html: str = "",
+    extra_head: str = "",
+    extra_script: str = "",
+) -> str:
+    """Render a shared standalone shell for prototype routes."""
+    general_tab_class = "tab-link active" if active_tab == "general-details" else "tab-link"
+    working_tab_class = "tab-link active" if active_tab == "working-hours" else "tab-link"
+    location_tab_class = "tab-link active" if active_tab == "locations" else "tab-link"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  {extra_head}
+  <style>
+    :root {{
+      --bg: #f3f4f8;
+      --panel: #ffffff;
+      --text: #11213b;
+      --muted: #64748b;
+      --line: #dbe2ee;
+      --line-strong: #c9d3e4;
+      --tab: #2f6df6;
+      --danger: #ff5b5b;
+      --dark: #0f172a;
+      --soft: #f8fafc;
+      --shadow: 0 14px 38px rgba(15, 23, 42, 0.08);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(47, 109, 246, 0.08), transparent 34%),
+        linear-gradient(180deg, #fafbff 0%, var(--bg) 42%, #eef1f7 100%);
+    }}
+    .shell {{
+      width: min(1540px, calc(100% - 28px));
+      margin: 16px auto;
+    }}
+    .topbar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }}
+    .topbar h1 {{
+      margin: 0;
+      font-size: clamp(1.8rem, 2.6vw, 2.3rem);
+      letter-spacing: -0.03em;
+    }}
+    .topbar p {{
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }}
+    .toolbar {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }}
+    .button {{
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }}
+    .button.back {{
+      color: var(--text);
+      background: #e9edf7;
+    }}
+    .button.secondary {{
+      color: #fff;
+      background: #475467;
+    }}
+    .button.cancel {{
+      color: #fff;
+      background: #ff5757;
+    }}
+    .button.save {{
+      color: #fff;
+      background: #111827;
+    }}
+    .button.delete {{
+      color: #fff;
+      background: #dc2626;
+    }}
+    .button.mini {{
+      padding: 10px 14px;
+      font-size: 0.88rem;
+      border-radius: 10px;
+    }}
+    .panel {{
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid rgba(217, 225, 238, 0.9);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 18px 18px 22px;
+    }}
+    .tabs {{
+      display: flex;
+      gap: 20px;
+      border-bottom: 1px solid var(--line-strong);
+      margin-bottom: 18px;
+      overflow-x: auto;
+    }}
+    .tab-link {{
+      position: relative;
+      padding: 2px 2px 14px;
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 600;
+      white-space: nowrap;
+    }}
+    .tab-link.active {{
+      color: var(--text);
+    }}
+    .tab-link.active::after {{
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--tab);
+    }}
+    .section-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin: 10px 0 18px;
+    }}
+    .section-header h2 {{
+      margin: 0;
+      font-size: 1.75rem;
+      letter-spacing: -0.03em;
+    }}
+    .section-header p {{
+      margin: 6px 0 0;
+      color: var(--muted);
+    }}
+    .grid {{
+      display: grid;
+      gap: 16px;
+    }}
+    .grid.three {{
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }}
+    .field {{
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }}
+    .field label {{
+      font-size: 0.95rem;
+      font-weight: 700;
+    }}
+    .input, .select {{
+      width: 100%;
+      min-height: 52px;
+      border: 1px solid var(--line-strong);
+      border-radius: 12px;
+      padding: 0 14px;
+      background: #fff;
+      color: var(--text);
+      font-size: 1rem;
+      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+    }}
+    .select {{
+      appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, #8a94a7 50%),
+        linear-gradient(135deg, #8a94a7 50%, transparent 50%);
+      background-position:
+        calc(100% - 20px) calc(50% - 4px),
+        calc(100% - 14px) calc(50% - 4px);
+      background-size: 6px 6px, 6px 6px;
+      background-repeat: no-repeat;
+      padding-right: 38px;
+    }}
+    .table {{
+      width: 100%;
+      border-collapse: collapse;
+    }}
+    .table thead th {{
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-weight: 800;
+      padding: 0 0 12px;
+    }}
+    .table tbody tr {{
+      border-top: 1px solid #edf1f7;
+    }}
+    .table tbody td {{
+      padding: 22px 0;
+      vertical-align: middle;
+    }}
+    .toolbar-chip {{
+      min-width: 92px;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 600;
+      text-align: center;
+    }}
+    .add-new {{
+      background: #000;
+      color: #fff;
+      border-radius: 12px;
+      padding: 11px 16px;
+      text-decoration: none;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .trash {{
+      color: var(--danger);
+      font-size: 1.2rem;
+      font-weight: 700;
+      text-align: center;
+    }}
+    .map-shell {{
+      margin-top: 14px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #eef3fb;
+    }}
+    .map-search-panel {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 14px;
+      border-bottom: 1px solid #dce5f1;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 252, 0.98));
+    }}
+    .map-search {{
+      flex: 1 1 320px;
+      min-height: 48px;
+      border: 1px solid #d7dfec;
+      border-radius: 12px;
+      padding: 0 14px;
+      background: #fff;
+      color: var(--text);
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+      font-weight: 600;
+    }}
+    .map-helper {{
+      width: 100%;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }}
+    .map-canvas {{
+      width: 100%;
+      height: 420px;
+    }}
+    .map-feedback {{
+      padding: 12px 14px 14px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      background: #fbfcfe;
+      border-top: 1px solid #eef2f7;
+    }}
+    .status {{
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin: 0 0 16px;
+      font-size: 0.96rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+    }}
+    .status.info {{ background: #ebf3ff; color: #0b63c7; border-color: #a9c9f5; }}
+    .status.error {{ background: #fff1f1; color: #b42318; border-color: #f8b4b4; }}
+    .status.success {{ background: #ebfff4; color: #0a7a4d; border-color: #96dfbb; }}
+    .list-panel {{
+      margin-top: 22px;
+      border-top: 1px solid #e7edf7;
+      padding-top: 20px;
+    }}
+    .list-panel h3 {{
+      margin: 0 0 6px;
+      font-size: 1.1rem;
+    }}
+    .list-panel p {{
+      margin: 0 0 14px;
+      color: var(--muted);
+    }}
+    .work-grid-head {{
+      display: grid;
+      grid-template-columns: 1.25fr 1fr 1fr 160px 76px;
+      gap: 14px;
+      padding: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      font-weight: 800;
+    }}
+    .work-row {{
+      border-top: 1px solid #edf1f7;
+      padding: 18px 0;
+    }}
+    .work-row-form {{
+      display: grid;
+      grid-template-columns: 1.25fr 1fr 1fr 160px 76px;
+      gap: 14px;
+      align-items: center;
+    }}
+    .action-stack {{
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }}
+    .icon-button {{
+      width: 46px;
+      min-width: 46px;
+      min-height: 46px;
+      border-radius: 12px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+    }}
+    .location-list {{
+      display: grid;
+      gap: 14px;
+    }}
+    .location-card {{
+      border: 1px solid #e5ebf5;
+      border-radius: 14px;
+      padding: 16px;
+      background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+      display: grid;
+      gap: 10px;
+    }}
+    .location-card-top {{
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+    }}
+    .location-card h4 {{
+      margin: 0;
+      font-size: 1.02rem;
+    }}
+    .location-card-code {{
+      color: #2c5dde;
+      font-weight: 800;
+      font-size: 0.88rem;
+    }}
+    .location-card-meta {{
+      color: var(--muted);
+      font-size: 0.92rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }}
+    .location-card-actions {{
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }}
+    .empty-note {{
+      padding: 18px;
+      border: 1px dashed #d2dbea;
+      border-radius: 14px;
+      background: #f9fbff;
+      color: var(--muted);
+      text-align: center;
+      font-weight: 600;
+    }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: #eef4ff;
+      color: #2c5dde;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }}
+    .general-placeholder {{
+      min-height: 180px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed var(--line-strong);
+      border-radius: 16px;
+      background: linear-gradient(180deg, #f9fbff 0%, #f3f7fe 100%);
+      color: var(--muted);
+      font-size: 1rem;
+      text-align: center;
+      padding: 20px;
+    }}
+    @media (max-width: 1100px) {{
+      .grid.three {{
+        grid-template-columns: 1fr 1fr;
+      }}
+    }}
+    @media (max-width: 820px) {{
+      .topbar, .section-header {{
+        flex-direction: column;
+        align-items: stretch;
+      }}
+      .toolbar {{
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }}
+      .grid.three {{
+        grid-template-columns: 1fr;
+      }}
+      .table, .table thead, .table tbody, .table tr, .table td {{
+        display: block;
+      }}
+      .table thead {{
+        display: none;
+      }}
+      .table tbody tr {{
+        border-top: 1px solid #edf1f7;
+        padding: 18px 0;
+      }}
+      .table tbody td {{
+        padding: 8px 0;
+      }}
+      .table tbody td::before {{
+        content: attr(data-label);
+        display: block;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-weight: 800;
+        margin-bottom: 6px;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div>
+        <h1>{html.escape(title)}</h1>
+        <p>Standalone route prototype inside the current eTrax token UI.</p>
+      </div>
+      <div class="toolbar">{toolbar_html}</div>
+    </div>
+    {status_html}
+    <div class="panel">
+      <div class="tabs">
+        <a class="{general_tab_class}" href="/ui/general-details">General Details</a>
+        <a class="{working_tab_class}" href="/ui/working-hours">Working Hours</a>
+        <a class="{location_tab_class}" href="/ui/locations">Locations</a>
+      </div>
+      {content_html}
+    </div>
+  </div>
+  {extra_script}
+</body>
+</html>"""
+
+
+def _render_working_hours_demo_page(
+    *,
+    entries: list[dict[str, object]] | None = None,
+    message: str = "",
+    level: str = "info",
+) -> str:
+    """Render the requested working-hours list page with local JSON persistence."""
+    working_entries = _normalize_working_hour_entries(entries or [], include_defaults=True)
+    row_html = "".join(_render_working_hour_row(item, working_entries) for item in working_entries)
+    can_add_row = len(working_entries) < _MAX_WORKING_HOUR_ROWS
+    add_row_html = _render_working_hours_add_section(
+        can_add_row=can_add_row,
+        available_days=_available_working_day_options(working_entries),
+        next_working_day=_next_available_working_day(working_entries),
+    )
+    toolbar_action_html = f'<div class="toolbar-chip">{len(working_entries)} / {_MAX_WORKING_HOUR_ROWS} Rows</div>'
+    content_html = f"""
+      <div class="section-header">
+        <div>
+          <h2>Shift Time</h2>
+          <p>Manage recurring working-hour rows and save them into the standalone UI data store.</p>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-chip">Day</div>
+          {toolbar_action_html}
+        </div>
+      </div>
+      <div class="work-grid-head">
+        <div>WORKING DAY</div>
+        <div>START TIME</div>
+        <div>END TIME</div>
+        <div>ACTION</div>
+        <div></div>
+      </div>
+      {row_html}
+      {add_row_html}
+    """
+    toolbar_html = (
+        '<a class="button back" href="/">Back To Home</a>'
+        '<a class="button secondary" href="/ui/locations">Locations</a>'
+    )
+    return _render_demo_page_shell(
+        title="Working Hours",
+        active_tab="working-hours",
+        content_html=content_html,
+        toolbar_html=toolbar_html,
+        status_html=_render_status_html(message=message, level=level),
+    )
+
+
+def _render_general_details_demo_page(*, message: str = "", level: str = "info") -> str:
+    """Render a lightweight placeholder so the tab set has a valid sibling route."""
+    content_html = """
+      <div class="section-header">
+        <div>
+          <h2>General Details</h2>
+          <p>Placeholder route to keep the requested working-hours and location pages grouped under one tab shell.</p>
+        </div>
+        <div class="pill">Prototype Shell</div>
+      </div>
+      <div class="general-placeholder">
+        General details can be added here later.<br>
+        The requested Working Hours and Locations pages are already live on their own routes.
+      </div>
+    """
+    toolbar_html = (
+        '<a class="button back" href="/">Back To Home</a>'
+        '<a class="button secondary" href="/ui/working-hours">Working Hours</a>'
+        '<a class="button secondary" href="/ui/locations">Locations</a>'
+    )
+    return _render_demo_page_shell(
+        title="General Details",
+        active_tab="general-details",
+        content_html=content_html,
+        toolbar_html=toolbar_html,
+        status_html=_render_status_html(message=message, level=level),
+    )
+
+
+def _render_location_demo_page(
+    *,
+    entries: list[dict[str, object]] | None = None,
+    selected_location_id: str = "",
+    message: str = "",
+    level: str = "info",
+) -> str:
+    """Render the requested create-location page with local JSON persistence."""
+    location_entries = [
+        _normalize_location_entry(item)
+        for item in (entries or [])
+        if _normalize_location_entry(item) is not None
+    ]
+    selected_entry = _find_standalone_ui_entry(location_entries, selected_location_id)
+    current_entry = selected_entry or {
+        "id": "",
+        "company": "",
+        "zone": "",
+        "telegram_group_id": "",
+        "location_name": "",
+        "location_code": _next_location_code(location_entries),
+        "latitude": "11.562034951273636",
+        "longitude": "104.87029995007804",
+        "search_query": "",
+    }
+    latitude = str(current_entry.get("latitude", "")).strip() or "11.562034951273636"
+    longitude = str(current_entry.get("longitude", "")).strip() or "104.87029995007804"
+    map_src = _build_map_embed_src(latitude=latitude, longitude=longitude)
+    saved_locations_payload = json.dumps(
+        [
+            {
+                "id": str(item.get("id", "")),
+                "location_name": str(item.get("location_name", "")),
+                "location_code": str(item.get("location_code", "")),
+                "latitude": str(item.get("latitude", "")),
+                "longitude": str(item.get("longitude", "")),
+                "zone": str(item.get("zone", "")),
+                "company": str(item.get("company", "")),
+                "telegram_group_id": str(item.get("telegram_group_id", "")),
+            }
+            for item in location_entries
+        ],
+        ensure_ascii=False,
+    )
+    saved_locations_html = "".join(
+        (
+            "<div class='location-card'>"
+            "<div class='location-card-top'>"
+            "<div>"
+            f"<div class='location-card-code'>{html.escape(str(item['location_code']))}</div>"
+            f"<h4>{html.escape(str(item['location_name']))}</h4>"
+            "</div>"
+            f"<div class='pill'>{html.escape(str(item.get('zone', '') or 'No Zone'))}</div>"
+            "</div>"
+            "<div class='location-card-meta'>"
+            f"<span>Company: {html.escape(str(item.get('company', '') or '-'))}</span>"
+            f"<span>Telegram Group ID: {html.escape(str(item.get('telegram_group_id', '') or '-'))}</span>"
+            f"<span>Lat: {html.escape(str(item['latitude']))}</span>"
+            f"<span>Lng: {html.escape(str(item['longitude']))}</span>"
+            "</div>"
+            "<div class='location-card-actions'>"
+            f"<a class='button secondary mini' href='/ui/locations?location_id={quote_plus(str(item['id']))}'>Edit</a>"
+            f"<a class='button back mini' target='_blank' rel='noreferrer' href='https://www.openstreetmap.org/?mlat={quote_plus(str(item['latitude']))}&mlon={quote_plus(str(item['longitude']))}#map=17/{quote_plus(str(item['latitude']))}/{quote_plus(str(item['longitude']))}'>Open Map</a>"
+            f"<form method='post' action='/ui/locations/delete'>"
+            f"<input type='hidden' name='entry_id' value='{html.escape(str(item['id']))}'>"
+            "<button class='button delete mini' type='submit'>Delete</button>"
+            "</form>"
+            "</div>"
+            "</div>"
+        )
+        for item in location_entries
+    )
+    if not saved_locations_html:
+        saved_locations_html = "<div class='empty-note'>No saved locations yet. Use the form above to create the first one.</div>"
+    content_html = """
+      <div class="section-header">
+        <div>
+          <h2>Create Location</h2>
+          <p>Create or update a saved location record and preview the selected coordinates on the map.</p>
+        </div>
+        <div class="pill">{pill_text}</div>
+      </div>
+      <form id="location-form" method="post" action="/ui/locations/save">
+        <input type="hidden" name="entry_id" value="{entry_id}" data-location-entry-id>
+        <div class="grid three">
+        <div class="field">
+          <label>Company</label>
+          <select class="select" name="company">
+            {company_options}
+          </select>
+        </div>
+        <div class="field">
+          <label>Zone</label>
+          <select class="select" name="zone">
+            {zone_options}
+          </select>
+        </div>
+          <div class="field">
+            <label>Location Name</label>
+            <input class="input" name="location_name" value="{location_name}" data-location-name>
+          </div>
+          <div class="field">
+            <label>Telegram Group ID</label>
+            <input class="input" name="telegram_group_id" value="{telegram_group_id}" placeholder="-1001234567890">
+          </div>
+          <div class="field">
+            <label>Location Code</label>
+            <input class="input" name="location_code" value="{location_code}" data-location-code>
+          </div>
+        <div class="field">
+          <label>Latitude</label>
+          <input class="input" name="latitude" value="{latitude}" data-location-latitude>
+        </div>
+        <div class="field">
+          <label>Longitude</label>
+          <input class="input" name="longitude" value="{longitude}" data-location-longitude>
+        </div>
+        </div>
+      <div class="field" style="margin-top: 22px;">
+        <label>Select Location on Map</label>
+        <div class="map-shell">
+          <div class="map-search-panel">
+	            <input
+	              class="map-search"
+	              name="search_query"
+	              value="{search_query}"
+	              placeholder="Search place, coordinates, or paste a Google Maps link"
+	              data-location-search-query>
+	            <button class="button save mini" type="button" data-location-current-button>Use My Location</button>
+	            <button class="button secondary mini" type="button" data-location-load-all-button>Load All To Map</button>
+	            <button class="button secondary mini" type="button" data-location-random-button>Generate Test Under 30 km</button>
+	            <button class="button secondary mini" type="button" data-location-search-button>Search</button>
+	            <button class="button back mini" type="button" data-location-reset-button>Reset Pin</button>
+            <div class="map-helper">Click the map or drag the pin to update coordinates. Search also accepts Google Maps URLs such as maps.app.goo.gl links.</div>
+          </div>
+          <div class="map-canvas" data-location-map></div>
+          <div class="map-feedback" data-location-feedback>Map ready. Click anywhere to move the pin.</div>
+        </div>
+      </div>
+      </form>
+      <div class="list-panel">
+        <h3>Saved Locations</h3>
+        <p>Use Edit to load a saved record back into the form, or Delete to remove it.</p>
+        <div class="location-list">
+          {saved_locations_html}
+        </div>
+      </div>
+    """.format(
+        pill_text=html.escape(
+            f"{str(current_entry.get('zone', '') or 'Draft')} • {str(current_entry.get('location_name', '') or 'New Location')}"
+        ),
+        entry_id=html.escape(str(current_entry.get("id", ""))),
+        company_options=_render_option_list(_LOCATION_COMPANY_OPTIONS, str(current_entry.get("company", "")), placeholder="Select Company"),
+        zone_options=_render_option_list(_LOCATION_ZONE_OPTIONS, str(current_entry.get("zone", "")), placeholder="Select Zone"),
+        location_name=html.escape(str(current_entry.get("location_name", ""))),
+        telegram_group_id=html.escape(str(current_entry.get("telegram_group_id", ""))),
+        location_code=html.escape(str(current_entry.get("location_code", ""))),
+        latitude=html.escape(latitude),
+        longitude=html.escape(longitude),
+        search_query=html.escape(str(current_entry.get("search_query", ""))),
+        saved_locations_html=saved_locations_html,
+    )
+    content_html = content_html.replace("â€¢", "|")
+    toolbar_html = (
+        '<a class="button back" href="/">Back To Home</a>'
+        '<a class="button cancel" href="/ui/locations">Cancel</a>'
+        '<button class="button save" type="submit" form="location-form">Save</button>'
+    )
+    content_html = content_html.replace("\u00e2\u20ac\u00a2", "|").replace(
+        "\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u00a2",
+        "|",
+    )
+    extra_head = """
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  >
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+"""
+    extra_script = """
+<script>
+  (function () {
+    const latitudeInput = document.querySelector('[data-location-latitude]');
+    const longitudeInput = document.querySelector('[data-location-longitude]');
+    const searchInput = document.querySelector('[data-location-search-query]');
+    const currentButton = document.querySelector('[data-location-current-button]');
+    const loadAllButton = document.querySelector('[data-location-load-all-button]');
+    const randomButton = document.querySelector('[data-location-random-button]');
+    const searchButton = document.querySelector('[data-location-search-button]');
+    const resetButton = document.querySelector('[data-location-reset-button]');
+    const entryIdInput = document.querySelector('[data-location-entry-id]');
+    const locationNameInput = document.querySelector('[data-location-name]');
+    const locationCodeInput = document.querySelector('[data-location-code]');
+    const locationForm = document.getElementById('location-form');
+    const feedback = document.querySelector('[data-location-feedback]');
+    const mapElement = document.querySelector('[data-location-map]');
+    const initialLatitude = latitudeInput ? latitudeInput.value : '';
+    const initialLongitude = longitudeInput ? longitudeInput.value : '';
+    if (!latitudeInput || !longitudeInput || !mapElement || !window.L) {
+      return;
+    }
+    const fallbackLatitude = 11.562034951273636;
+    const fallbackLongitude = 104.87029995007804;
+    const parseCoordinate = function(value, fallbackValue) {
+      const parsed = Number.parseFloat(String(value || '').trim());
+      return Number.isFinite(parsed) ? parsed : fallbackValue;
+    };
+    const map = window.L.map(mapElement).setView([
+      parseCoordinate(latitudeInput.value, fallbackLatitude),
+      parseCoordinate(longitudeInput.value, fallbackLongitude),
+    ], 15);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    const savedLocations = __SAVED_LOCATIONS_JSON__;
+    const allLocationsLayer = window.L.layerGroup().addTo(map);
+    const marker = window.L.marker([
+      parseCoordinate(latitudeInput.value, fallbackLatitude),
+      parseCoordinate(longitudeInput.value, fallbackLongitude),
+    ], {
+      draggable: true
+    }).addTo(map);
+    const setFeedback = function(message, isError) {
+      if (!feedback) {
+        return;
+      }
+      feedback.textContent = message;
+      feedback.style.color = isError ? '#b42318' : '#64748b';
+    };
+    const setLocation = function(lat, lng, message) {
+      const normalizedLat = Number(lat);
+      const normalizedLng = Number(lng);
+      latitudeInput.value = normalizedLat.toFixed(12).replace(/0+$/, '').replace(/\\.$/, '');
+      longitudeInput.value = normalizedLng.toFixed(12).replace(/0+$/, '').replace(/\\.$/, '');
+      marker.setLatLng([normalizedLat, normalizedLng]);
+      map.setView([normalizedLat, normalizedLng], Math.max(map.getZoom(), 15));
+      if (message) {
+        setFeedback(message, false);
+      }
+    };
+    const loadAllLocationsToMap = function() {
+      allLocationsLayer.clearLayers();
+      const bounds = [];
+      savedLocations.forEach(function(item) {
+        const markerLat = Number.parseFloat(String(item.latitude || '').trim());
+        const markerLng = Number.parseFloat(String(item.longitude || '').trim());
+        if (!Number.isFinite(markerLat) || !Number.isFinite(markerLng)) {
+          return;
+        }
+        const popupLines = [
+          '<strong>' + String(item.location_name || 'Unnamed Location') + '</strong>',
+          String(item.location_code || '')
+        ];
+        if (item.zone) {
+          popupLines.push('Zone: ' + String(item.zone));
+        }
+        if (item.company) {
+          popupLines.push('Company: ' + String(item.company));
+        }
+        if (item.telegram_group_id) {
+          popupLines.push('Telegram Group ID: ' + String(item.telegram_group_id));
+        }
+        window.L.marker([markerLat, markerLng])
+          .bindPopup(popupLines.filter(Boolean).join('<br>'))
+          .addTo(allLocationsLayer);
+        bounds.push([markerLat, markerLng]);
+      });
+      if (!bounds.length) {
+        setFeedback('There are no saved locations to load on the map yet.', true);
+        return;
+      }
+      bounds.push(marker.getLatLng());
+      map.fitBounds(bounds, { padding: [36, 36] });
+      setFeedback('Loaded ' + String(bounds.length - 1) + ' saved locations on the map.', false);
+    };
+    map.on('click', function(event) {
+      setLocation(event.latlng.lat, event.latlng.lng, 'Pin moved from map click.');
+    });
+    marker.on('dragend', function(event) {
+      const point = event.target.getLatLng();
+      setLocation(point.lat, point.lng, 'Pin moved by dragging.');
+    });
+    latitudeInput.addEventListener('change', function() {
+      setLocation(parseCoordinate(latitudeInput.value, fallbackLatitude), parseCoordinate(longitudeInput.value, fallbackLongitude), 'Map updated from latitude/longitude fields.');
+    });
+    longitudeInput.addEventListener('change', function() {
+      setLocation(parseCoordinate(latitudeInput.value, fallbackLatitude), parseCoordinate(longitudeInput.value, fallbackLongitude), 'Map updated from latitude/longitude fields.');
+    });
+    if (resetButton) {
+      resetButton.addEventListener('click', function() {
+        setLocation(parseCoordinate(initialLatitude, fallbackLatitude), parseCoordinate(initialLongitude, fallbackLongitude), 'Pin reset to the saved coordinates.');
+      });
+    }
+    if (loadAllButton) {
+      loadAllButton.addEventListener('click', loadAllLocationsToMap);
+    }
+    if (randomButton) {
+      randomButton.addEventListener('click', function() {
+        const originLat = parseCoordinate(latitudeInput.value, fallbackLatitude);
+        const originLng = parseCoordinate(longitudeInput.value, fallbackLongitude);
+        const distanceKm = Math.random() * 30;
+        const bearing = Math.random() * Math.PI * 2;
+        const earthRadiusKm = 6371;
+        const latRad = originLat * Math.PI / 180;
+        const lngRad = originLng * Math.PI / 180;
+        const angularDistance = distanceKm / earthRadiusKm;
+        const destinationLatRad = Math.asin(
+          Math.sin(latRad) * Math.cos(angularDistance) +
+          Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearing)
+        );
+        const destinationLngRad = lngRad + Math.atan2(
+          Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(latRad),
+          Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(destinationLatRad)
+        );
+        const destinationLat = destinationLatRad * 180 / Math.PI;
+        let destinationLng = destinationLngRad * 180 / Math.PI;
+        destinationLng = ((destinationLng + 540) % 360) - 180;
+        const now = new Date();
+        const stamp = [
+          now.getFullYear(),
+          String(now.getMonth() + 1).padStart(2, '0'),
+          String(now.getDate()).padStart(2, '0'),
+          String(now.getHours()).padStart(2, '0'),
+          String(now.getMinutes()).padStart(2, '0'),
+          String(now.getSeconds()).padStart(2, '0')
+        ].join('');
+        setLocation(destinationLat, destinationLng, 'Generating test location and saving it to the list...');
+        if (entryIdInput) {
+          entryIdInput.value = '';
+        }
+        if (locationNameInput) {
+          locationNameInput.value = 'Test Location ' + stamp;
+        }
+        if (locationCodeInput) {
+          locationCodeInput.value = 'test-' + stamp.slice(-8);
+        }
+        if (searchInput) {
+          searchInput.value = 'Generated test location';
+        }
+        if (locationForm) {
+          locationForm.requestSubmit();
+        }
+      });
+    }
+    if (currentButton) {
+      currentButton.addEventListener('click', function() {
+        if (!navigator.geolocation) {
+          setFeedback('This browser does not support current-location access.', true);
+          return;
+        }
+        setFeedback('Requesting your current location...', false);
+        navigator.geolocation.getCurrentPosition(
+          function(position) {
+            setLocation(position.coords.latitude, position.coords.longitude, 'Pin moved to your current location.');
+          },
+          function(error) {
+            let message = 'Could not get your current location.';
+            if (error && typeof error.code === 'number') {
+              if (error.code === 1) {
+                message = 'Location permission was denied.';
+              } else if (error.code === 2) {
+                message = 'Current location is unavailable right now.';
+              } else if (error.code === 3) {
+                message = 'Current-location request timed out.';
+              }
+            }
+            setFeedback(message, true);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0
+          }
+        );
+      });
+    }
+    if (searchButton && searchInput) {
+      const runSearch = function() {
+        const query = String(searchInput.value || '').trim();
+        if (!query) {
+          setFeedback('Enter a place, coordinates, or a Google Maps link first.', true);
+          return;
+        }
+        setFeedback('Searching location...', false);
+        fetch('/ui/location-search?q=' + encodeURIComponent(query), {
+          headers: {
+            'Accept': 'application/json'
+          }
+        })
+          .then(function(response) {
+            return response.json().then(function(payload) {
+              return { ok: response.ok, payload: payload };
+            });
+          })
+          .then(function(result) {
+            if (!result.ok || !result.payload.ok) {
+              throw new Error(result.payload.error || 'Location search failed.');
+            }
+            const payload = result.payload;
+            setLocation(payload.latitude, payload.longitude, 'Pin moved from search result.');
+            if (searchInput && payload.label) {
+              searchInput.value = payload.label;
+            }
+          })
+          .catch(function(error) {
+            setFeedback(error.message || 'Location search failed.', true);
+          });
+      };
+      searchButton.addEventListener('click', runSearch);
+      searchInput.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runSearch();
+        }
+      });
+    }
+  })();
+</script>
+"""
+    extra_script = extra_script.replace("__SAVED_LOCATIONS_JSON__", saved_locations_payload)
+    return _render_demo_page_shell(
+        title="Locations",
+        active_tab="locations",
+        content_html=content_html,
+        toolbar_html=toolbar_html,
+        status_html=_render_status_html(message=message, level=level),
+        extra_head=extra_head,
+        extra_script=extra_script,
+    )
+
+
+_WORKING_DAY_OPTIONS = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
+_MAX_WORKING_HOUR_ROWS = len(_WORKING_DAY_OPTIONS)
+
+_LOCATION_COMPANY_OPTIONS = (
+    "eTrax Logistics",
+    "Distribution Group",
+    "Operations Hub",
+)
+
+_LOCATION_ZONE_OPTIONS = (
+    "Central",
+    "North",
+    "South",
+    "West",
+    "East",
+)
+
+_COORDINATE_PAIR_PATTERN = re.compile(r"(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)")
+_GOOGLE_AT_PATTERN = re.compile(r"@(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)")
+_GOOGLE_3D4D_PATTERN = re.compile(r"!3d(-?\d{1,3}(?:\.\d+)?).*?!4d(-?\d{1,3}(?:\.\d+)?)")
+_GOOGLE_PREVIEW_PATTERN = re.compile(
+    r"/maps/(?:preview/)?place/[^\"'\s]*?/@(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)"
+)
+_GOOGLE_PLACE_LABEL_PATTERN = re.compile(r"/maps/(?:preview/)?place/([^/@?]+)")
+
+
+def _render_option_list(
+    options: Iterable[str],
+    selected_value: str,
+    *,
+    placeholder: str = "",
+) -> str:
+    """Render select options with an optional placeholder and selected state."""
+    normalized_selected = str(selected_value or "").strip()
+    rendered: list[str] = []
+    if placeholder:
+        placeholder_selected = " selected" if not normalized_selected else ""
+        rendered.append(
+            f"<option value='' {placeholder_selected.strip()}>{html.escape(placeholder)}</option>"
+            if placeholder_selected
+            else f"<option value=''>{html.escape(placeholder)}</option>"
+        )
+    seen: set[str] = set()
+    for raw_option in options:
+        option = str(raw_option or "").strip()
+        if not option or option in seen:
+            continue
+        seen.add(option)
+        selected_attr = " selected" if option == normalized_selected else ""
+        rendered.append(
+            f"<option value='{html.escape(option)}'{selected_attr}>{html.escape(option)}</option>"
+        )
+    if normalized_selected and normalized_selected not in seen:
+        rendered.insert(
+            1 if placeholder else 0,
+            f"<option value='{html.escape(normalized_selected)}' selected>{html.escape(normalized_selected)}</option>",
+        )
+    return "".join(rendered)
+
+
+def _load_standalone_ui_entries(file_path: Path) -> list[dict[str, object]]:
+    """Load a simple list payload used by the standalone prototype routes."""
+    if not file_path.exists():
+        return []
+    raw = file_path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return []
+    payload = json.loads(raw)
+    if isinstance(payload, list):
+        return [dict(item) for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        raw_entries = payload.get("entries", [])
+        if isinstance(raw_entries, list):
+            return [dict(item) for item in raw_entries if isinstance(item, dict)]
+    raise ValueError(f"standalone UI state file is invalid: {file_path}")
+
+
+def _save_standalone_ui_entries(file_path: Path, entries: list[dict[str, object]]) -> None:
+    """Persist a simple list payload used by the standalone prototype routes."""
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"entries": entries}
+    file_path.write_text(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+
+
+def _new_standalone_ui_entry_id(*, prefix: str) -> str:
+    """Generate a compact local identifier for demo-page records."""
+    return f"{prefix}-{int(time.time() * 1000)}"
+
+
+def _upsert_standalone_ui_entry(
+    entries: list[dict[str, object]],
+    entry: dict[str, object],
+) -> list[dict[str, object]]:
+    """Insert or replace one list entry by id."""
+    entry_id = str(entry.get("id", "")).strip()
+    if not entry_id:
+        raise ValueError("entry id is required")
+    updated: list[dict[str, object]] = []
+    replaced = False
+    for current in entries:
+        current_id = str(current.get("id", "")).strip()
+        if current_id == entry_id:
+            updated.append(dict(entry))
+            replaced = True
+        else:
+            updated.append(dict(current))
+    if not replaced:
+        updated.append(dict(entry))
+    return updated
+
+
+def _delete_standalone_ui_entry(
+    entries: list[dict[str, object]],
+    entry_id: str,
+) -> tuple[list[dict[str, object]], bool]:
+    """Remove one list entry by id and report whether anything was deleted."""
+    normalized_id = str(entry_id or "").strip()
+    kept: list[dict[str, object]] = []
+    deleted = False
+    for current in entries:
+        current_id = str(current.get("id", "")).strip()
+        if current_id == normalized_id:
+            deleted = True
+            continue
+        kept.append(dict(current))
+    return kept, deleted
+
+
+def _find_standalone_ui_entry(
+    entries: list[dict[str, object]],
+    entry_id: str,
+) -> dict[str, object] | None:
+    """Return a copy of one saved entry by id."""
+    normalized_id = str(entry_id or "").strip()
+    if not normalized_id:
+        return None
+    for current in entries:
+        if str(current.get("id", "")).strip() == normalized_id:
+            return dict(current)
+    return None
+
+
+def _normalize_working_hour_entry(raw: object) -> dict[str, object] | None:
+    """Normalize one persisted working-hour entry for display/editing."""
+    if not isinstance(raw, dict):
+        return None
+    entry_id = str(raw.get("id", "")).strip()
+    working_day = str(raw.get("working_day", "")).strip()
+    start_time = str(raw.get("start_time", "")).strip()
+    end_time = str(raw.get("end_time", "")).strip()
+    if not entry_id or not working_day:
+        return None
+    return {
+        "id": entry_id,
+        "working_day": working_day,
+        "start_time": start_time or "06:00 AM",
+        "end_time": end_time or "06:00 PM",
+    }
+
+
+def _normalize_working_hour_entries(
+    raw_entries: Iterable[object],
+    *,
+    include_defaults: bool = False,
+) -> list[dict[str, object]]:
+    """Normalize and order working-hour rows for rendering and persistence."""
+    normalized_entries = [
+        normalized
+        for raw in raw_entries
+        if (normalized := _normalize_working_hour_entry(raw)) is not None
+    ]
+    if not normalized_entries and include_defaults:
+        normalized_entries = [
+            {
+                "id": "wh-demo-monday",
+                "working_day": "Monday",
+                "start_time": "06:00 AM",
+                "end_time": "06:00 PM",
+            },
+            {
+                "id": "wh-demo-tuesday",
+                "working_day": "Tuesday",
+                "start_time": "06:00 AM",
+                "end_time": "06:00 PM",
+            },
+        ]
+    return sorted(
+        normalized_entries,
+        key=lambda item: (_working_day_index(str(item.get("working_day", ""))), str(item.get("id", ""))),
+    )
+
+
+def _working_day_index(day_name: str) -> int:
+    """Return the fixed display order index for one working day label."""
+    normalized_day = str(day_name or "").strip()
+    try:
+        return _WORKING_DAY_OPTIONS.index(normalized_day)
+    except ValueError:
+        return len(_WORKING_DAY_OPTIONS)
+
+
+def _working_day_conflicts(
+    entries: Iterable[dict[str, object]],
+    *,
+    working_day: str,
+    exclude_entry_id: str = "",
+) -> bool:
+    """Return whether another working-hour row already uses the requested day."""
+    normalized_day = str(working_day or "").strip()
+    normalized_exclude_id = str(exclude_entry_id or "").strip()
+    return any(
+        str(item.get("working_day", "")).strip() == normalized_day
+        and str(item.get("id", "")).strip() != normalized_exclude_id
+        for item in entries
+    )
+
+
+def _next_available_working_day(entries: Iterable[dict[str, object]]) -> str:
+    """Return the next unused weekday for the add-row form."""
+    for day_name in _available_working_day_options(entries):
+        return day_name
+    return _WORKING_DAY_OPTIONS[0]
+
+
+def _available_working_day_options(
+    entries: Iterable[dict[str, object]],
+    *,
+    exclude_entry_id: str = "",
+) -> list[str]:
+    """Return selectable weekday options, excluding days already used by other rows."""
+    entries_list = [dict(item) for item in entries]
+    normalized_exclude_id = str(exclude_entry_id or "").strip()
+    used_days = {
+        str(item.get("working_day", "")).strip()
+        for item in entries_list
+        if str(item.get("id", "")).strip() != normalized_exclude_id
+        and str(item.get("working_day", "")).strip()
+    }
+    available_days = [day_name for day_name in _WORKING_DAY_OPTIONS if day_name not in used_days]
+    if normalized_exclude_id:
+        current_entry = _find_standalone_ui_entry(entries_list, normalized_exclude_id)
+        current_day = str(current_entry.get("working_day", "")).strip() if current_entry else ""
+        if current_day and current_day not in available_days:
+            available_days.append(current_day)
+            available_days.sort(key=_working_day_index)
+    if available_days:
+        return available_days
+    return [str(day_name) for day_name in _WORKING_DAY_OPTIONS]
+
+
+def _render_working_hour_row(item: dict[str, object], entries: list[dict[str, object]]) -> str:
+    """Render one editable working-hour row."""
+    entry_id = html.escape(str(item["id"]))
+    available_days = _available_working_day_options(entries, exclude_entry_id=str(item["id"]))
+    return (
+        "<div class='work-row'>"
+        "<form method='post' action='/ui/working-hours/save' class='work-row-form'>"
+        f"<input type='hidden' name='entry_id' value='{entry_id}'>"
+        f"<select class='select' name='working_day'>{_render_option_list(available_days, str(item['working_day']))}</select>"
+        f"<input class='input' name='start_time' value='{html.escape(str(item['start_time']))}'>"
+        f"<input class='input' name='end_time' value='{html.escape(str(item['end_time']))}'>"
+        "<button class='button secondary mini' type='submit'>Save</button>"
+        "<div class='action-stack'>"
+        f"<button class='button delete icon-button' type='submit' form='delete-{entry_id}' title='Delete'>&#128465;</button>"
+        "</div>"
+        "</form>"
+        f"<form id='delete-{entry_id}' method='post' action='/ui/working-hours/delete'>"
+        f"<input type='hidden' name='entry_id' value='{entry_id}'>"
+        "</form>"
+        "</div>"
+    )
+
+
+def _render_working_hours_add_section(
+    *,
+    can_add_row: bool,
+    available_days: list[str],
+    next_working_day: str,
+) -> str:
+    """Render either the add-row form or the 7-row cap message."""
+    if can_add_row:
+        return f"""
+      <div id="new-working-hour" class="list-panel">
+        <h3>Add New Working Hour</h3>
+        <p>Use one row per day. Add a new row and it will be sorted into the weekly order.</p>
+        <form method="post" action="/ui/working-hours/save" class="work-row-form">
+          <input type="hidden" name="entry_id" value="">
+          <select class="select" name="working_day">{_render_option_list(available_days, next_working_day)}</select>
+          <input class="input" name="start_time" value="06:00 AM">
+          <input class="input" name="end_time" value="06:00 PM">
+          <button class="button save mini" type="submit">Add Row</button>
+          <div></div>
+        </form>
+      </div>
+    """
+    return f"""
+      <div id="new-working-hour" class="list-panel">
+        <h3>Maximum Reached</h3>
+        <p>Working Hours is limited to {_MAX_WORKING_HOUR_ROWS} rows. Delete one row before adding another.</p>
+      </div>
+    """
+
+
+def _normalize_location_entry(raw: object) -> dict[str, object] | None:
+    """Normalize one persisted location entry for display/editing."""
+    if not isinstance(raw, dict):
+        return None
+    entry_id = str(raw.get("id", "")).strip()
+    location_name = str(raw.get("location_name", "")).strip()
+    if not entry_id or not location_name:
+        return None
+    location_code = str(raw.get("location_code", "")).strip() or _next_location_code([])
+    latitude = str(raw.get("latitude", "")).strip() or "11.562034951273636"
+    longitude = str(raw.get("longitude", "")).strip() or "104.87029995007804"
+    return {
+        "id": entry_id,
+        "company": str(raw.get("company", "")).strip(),
+        "zone": str(raw.get("zone", "")).strip(),
+        "telegram_group_id": str(raw.get("telegram_group_id", "")).strip(),
+        "location_name": location_name,
+        "location_code": location_code,
+        "latitude": latitude,
+        "longitude": longitude,
+        "search_query": str(raw.get("search_query", "")).strip(),
+        "updated_at": str(raw.get("updated_at", "")).strip(),
+    }
+
+
+def _normalize_location_coordinate(value: str, field_label: str) -> str:
+    """Validate and normalize latitude/longitude text input."""
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{field_label} is required")
+    try:
+        parsed = float(normalized)
+    except ValueError as exc:
+        raise ValueError(f"{field_label} must be a number") from exc
+    return f"{parsed:.12f}".rstrip("0").rstrip(".")
+
+
+def _next_location_code(entries: list[dict[str, object]]) -> str:
+    """Generate the next simple location code based on saved entries."""
+    max_suffix = 489
+    for current in entries:
+        code = str(current.get("location_code", "")).strip().lower()
+        if not code.startswith("loc-"):
+            continue
+        try:
+            max_suffix = max(max_suffix, int(code.split("-", 1)[1]))
+        except ValueError:
+            continue
+    return f"loc-{max_suffix + 1:04d}"
+
+
+def _resolve_location_search_payload(query: str) -> dict[str, object]:
+    """Resolve one location search query into coordinates for the standalone UI."""
+    normalized_query = str(query or "").strip()
+    if not normalized_query:
+        raise ValueError("location search query is required")
+    direct_match = _extract_location_coordinates(normalized_query)
+    if direct_match is not None:
+        latitude, longitude = direct_match
+        return {
+            "ok": True,
+            "latitude": latitude,
+            "longitude": longitude,
+            "label": normalized_query,
+            "source": "direct",
+        }
+    if _looks_like_url(normalized_query):
+        resolved_url, response_text = _resolve_location_url_details(normalized_query)
+        resolved_match = _extract_location_coordinates(resolved_url)
+        if resolved_match is not None:
+            latitude, longitude = resolved_match
+            return {
+                "ok": True,
+                "latitude": latitude,
+                "longitude": longitude,
+                "label": resolved_url,
+                "source": "url",
+            }
+        response_match = _extract_location_coordinates(response_text)
+        if response_match is not None:
+            latitude, longitude = response_match
+            return {
+                "ok": True,
+                "latitude": latitude,
+                "longitude": longitude,
+                "label": _extract_location_label(resolved_url, response_text) or resolved_url,
+                "source": "url-body",
+            }
+        extracted_label = _extract_location_label(resolved_url, response_text)
+        if extracted_label:
+            searched = _search_location_by_text(extracted_label)
+            searched["source"] = "url-label-search"
+            return searched
+        raise ValueError("could not extract coordinates from the provided map link")
+    return _search_location_by_text(normalized_query)
+
+
+def _extract_location_coordinates(value: str) -> tuple[float, float] | None:
+    """Extract one latitude/longitude pair from free text or a map URL."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    pair_match = _COORDINATE_PAIR_PATTERN.search(text)
+    if pair_match is not None:
+        latitude = float(pair_match.group(1))
+        longitude = float(pair_match.group(2))
+        if _coordinates_look_valid(latitude, longitude):
+            return latitude, longitude
+    at_match = _GOOGLE_AT_PATTERN.search(text)
+    if at_match is not None:
+        latitude = float(at_match.group(1))
+        longitude = float(at_match.group(2))
+        if _coordinates_look_valid(latitude, longitude):
+            return latitude, longitude
+    google_3d4d_match = _GOOGLE_3D4D_PATTERN.search(text)
+    if google_3d4d_match is not None:
+        latitude = float(google_3d4d_match.group(1))
+        longitude = float(google_3d4d_match.group(2))
+        if _coordinates_look_valid(latitude, longitude):
+            return latitude, longitude
+    preview_match = _GOOGLE_PREVIEW_PATTERN.search(text)
+    if preview_match is not None:
+        latitude = float(preview_match.group(1))
+        longitude = float(preview_match.group(2))
+        if _coordinates_look_valid(latitude, longitude):
+            return latitude, longitude
+    parsed = urlparse(text)
+    if parsed.scheme and parsed.netloc:
+        for key in ("q", "query", "ll", "center", "destination", "link"):
+            values = parse_qs(parsed.query).get(key, [])
+            for item in values:
+                nested_match = _extract_location_coordinates(item)
+                if nested_match is not None:
+                    return nested_match
+    return None
+
+
+def _coordinates_look_valid(latitude: float, longitude: float) -> bool:
+    """Return whether one latitude/longitude pair fits normal earth ranges."""
+    return -90 <= latitude <= 90 and -180 <= longitude <= 180
+
+
+def _looks_like_url(value: str) -> bool:
+    """Return whether the query looks like a URL that may need redirect resolution."""
+    parsed = urlparse(str(value or "").strip())
+    return bool(parsed.scheme and parsed.netloc)
+
+
+def _resolve_location_url(url: str) -> str:
+    """Resolve one external map URL to its final destination URL."""
+    return _resolve_location_url_details(url)[0]
+
+
+def _resolve_location_url_details(url: str) -> tuple[str, str]:
+    """Resolve one external map URL and return the final URL plus response text."""
+    request = Request(
+        str(url).strip(),
+        headers={
+            "User-Agent": "eTrax-Standalone-UI/1.0 (+https://local.etrax)",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            final_url = str(response.geturl() or url).strip()
+            response_text = response.read(512000).decode("utf-8", errors="replace")
+            return final_url, response_text
+    except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError(f"could not resolve map link: {exc}") from exc
+
+
+def _extract_location_label(*values: str) -> str:
+    """Extract one readable place label from resolved URLs or HTML snippets."""
+    for raw_value in values:
+        value = str(raw_value or "").strip()
+        if not value:
+            continue
+        label_match = _GOOGLE_PLACE_LABEL_PATTERN.search(value)
+        if label_match is not None:
+            candidate = label_match.group(1).replace("+", " ").replace("%20", " ").strip()
+            if candidate and candidate.lower() != "place":
+                return candidate
+        for marker in ('"title":"', '"og:title" content="', '"name" content="'):
+            marker_index = value.find(marker)
+            if marker_index != -1:
+                start_index = marker_index + len(marker)
+                end_index = value.find('"', start_index)
+                if end_index != -1:
+                    candidate = value[start_index:end_index].strip()
+                    if candidate:
+                        return html.unescape(candidate)
+    return ""
+
+
+def _search_location_by_text(query: str) -> dict[str, object]:
+    """Search one free-text place query through Nominatim."""
+    request_url = "https://nominatim.openstreetmap.org/search?" + urlencode(
+        {
+            "format": "jsonv2",
+            "limit": 1,
+            "q": query,
+        }
+    )
+    request = Request(
+        request_url,
+        headers={
+            "User-Agent": "eTrax-Standalone-UI/1.0 (+https://local.etrax)",
+            "Accept": "application/json",
+            "Referer": "http://127.0.0.1/",
+        },
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"location search failed: {exc}") from exc
+    if not isinstance(payload, list) or not payload:
+        raise ValueError("location search returned no results")
+    first_result = payload[0]
+    if not isinstance(first_result, dict):
+        raise ValueError("location search returned an invalid result")
+    latitude = float(first_result.get("lat", 0.0))
+    longitude = float(first_result.get("lon", 0.0))
+    if not _coordinates_look_valid(latitude, longitude):
+        raise ValueError("location search returned invalid coordinates")
+    return {
+        "ok": True,
+        "latitude": latitude,
+        "longitude": longitude,
+        "label": str(first_result.get("display_name", query)).strip() or query,
+        "source": "search",
+    }
+
+
+def _build_map_embed_src(*, latitude: str, longitude: str) -> str:
+    """Build an OpenStreetMap embed URL focused on the current coordinates."""
+    try:
+        lat = float(str(latitude or "").strip())
+    except ValueError:
+        lat = 11.562034951273636
+    try:
+        lng = float(str(longitude or "").strip())
+    except ValueError:
+        lng = 104.87029995007804
+    min_lng = lng - 0.025
+    min_lat = lat - 0.0175
+    max_lng = lng + 0.025
+    max_lat = lat + 0.0175
+    return (
+        "https://www.openstreetmap.org/export/embed.html"
+        f"?bbox={min_lng:.6f}%2C{min_lat:.6f}%2C{max_lng:.6f}%2C{max_lat:.6f}"
+        f"&layer=mapnik&marker={lat:.12f}%2C{lng:.12f}"
+    )
 
 def _render_config_page(
     *,
@@ -1268,6 +3126,40 @@ def _render_config_page(
     .checkbox.compact {{
       margin-top: 10px;
     }}
+    .share-location-mode-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }}
+    .share-location-mode {{
+      margin-top: 0;
+      align-items: flex-start;
+      min-height: 92px;
+      padding: 12px 14px;
+    }}
+    .share-location-mode.is-selected {{
+      border-color: #175cd3;
+      background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+      box-shadow: 0 10px 22px rgba(23, 92, 211, 0.12);
+    }}
+    .share-location-mode-copy {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }}
+    .share-location-mode-title {{
+      display: block;
+      font-weight: 700;
+      color: #0f172a;
+    }}
+    .share-location-mode-note {{
+      display: block;
+      font-size: 0.84rem;
+      line-height: 1.45;
+      color: #475467;
+      font-weight: 500;
+    }}
     .actions {{
       margin-top: 16px;
       display: flex;
@@ -1481,6 +3373,7 @@ def _render_config_page(
       .row {{ grid-template-columns: 1fr; }}
       .command-row {{ grid-template-columns: 1fr; }}
       .module-grid {{ grid-template-columns: 1fr; }}
+      .share-location-mode-grid {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -1497,6 +3390,8 @@ def _render_config_page(
           <input type="hidden" name="next" value="{html.escape(next_url)}">
           <button class="{toggle_class}" type="submit">{toggle_label} Runtime</button>
         </form>
+        <a class="back" href="/ui/working-hours">Working Hours</a>
+        <a class="back" href="/ui/locations">Locations</a>
         <button
           type="button"
           class="runtime-error-toggle"
@@ -1552,6 +3447,7 @@ def _render_config_page(
   <script src="/module-inline-button.js"></script>
   <script src="/module-share-contact.js"></script>
   <script src="/module-share-location.js"></script>
+  <script src="/module-route.js"></script>
   <script src="/module-checkout.js"></script>
   <script src="/module-payway-payment.js"></script>
   <script src="/module-cart-button.js"></script>
@@ -1783,10 +3679,23 @@ def _build_command_modules_from_form(
     command_contact_success_texts: list[str],
     command_contact_invalid_texts: list[str],
     command_require_live_locations: list[str],
+    command_find_closest_saved_locations: list[str],
+    command_match_closest_saved_locations: list[str],
+    command_closest_location_tolerance_meters: list[str],
+    command_closest_location_group_texts: list[str],
+    command_closest_location_group_send_timings: list[str],
+    command_closest_location_group_send_after_steps: list[str],
+    command_location_invalid_texts: list[str],
     command_track_breadcrumbs: list[str],
     command_store_history_by_days: list[str],
     command_breadcrumb_interval_minutes: list[str],
     command_breadcrumb_min_distance_meters: list[str],
+    command_breadcrumb_started_text_templates: list[str],
+    command_breadcrumb_interrupted_text_templates: list[str],
+    command_breadcrumb_resumed_text_templates: list[str],
+    command_breadcrumb_ended_text_templates: list[str],
+    command_route_empty_texts: list[str],
+    command_route_max_link_points: list[str],
     command_checkout_empty_texts: list[str],
     command_checkout_pay_button_texts: list[str],
     command_checkout_pay_callback_datas: list[str],
@@ -1832,10 +3741,23 @@ def _build_command_modules_from_form(
         len(command_contact_success_texts),
         len(command_contact_invalid_texts),
         len(command_require_live_locations),
+        len(command_find_closest_saved_locations),
+        len(command_match_closest_saved_locations),
+        len(command_closest_location_tolerance_meters),
+        len(command_closest_location_group_texts),
+        len(command_closest_location_group_send_timings),
+        len(command_closest_location_group_send_after_steps),
+        len(command_location_invalid_texts),
         len(command_track_breadcrumbs),
         len(command_store_history_by_days),
         len(command_breadcrumb_interval_minutes),
         len(command_breadcrumb_min_distance_meters),
+        len(command_breadcrumb_started_text_templates),
+        len(command_breadcrumb_interrupted_text_templates),
+        len(command_breadcrumb_resumed_text_templates),
+        len(command_breadcrumb_ended_text_templates),
+        len(command_route_empty_texts),
+        len(command_route_max_link_points),
         len(command_checkout_empty_texts),
         len(command_checkout_pay_button_texts),
         len(command_checkout_pay_callback_datas),
@@ -1890,6 +3812,39 @@ def _build_command_modules_from_form(
         require_live_location = (
             command_require_live_locations[idx].strip() if idx < len(command_require_live_locations) else ""
         )
+        find_closest_saved_location = (
+            command_find_closest_saved_locations[idx].strip()
+            if idx < len(command_find_closest_saved_locations)
+            else ""
+        )
+        match_closest_saved_location = (
+            command_match_closest_saved_locations[idx].strip()
+            if idx < len(command_match_closest_saved_locations)
+            else ""
+        )
+        closest_location_tolerance_meters = (
+            command_closest_location_tolerance_meters[idx].strip()
+            if idx < len(command_closest_location_tolerance_meters)
+            else ""
+        )
+        closest_location_group_text = (
+            command_closest_location_group_texts[idx].strip()
+            if idx < len(command_closest_location_group_texts)
+            else ""
+        )
+        closest_location_group_send_timing = (
+            command_closest_location_group_send_timings[idx].strip()
+            if idx < len(command_closest_location_group_send_timings)
+            else ""
+        )
+        closest_location_group_send_after_step = (
+            command_closest_location_group_send_after_steps[idx].strip()
+            if idx < len(command_closest_location_group_send_after_steps)
+            else ""
+        )
+        location_invalid_text = (
+            command_location_invalid_texts[idx].strip() if idx < len(command_location_invalid_texts) else ""
+        )
         track_breadcrumb = command_track_breadcrumbs[idx].strip() if idx < len(command_track_breadcrumbs) else ""
         store_history_by_day = (
             command_store_history_by_days[idx].strip() if idx < len(command_store_history_by_days) else ""
@@ -1901,6 +3856,30 @@ def _build_command_modules_from_form(
             command_breadcrumb_min_distance_meters[idx].strip()
             if idx < len(command_breadcrumb_min_distance_meters)
             else ""
+        )
+        breadcrumb_started_text_template = (
+            command_breadcrumb_started_text_templates[idx].strip()
+            if idx < len(command_breadcrumb_started_text_templates)
+            else ""
+        )
+        breadcrumb_interrupted_text_template = (
+            command_breadcrumb_interrupted_text_templates[idx].strip()
+            if idx < len(command_breadcrumb_interrupted_text_templates)
+            else ""
+        )
+        breadcrumb_resumed_text_template = (
+            command_breadcrumb_resumed_text_templates[idx].strip()
+            if idx < len(command_breadcrumb_resumed_text_templates)
+            else ""
+        )
+        breadcrumb_ended_text_template = (
+            command_breadcrumb_ended_text_templates[idx].strip()
+            if idx < len(command_breadcrumb_ended_text_templates)
+            else ""
+        )
+        route_empty_text = command_route_empty_texts[idx].strip() if idx < len(command_route_empty_texts) else ""
+        route_max_link_points = (
+            command_route_max_link_points[idx].strip() if idx < len(command_route_max_link_points) else ""
         )
         checkout_empty_text = command_checkout_empty_texts[idx].strip() if idx < len(command_checkout_empty_texts) else ""
         checkout_pay_button_text = command_checkout_pay_button_texts[idx].strip() if idx < len(command_checkout_pay_button_texts) else ""
@@ -1943,10 +3922,23 @@ def _build_command_modules_from_form(
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
             require_live_location=require_live_location,
+            find_closest_saved_location=find_closest_saved_location,
+            match_closest_saved_location=match_closest_saved_location,
+            closest_location_tolerance_meters=closest_location_tolerance_meters,
+            closest_location_group_text=closest_location_group_text,
+            closest_location_group_send_timing=closest_location_group_send_timing,
+            closest_location_group_send_after_step=closest_location_group_send_after_step,
+            location_invalid_text=location_invalid_text,
             track_breadcrumb=track_breadcrumb,
             store_history_by_day=store_history_by_day,
             breadcrumb_interval_minutes=breadcrumb_interval_minutes,
             breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+            breadcrumb_started_text_template=breadcrumb_started_text_template,
+            breadcrumb_interrupted_text_template=breadcrumb_interrupted_text_template,
+            breadcrumb_resumed_text_template=breadcrumb_resumed_text_template,
+            breadcrumb_ended_text_template=breadcrumb_ended_text_template,
+            route_empty_text=route_empty_text,
+            route_max_link_points=route_max_link_points,
             checkout_empty_text=checkout_empty_text,
             checkout_pay_button_text=checkout_pay_button_text,
             checkout_pay_callback_data=checkout_pay_callback_data,
@@ -1993,10 +3985,23 @@ def _build_callback_modules_from_form(
     callback_contact_success_texts: list[str],
     callback_contact_invalid_texts: list[str],
     callback_require_live_locations: list[str],
+    callback_find_closest_saved_locations: list[str],
+    callback_match_closest_saved_locations: list[str],
+    callback_closest_location_tolerance_meters: list[str],
+    callback_closest_location_group_texts: list[str],
+    callback_closest_location_group_send_timings: list[str],
+    callback_closest_location_group_send_after_steps: list[str],
+    callback_location_invalid_texts: list[str],
     callback_track_breadcrumbs: list[str],
     callback_store_history_by_days: list[str],
     callback_breadcrumb_interval_minutes: list[str],
     callback_breadcrumb_min_distance_meters: list[str],
+    callback_breadcrumb_started_text_templates: list[str],
+    callback_breadcrumb_interrupted_text_templates: list[str],
+    callback_breadcrumb_resumed_text_templates: list[str],
+    callback_breadcrumb_ended_text_templates: list[str],
+    callback_route_empty_texts: list[str],
+    callback_route_max_link_points: list[str],
     callback_checkout_empty_texts: list[str],
     callback_checkout_pay_button_texts: list[str],
     callback_checkout_pay_callback_datas: list[str],
@@ -2043,10 +4048,23 @@ def _build_callback_modules_from_form(
         len(callback_contact_success_texts),
         len(callback_contact_invalid_texts),
         len(callback_require_live_locations),
+        len(callback_find_closest_saved_locations),
+        len(callback_match_closest_saved_locations),
+        len(callback_closest_location_tolerance_meters),
+        len(callback_closest_location_group_texts),
+        len(callback_closest_location_group_send_timings),
+        len(callback_closest_location_group_send_after_steps),
+        len(callback_location_invalid_texts),
         len(callback_track_breadcrumbs),
         len(callback_store_history_by_days),
         len(callback_breadcrumb_interval_minutes),
         len(callback_breadcrumb_min_distance_meters),
+        len(callback_breadcrumb_started_text_templates),
+        len(callback_breadcrumb_interrupted_text_templates),
+        len(callback_breadcrumb_resumed_text_templates),
+        len(callback_breadcrumb_ended_text_templates),
+        len(callback_route_empty_texts),
+        len(callback_route_max_link_points),
         len(callback_checkout_empty_texts),
         len(callback_checkout_pay_button_texts),
         len(callback_checkout_pay_callback_datas),
@@ -2101,6 +4119,39 @@ def _build_callback_modules_from_form(
         require_live_location = (
             callback_require_live_locations[idx].strip() if idx < len(callback_require_live_locations) else ""
         )
+        find_closest_saved_location = (
+            callback_find_closest_saved_locations[idx].strip()
+            if idx < len(callback_find_closest_saved_locations)
+            else ""
+        )
+        match_closest_saved_location = (
+            callback_match_closest_saved_locations[idx].strip()
+            if idx < len(callback_match_closest_saved_locations)
+            else ""
+        )
+        closest_location_tolerance_meters = (
+            callback_closest_location_tolerance_meters[idx].strip()
+            if idx < len(callback_closest_location_tolerance_meters)
+            else ""
+        )
+        closest_location_group_text = (
+            callback_closest_location_group_texts[idx].strip()
+            if idx < len(callback_closest_location_group_texts)
+            else ""
+        )
+        closest_location_group_send_timing = (
+            callback_closest_location_group_send_timings[idx].strip()
+            if idx < len(callback_closest_location_group_send_timings)
+            else ""
+        )
+        closest_location_group_send_after_step = (
+            callback_closest_location_group_send_after_steps[idx].strip()
+            if idx < len(callback_closest_location_group_send_after_steps)
+            else ""
+        )
+        location_invalid_text = (
+            callback_location_invalid_texts[idx].strip() if idx < len(callback_location_invalid_texts) else ""
+        )
         track_breadcrumb = callback_track_breadcrumbs[idx].strip() if idx < len(callback_track_breadcrumbs) else ""
         store_history_by_day = (
             callback_store_history_by_days[idx].strip() if idx < len(callback_store_history_by_days) else ""
@@ -2114,6 +4165,30 @@ def _build_callback_modules_from_form(
             callback_breadcrumb_min_distance_meters[idx].strip()
             if idx < len(callback_breadcrumb_min_distance_meters)
             else ""
+        )
+        breadcrumb_started_text_template = (
+            callback_breadcrumb_started_text_templates[idx].strip()
+            if idx < len(callback_breadcrumb_started_text_templates)
+            else ""
+        )
+        breadcrumb_interrupted_text_template = (
+            callback_breadcrumb_interrupted_text_templates[idx].strip()
+            if idx < len(callback_breadcrumb_interrupted_text_templates)
+            else ""
+        )
+        breadcrumb_resumed_text_template = (
+            callback_breadcrumb_resumed_text_templates[idx].strip()
+            if idx < len(callback_breadcrumb_resumed_text_templates)
+            else ""
+        )
+        breadcrumb_ended_text_template = (
+            callback_breadcrumb_ended_text_templates[idx].strip()
+            if idx < len(callback_breadcrumb_ended_text_templates)
+            else ""
+        )
+        route_empty_text = callback_route_empty_texts[idx].strip() if idx < len(callback_route_empty_texts) else ""
+        route_max_link_points = (
+            callback_route_max_link_points[idx].strip() if idx < len(callback_route_max_link_points) else ""
         )
         checkout_empty_text = callback_checkout_empty_texts[idx].strip() if idx < len(callback_checkout_empty_texts) else ""
         checkout_pay_button_text = callback_checkout_pay_button_texts[idx].strip() if idx < len(callback_checkout_pay_button_texts) else ""
@@ -2159,10 +4234,23 @@ def _build_callback_modules_from_form(
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
             require_live_location=require_live_location,
+            find_closest_saved_location=find_closest_saved_location,
+            match_closest_saved_location=match_closest_saved_location,
+            closest_location_tolerance_meters=closest_location_tolerance_meters,
+            closest_location_group_text=closest_location_group_text,
+            closest_location_group_send_timing=closest_location_group_send_timing,
+            closest_location_group_send_after_step=closest_location_group_send_after_step,
+            location_invalid_text=location_invalid_text,
             track_breadcrumb=track_breadcrumb,
             store_history_by_day=store_history_by_day,
             breadcrumb_interval_minutes=breadcrumb_interval_minutes,
             breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+            breadcrumb_started_text_template=breadcrumb_started_text_template,
+            breadcrumb_interrupted_text_template=breadcrumb_interrupted_text_template,
+            breadcrumb_resumed_text_template=breadcrumb_resumed_text_template,
+            breadcrumb_ended_text_template=breadcrumb_ended_text_template,
+            route_empty_text=route_empty_text,
+            route_max_link_points=route_max_link_points,
             checkout_empty_text=checkout_empty_text,
             checkout_pay_button_text=checkout_pay_button_text,
             checkout_pay_callback_data=checkout_pay_callback_data,
@@ -2245,10 +4333,32 @@ def _build_callback_temporary_command_entries(
             contact_success_text=str(raw_entry.get("contact_success_text", "")).strip(),
             contact_invalid_text=str(raw_entry.get("contact_invalid_text", "")).strip(),
             require_live_location=str(raw_entry.get("require_live_location", "")).strip(),
+            find_closest_saved_location=str(raw_entry.get("find_closest_saved_location", "")).strip(),
+            match_closest_saved_location=str(raw_entry.get("match_closest_saved_location", "")).strip(),
+            closest_location_tolerance_meters=str(raw_entry.get("closest_location_tolerance_meters", "")).strip(),
+            closest_location_group_text=str(
+                raw_entry.get(
+                    "closest_location_group_text",
+                    raw_entry.get("closest_location_group_text_template", ""),
+                )
+            ).strip(),
+            closest_location_group_send_timing=str(
+                raw_entry.get("closest_location_group_send_timing", "")
+            ).strip(),
+            closest_location_group_send_after_step=str(
+                raw_entry.get("closest_location_group_send_after_step", "")
+            ).strip(),
+            location_invalid_text=str(raw_entry.get("location_invalid_text", "")).strip(),
             track_breadcrumb=str(raw_entry.get("track_breadcrumb", "")).strip(),
             store_history_by_day=str(raw_entry.get("store_history_by_day", "")).strip(),
             breadcrumb_interval_minutes=str(raw_entry.get("breadcrumb_interval_minutes", "")).strip(),
             breadcrumb_min_distance_meters=str(raw_entry.get("breadcrumb_min_distance_meters", "")).strip(),
+            breadcrumb_started_text_template=str(raw_entry.get("breadcrumb_started_text_template", "")).strip(),
+            breadcrumb_interrupted_text_template=str(raw_entry.get("breadcrumb_interrupted_text_template", "")).strip(),
+            breadcrumb_resumed_text_template=str(raw_entry.get("breadcrumb_resumed_text_template", "")).strip(),
+            breadcrumb_ended_text_template=str(raw_entry.get("breadcrumb_ended_text_template", "")).strip(),
+            route_empty_text=str(raw_entry.get("route_empty_text", raw_entry.get("empty_text_template", ""))).strip(),
+            route_max_link_points=str(raw_entry.get("route_max_link_points", raw_entry.get("max_link_points", ""))).strip(),
             checkout_empty_text=str(raw_entry.get("checkout_empty_text", "")).strip(),
             checkout_pay_button_text=str(raw_entry.get("checkout_pay_button_text", "")).strip(),
             checkout_pay_callback_data=str(raw_entry.get("checkout_pay_callback_data", "")).strip(),
@@ -2296,10 +4406,23 @@ def _build_command_module_entry(
     contact_success_text: str,
     contact_invalid_text: str,
     require_live_location: str = "",
+    find_closest_saved_location: str = "",
+    match_closest_saved_location: str = "",
+    closest_location_tolerance_meters: str = "",
+    closest_location_group_text: str = "",
+    closest_location_group_send_timing: str = "",
+    closest_location_group_send_after_step: str = "",
+    location_invalid_text: str = "",
     track_breadcrumb: str = "",
     store_history_by_day: str = "",
     breadcrumb_interval_minutes: str = "",
     breadcrumb_min_distance_meters: str = "",
+    breadcrumb_started_text_template: str = "",
+    breadcrumb_interrupted_text_template: str = "",
+    breadcrumb_resumed_text_template: str = "",
+    breadcrumb_ended_text_template: str = "",
+    route_empty_text: str = "",
+    route_max_link_points: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2348,10 +4471,23 @@ def _build_command_module_entry(
         contact_success_text=contact_success_text,
         contact_invalid_text=contact_invalid_text,
         require_live_location=require_live_location,
+        find_closest_saved_location=find_closest_saved_location,
+        match_closest_saved_location=match_closest_saved_location,
+        closest_location_tolerance_meters=closest_location_tolerance_meters,
+        closest_location_group_text=closest_location_group_text,
+        closest_location_group_send_timing=closest_location_group_send_timing,
+        closest_location_group_send_after_step=closest_location_group_send_after_step,
+        location_invalid_text=location_invalid_text,
         track_breadcrumb=track_breadcrumb,
         store_history_by_day=store_history_by_day,
         breadcrumb_interval_minutes=breadcrumb_interval_minutes,
         breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+        breadcrumb_started_text_template=breadcrumb_started_text_template,
+        breadcrumb_interrupted_text_template=breadcrumb_interrupted_text_template,
+        breadcrumb_resumed_text_template=breadcrumb_resumed_text_template,
+        breadcrumb_ended_text_template=breadcrumb_ended_text_template,
+        route_empty_text=route_empty_text,
+        route_max_link_points=route_max_link_points,
         checkout_empty_text=checkout_empty_text,
         checkout_pay_button_text=checkout_pay_button_text,
         checkout_pay_callback_data=checkout_pay_callback_data,
@@ -2400,10 +4536,23 @@ def _build_callback_module_entry(
     contact_success_text: str,
     contact_invalid_text: str,
     require_live_location: str = "",
+    find_closest_saved_location: str = "",
+    match_closest_saved_location: str = "",
+    closest_location_tolerance_meters: str = "",
+    closest_location_group_text: str = "",
+    closest_location_group_send_timing: str = "",
+    closest_location_group_send_after_step: str = "",
+    location_invalid_text: str = "",
     track_breadcrumb: str = "",
     store_history_by_day: str = "",
     breadcrumb_interval_minutes: str = "",
     breadcrumb_min_distance_meters: str = "",
+    breadcrumb_started_text_template: str = "",
+    breadcrumb_interrupted_text_template: str = "",
+    breadcrumb_resumed_text_template: str = "",
+    breadcrumb_ended_text_template: str = "",
+    route_empty_text: str = "",
+    route_max_link_points: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2451,10 +4600,23 @@ def _build_callback_module_entry(
         contact_success_text=contact_success_text,
         contact_invalid_text=contact_invalid_text,
         require_live_location=require_live_location,
+        find_closest_saved_location=find_closest_saved_location,
+        match_closest_saved_location=match_closest_saved_location,
+        closest_location_tolerance_meters=closest_location_tolerance_meters,
+        closest_location_group_text=closest_location_group_text,
+        closest_location_group_send_timing=closest_location_group_send_timing,
+        closest_location_group_send_after_step=closest_location_group_send_after_step,
+        location_invalid_text=location_invalid_text,
         track_breadcrumb=track_breadcrumb,
         store_history_by_day=store_history_by_day,
         breadcrumb_interval_minutes=breadcrumb_interval_minutes,
         breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+        breadcrumb_started_text_template=breadcrumb_started_text_template,
+        breadcrumb_interrupted_text_template=breadcrumb_interrupted_text_template,
+        breadcrumb_resumed_text_template=breadcrumb_resumed_text_template,
+        breadcrumb_ended_text_template=breadcrumb_ended_text_template,
+        route_empty_text=route_empty_text,
+        route_max_link_points=route_max_link_points,
         checkout_empty_text=checkout_empty_text,
         checkout_pay_button_text=checkout_pay_button_text,
         checkout_pay_callback_data=checkout_pay_callback_data,
@@ -2511,10 +4673,23 @@ def _build_module_step(
     contact_success_text: str,
     contact_invalid_text: str,
     require_live_location: str = "",
+    find_closest_saved_location: str = "",
+    match_closest_saved_location: str = "",
+    closest_location_tolerance_meters: str = "",
+    closest_location_group_text: str = "",
+    closest_location_group_send_timing: str = "",
+    closest_location_group_send_after_step: str = "",
+    location_invalid_text: str = "",
     track_breadcrumb: str = "",
     store_history_by_day: str = "",
     breadcrumb_interval_minutes: str = "",
     breadcrumb_min_distance_meters: str = "",
+    breadcrumb_started_text_template: str = "",
+    breadcrumb_interrupted_text_template: str = "",
+    breadcrumb_resumed_text_template: str = "",
+    breadcrumb_ended_text_template: str = "",
+    route_empty_text: str = "",
+    route_max_link_points: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2661,13 +4836,36 @@ def _build_module_step(
                 button_text=contact_button_text,
                 success_text=contact_success_text,
                 require_live_location=_is_truthy_text(require_live_location),
+                find_closest_saved_location=_is_truthy_text(find_closest_saved_location),
+                match_closest_saved_location=_is_truthy_text(match_closest_saved_location),
+                closest_location_tolerance_meters=closest_location_tolerance_meters,
+                closest_location_group_text_template=closest_location_group_text,
+                closest_location_group_send_timing=closest_location_group_send_timing,
+                closest_location_group_send_after_step=closest_location_group_send_after_step,
+                invalid_text_template=location_invalid_text,
                 track_breadcrumb=_is_truthy_text(track_breadcrumb),
                 store_history_by_day=_is_truthy_text(store_history_by_day),
                 breadcrumb_interval_minutes=breadcrumb_interval_minutes,
                 breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+                breadcrumb_started_text_template=breadcrumb_started_text_template,
+                breadcrumb_interrupted_text_template=breadcrumb_interrupted_text_template,
+                breadcrumb_resumed_text_template=breadcrumb_resumed_text_template,
+                breadcrumb_ended_text_template=breadcrumb_ended_text_template,
+                route_empty_text=route_empty_text,
+                route_max_link_points=route_max_link_points,
             ),
             run_if_context_keys=inline_run_if_context_keys_text,
             skip_if_context_keys=inline_skip_if_context_keys_text,
+        )
+
+    if normalized_module_type == "route":
+        return _build_route_step(
+            default_text="Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}",
+            default_empty_text="No breadcrumb route available yet.",
+            text_template=text_template,
+            parse_mode_value=parse_mode_value,
+            route_empty_text=route_empty_text,
+            route_max_link_points=route_max_link_points,
         )
 
     if normalized_module_type == "checkout":
@@ -2762,10 +4960,23 @@ def _build_callback_module_step(
     contact_success_text: str,
     contact_invalid_text: str,
     require_live_location: str = "",
+    find_closest_saved_location: str = "",
+    match_closest_saved_location: str = "",
+    closest_location_tolerance_meters: str = "",
+    closest_location_group_text: str = "",
+    closest_location_group_send_timing: str = "",
+    closest_location_group_send_after_step: str = "",
+    location_invalid_text: str = "",
     track_breadcrumb: str = "",
     store_history_by_day: str = "",
     breadcrumb_interval_minutes: str = "",
     breadcrumb_min_distance_meters: str = "",
+    breadcrumb_started_text_template: str = "",
+    breadcrumb_interrupted_text_template: str = "",
+    breadcrumb_resumed_text_template: str = "",
+    breadcrumb_ended_text_template: str = "",
+    route_empty_text: str = "",
+    route_max_link_points: str = "",
     checkout_empty_text: str,
     checkout_pay_button_text: str,
     checkout_pay_callback_data: str,
@@ -2913,13 +5124,36 @@ def _build_callback_module_step(
                 button_text=contact_button_text,
                 success_text=contact_success_text,
                 require_live_location=_is_truthy_text(require_live_location),
+                find_closest_saved_location=_is_truthy_text(find_closest_saved_location),
+                match_closest_saved_location=_is_truthy_text(match_closest_saved_location),
+                closest_location_tolerance_meters=closest_location_tolerance_meters,
+                closest_location_group_text_template=closest_location_group_text,
+                closest_location_group_send_timing=closest_location_group_send_timing,
+                closest_location_group_send_after_step=closest_location_group_send_after_step,
+                invalid_text_template=location_invalid_text,
                 track_breadcrumb=_is_truthy_text(track_breadcrumb),
                 store_history_by_day=_is_truthy_text(store_history_by_day),
                 breadcrumb_interval_minutes=breadcrumb_interval_minutes,
                 breadcrumb_min_distance_meters=breadcrumb_min_distance_meters,
+                breadcrumb_started_text_template=breadcrumb_started_text_template,
+                breadcrumb_interrupted_text_template=breadcrumb_interrupted_text_template,
+                breadcrumb_resumed_text_template=breadcrumb_resumed_text_template,
+                breadcrumb_ended_text_template=breadcrumb_ended_text_template,
+                route_empty_text=route_empty_text,
+                route_max_link_points=route_max_link_points,
             ),
             run_if_context_keys=inline_run_if_context_keys_text,
             skip_if_context_keys=inline_skip_if_context_keys_text,
+        )
+
+    if normalized_module_type == "route":
+        return _build_route_step(
+            default_text="Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}",
+            default_empty_text="No breadcrumb route available yet.",
+            text_template=text_template,
+            parse_mode_value=parse_mode_value,
+            route_empty_text=route_empty_text,
+            route_max_link_points=route_max_link_points,
         )
 
     if normalized_module_type == "checkout":
@@ -3009,6 +5243,52 @@ def _build_share_contact_step(
     }
 
 
+def _normalize_share_location_live_mode(
+    *,
+    require_live_location: bool,
+    find_closest_saved_location: bool,
+    match_closest_saved_location: bool,
+    track_breadcrumb: bool,
+) -> tuple[bool, bool, bool]:
+    """Collapse share_location live-mode flags into one active mode."""
+    if not require_live_location:
+        return False, False, False
+    if track_breadcrumb:
+        return False, False, True
+    if match_closest_saved_location:
+        return False, True, False
+    if find_closest_saved_location:
+        return True, False, False
+    return False, False, False
+
+
+def _default_share_location_success_text(*, find_closest_saved_location: bool) -> str:
+    """Return the standalone default success text for share_location steps."""
+    if find_closest_saved_location:
+        return "Closest saved location is {closest_location_name}."
+    return "Thanks, your location was received."
+
+
+def _normalize_closest_location_group_send_config(
+    *,
+    timing: str,
+    after_step: str,
+) -> tuple[str, int | None]:
+    """Normalize closest-location group message timing settings."""
+    normalized_timing = str(timing or "").strip().lower().replace(" ", "_")
+    if normalized_timing == "immediate":
+        return "immediate", None
+    if normalized_timing == "after_step":
+        parsed_after_step = _parse_positive_int_text(
+            after_step,
+            default=None,
+            field_label="share_location closest location group send after step",
+        )
+        if parsed_after_step is not None:
+            return "after_step", parsed_after_step
+    return "end", None
+
+
 def _build_share_location_step(
     *,
     default_text: str,
@@ -3017,23 +5297,68 @@ def _build_share_location_step(
     button_text: str,
     success_text: str,
     require_live_location: bool = False,
+    find_closest_saved_location: bool = False,
+    match_closest_saved_location: bool = False,
+    closest_location_tolerance_meters: str = "",
+    closest_location_group_text_template: str = "",
+    closest_location_group_send_timing: str = "",
+    closest_location_group_send_after_step: str = "",
+    invalid_text_template: str = "",
     track_breadcrumb: bool = False,
     store_history_by_day: bool = False,
     breadcrumb_interval_minutes: str = "",
     breadcrumb_min_distance_meters: str = "",
+    breadcrumb_started_text_template: str = "",
+    breadcrumb_interrupted_text_template: str = "",
+    breadcrumb_resumed_text_template: str = "",
+    breadcrumb_ended_text_template: str = "",
+    route_empty_text: str = "",
+    route_max_link_points: str = "",
 ) -> dict[str, object]:
     """Build a normalized share_location step payload."""
+    del route_empty_text, route_max_link_points, store_history_by_day
+    (
+        find_closest_saved_location,
+        match_closest_saved_location,
+        track_breadcrumb,
+    ) = _normalize_share_location_live_mode(
+        require_live_location=require_live_location,
+        find_closest_saved_location=find_closest_saved_location,
+        match_closest_saved_location=match_closest_saved_location,
+        track_breadcrumb=track_breadcrumb,
+    )
     step: dict[str, object] = {
         "module_type": "share_location",
         "text_template": text_template.strip() or default_text,
         "parse_mode": parse_mode_value,
         "button_text": button_text.strip() or "Share My Location",
-        "success_text_template": success_text.strip() or "Thanks, your location was received.",
+        "success_text_template": success_text.strip()
+        or _default_share_location_success_text(find_closest_saved_location=find_closest_saved_location),
     }
-    if store_history_by_day:
-        step["store_history_by_day"] = True
     if require_live_location:
         step["require_live_location"] = True
+        if find_closest_saved_location:
+            step["find_closest_saved_location"] = True
+            if closest_location_group_text_template.strip():
+                step["closest_location_group_text_template"] = closest_location_group_text_template.strip()
+                group_send_timing, group_send_after_step = _normalize_closest_location_group_send_config(
+                    timing=closest_location_group_send_timing,
+                    after_step=closest_location_group_send_after_step,
+                )
+                step["closest_location_group_send_timing"] = group_send_timing
+                if group_send_timing == "after_step" and group_send_after_step is not None:
+                    step["closest_location_group_send_after_step"] = group_send_after_step
+        if match_closest_saved_location:
+            tolerance_meters = _parse_non_negative_float_text(
+                closest_location_tolerance_meters,
+                default=100.0,
+                field_label="share_location closest location tolerance meters",
+            )
+            step["match_closest_saved_location"] = True
+            if tolerance_meters is not None:
+                step["closest_location_tolerance_meters"] = tolerance_meters
+            if invalid_text_template.strip():
+                step["invalid_text_template"] = invalid_text_template.strip()
         if track_breadcrumb:
             breadcrumb_interval = _parse_non_negative_float_text(
                 breadcrumb_interval_minutes,
@@ -3050,6 +5375,39 @@ def _build_share_location_step(
                 step["breadcrumb_interval_minutes"] = breadcrumb_interval
             if breadcrumb_distance is not None:
                 step["breadcrumb_min_distance_meters"] = breadcrumb_distance
+            if breadcrumb_started_text_template.strip():
+                step["breadcrumb_started_text_template"] = breadcrumb_started_text_template.strip()
+            if breadcrumb_interrupted_text_template.strip():
+                step["breadcrumb_interrupted_text_template"] = breadcrumb_interrupted_text_template.strip()
+            if breadcrumb_resumed_text_template.strip():
+                step["breadcrumb_resumed_text_template"] = breadcrumb_resumed_text_template.strip()
+            if breadcrumb_ended_text_template.strip():
+                step["breadcrumb_ended_text_template"] = breadcrumb_ended_text_template.strip()
+    return step
+
+
+def _build_route_step(
+    *,
+    default_text: str,
+    default_empty_text: str,
+    text_template: str,
+    parse_mode_value: str | None,
+    route_empty_text: str = "",
+    route_max_link_points: str = "",
+) -> dict[str, object]:
+    step: dict[str, object] = {
+        "module_type": "route",
+        "text_template": text_template.strip() or default_text,
+        "empty_text_template": route_empty_text.strip() or default_empty_text,
+        "parse_mode": parse_mode_value,
+    }
+    max_link_points = _parse_positive_int_text(
+        route_max_link_points,
+        default=60,
+        field_label="route max link points",
+    )
+    if max_link_points is not None:
+        step["max_link_points"] = max_link_points
     return step
 
 
@@ -3207,6 +5565,8 @@ def _extract_command_module_form_values(
         text_default = "Please share your contact using the button below."
     elif module_type == "share_location":
         text_default = "Please share your location using the button below."
+    elif module_type == "route":
+        text_default = "Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}"
     elif module_type == "checkout":
         text_default = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     elif module_type == "payway_payment":
@@ -3224,12 +5584,14 @@ def _extract_command_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
+    if module_type == "route" and not text_template:
+        text_template = "Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}"
     if module_type == "checkout" and not text_template:
         text_template = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     if module_type == "payway_payment" and not text_template:
@@ -3259,6 +5621,22 @@ def _extract_command_module_form_values(
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
+    find_closest_saved_location = "1" if bool(module.get("find_closest_saved_location", False)) else ""
+    match_closest_saved_location = "1" if bool(module.get("match_closest_saved_location", False)) else ""
+    closest_location_tolerance_meters = _format_numeric_text(
+        module.get(
+            "closest_location_tolerance_meters",
+            100.0 if bool(module.get("match_closest_saved_location", False)) else "",
+        )
+    )
+    closest_location_group_text = str(module.get("closest_location_group_text_template", "")).strip()
+    closest_location_group_send_timing = str(
+        module.get("closest_location_group_send_timing", "end" if closest_location_group_text else "")
+    ).strip()
+    closest_location_group_send_after_step = _format_numeric_text(
+        module.get("closest_location_group_send_after_step", ""),
+    )
+    location_invalid_text = str(module.get("invalid_text_template", "")).strip()
     track_breadcrumb = "1" if bool(module.get("track_breadcrumb", False)) else ""
     store_history_by_day = "1" if bool(module.get("store_history_by_day", False)) else ""
     breadcrumb_interval_minutes = _format_numeric_text(
@@ -3268,6 +5646,12 @@ def _extract_command_module_form_values(
     breadcrumb_min_distance_meters = _format_numeric_text(
         module.get("breadcrumb_min_distance_meters", 5.0 if bool(module.get("track_breadcrumb", False)) else ""),
     )
+    breadcrumb_started_text_template = str(module.get("breadcrumb_started_text_template", "")).strip()
+    breadcrumb_interrupted_text_template = str(module.get("breadcrumb_interrupted_text_template", "")).strip()
+    breadcrumb_resumed_text_template = str(module.get("breadcrumb_resumed_text_template", "")).strip()
+    breadcrumb_ended_text_template = str(module.get("breadcrumb_ended_text_template", "")).strip()
+    route_empty_text = str(module.get("route_empty_text", module.get("empty_text_template", ""))).strip()
+    route_max_link_points = _format_numeric_text(module.get("route_max_link_points", module.get("max_link_points", 60)))
     checkout_empty_text = str(module.get("empty_text_template", "")).strip()
     checkout_pay_button_text = str(module.get("pay_button_text", "")).strip()
     checkout_pay_callback_data = str(module.get("pay_callback_data", "")).strip()
@@ -3318,10 +5702,23 @@ def _extract_command_module_form_values(
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
         "require_live_location": require_live_location,
+        "find_closest_saved_location": find_closest_saved_location,
+        "match_closest_saved_location": match_closest_saved_location,
+        "closest_location_tolerance_meters": closest_location_tolerance_meters,
+        "closest_location_group_text": closest_location_group_text,
+        "closest_location_group_send_timing": closest_location_group_send_timing,
+        "closest_location_group_send_after_step": closest_location_group_send_after_step,
+        "location_invalid_text": location_invalid_text,
         "track_breadcrumb": track_breadcrumb,
         "store_history_by_day": store_history_by_day,
         "breadcrumb_interval_minutes": breadcrumb_interval_minutes,
         "breadcrumb_min_distance_meters": breadcrumb_min_distance_meters,
+        "breadcrumb_started_text_template": breadcrumb_started_text_template,
+        "breadcrumb_interrupted_text_template": breadcrumb_interrupted_text_template,
+        "breadcrumb_resumed_text_template": breadcrumb_resumed_text_template,
+        "breadcrumb_ended_text_template": breadcrumb_ended_text_template,
+        "route_empty_text": route_empty_text,
+        "route_max_link_points": route_max_link_points,
         "checkout_empty_text": checkout_empty_text,
         "payment_empty_text": payment_empty_text,
         "checkout_pay_button_text": checkout_pay_button_text,
@@ -3365,6 +5762,8 @@ def _extract_callback_module_form_values(
         text_default = "Please share your contact using the button below."
     elif module_type == "share_location":
         text_default = "Please share your location using the button below."
+    elif module_type == "route":
+        text_default = "Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}"
     elif module_type == "checkout":
         text_default = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     elif module_type == "payway_payment":
@@ -3382,12 +5781,14 @@ def _extract_callback_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
+    if module_type == "route" and not text_template:
+        text_template = "Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}"
     if module_type == "checkout" and not text_template:
         text_template = "<b>Your Cart</b>\n{cart_lines}\n\n<b>Total: ${cart_total_price}</b>"
     if module_type == "payway_payment" and not text_template:
@@ -3414,6 +5815,22 @@ def _extract_callback_module_form_values(
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
+    find_closest_saved_location = "1" if bool(module.get("find_closest_saved_location", False)) else ""
+    match_closest_saved_location = "1" if bool(module.get("match_closest_saved_location", False)) else ""
+    closest_location_tolerance_meters = _format_numeric_text(
+        module.get(
+            "closest_location_tolerance_meters",
+            100.0 if bool(module.get("match_closest_saved_location", False)) else "",
+        )
+    )
+    closest_location_group_text = str(module.get("closest_location_group_text_template", "")).strip()
+    closest_location_group_send_timing = str(
+        module.get("closest_location_group_send_timing", "end" if closest_location_group_text else "")
+    ).strip()
+    closest_location_group_send_after_step = _format_numeric_text(
+        module.get("closest_location_group_send_after_step", ""),
+    )
+    location_invalid_text = str(module.get("invalid_text_template", "")).strip()
     track_breadcrumb = "1" if bool(module.get("track_breadcrumb", False)) else ""
     store_history_by_day = "1" if bool(module.get("store_history_by_day", False)) else ""
     breadcrumb_interval_minutes = _format_numeric_text(
@@ -3423,6 +5840,12 @@ def _extract_callback_module_form_values(
     breadcrumb_min_distance_meters = _format_numeric_text(
         module.get("breadcrumb_min_distance_meters", 5.0 if bool(module.get("track_breadcrumb", False)) else ""),
     )
+    breadcrumb_started_text_template = str(module.get("breadcrumb_started_text_template", "")).strip()
+    breadcrumb_interrupted_text_template = str(module.get("breadcrumb_interrupted_text_template", "")).strip()
+    breadcrumb_resumed_text_template = str(module.get("breadcrumb_resumed_text_template", "")).strip()
+    breadcrumb_ended_text_template = str(module.get("breadcrumb_ended_text_template", "")).strip()
+    route_empty_text = str(module.get("route_empty_text", module.get("empty_text_template", ""))).strip()
+    route_max_link_points = _format_numeric_text(module.get("route_max_link_points", module.get("max_link_points", 60)))
     checkout_empty_text = str(module.get("empty_text_template", "")).strip()
     checkout_pay_button_text = str(module.get("pay_button_text", "")).strip()
     checkout_pay_callback_data = str(module.get("pay_callback_data", "")).strip()
@@ -3472,10 +5895,23 @@ def _extract_callback_module_form_values(
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
         "require_live_location": require_live_location,
+        "find_closest_saved_location": find_closest_saved_location,
+        "match_closest_saved_location": match_closest_saved_location,
+        "closest_location_tolerance_meters": closest_location_tolerance_meters,
+        "closest_location_group_text": closest_location_group_text,
+        "closest_location_group_send_timing": closest_location_group_send_timing,
+        "closest_location_group_send_after_step": closest_location_group_send_after_step,
+        "location_invalid_text": location_invalid_text,
         "track_breadcrumb": track_breadcrumb,
         "store_history_by_day": store_history_by_day,
         "breadcrumb_interval_minutes": breadcrumb_interval_minutes,
         "breadcrumb_min_distance_meters": breadcrumb_min_distance_meters,
+        "breadcrumb_started_text_template": breadcrumb_started_text_template,
+        "breadcrumb_interrupted_text_template": breadcrumb_interrupted_text_template,
+        "breadcrumb_resumed_text_template": breadcrumb_resumed_text_template,
+        "breadcrumb_ended_text_template": breadcrumb_ended_text_template,
+        "route_empty_text": route_empty_text,
+        "route_max_link_points": route_max_link_points,
         "checkout_empty_text": checkout_empty_text,
         "payment_empty_text": payment_empty_text,
         "checkout_pay_button_text": checkout_pay_button_text,
@@ -3548,10 +5984,23 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "contact_success_text": module_values["contact_success_text"],
                     "contact_invalid_text": module_values["contact_invalid_text"],
                     "require_live_location": module_values["require_live_location"],
+                    "find_closest_saved_location": module_values["find_closest_saved_location"],
+                    "match_closest_saved_location": module_values["match_closest_saved_location"],
+                    "closest_location_tolerance_meters": module_values["closest_location_tolerance_meters"],
+                    "closest_location_group_text": module_values["closest_location_group_text"],
+                    "closest_location_group_send_timing": module_values["closest_location_group_send_timing"],
+                    "closest_location_group_send_after_step": module_values["closest_location_group_send_after_step"],
+                    "location_invalid_text": module_values["location_invalid_text"],
                     "track_breadcrumb": module_values["track_breadcrumb"],
                     "store_history_by_day": module_values["store_history_by_day"],
                     "breadcrumb_interval_minutes": module_values["breadcrumb_interval_minutes"],
                     "breadcrumb_min_distance_meters": module_values["breadcrumb_min_distance_meters"],
+                    "breadcrumb_started_text_template": module_values["breadcrumb_started_text_template"],
+                    "breadcrumb_interrupted_text_template": module_values["breadcrumb_interrupted_text_template"],
+                    "breadcrumb_resumed_text_template": module_values["breadcrumb_resumed_text_template"],
+                    "breadcrumb_ended_text_template": module_values["breadcrumb_ended_text_template"],
+                    "route_empty_text": module_values["route_empty_text"],
+                    "route_max_link_points": module_values["route_max_link_points"],
                     "checkout_empty_text": module_values["checkout_empty_text"],
                     "payment_empty_text": module_values["payment_empty_text"],
                     "checkout_pay_button_text": module_values["checkout_pay_button_text"],
@@ -3598,10 +6047,23 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                 "contact_success_text": "",
                 "contact_invalid_text": "",
                 "require_live_location": "",
+                "find_closest_saved_location": "",
+                "match_closest_saved_location": "",
+                "closest_location_tolerance_meters": "",
+                "closest_location_group_text": "",
+                "closest_location_group_send_timing": "end",
+                "closest_location_group_send_after_step": "",
+                "location_invalid_text": "",
                 "track_breadcrumb": "",
                 "store_history_by_day": "",
                 "breadcrumb_interval_minutes": "",
                 "breadcrumb_min_distance_meters": "",
+                "breadcrumb_started_text_template": "",
+                "breadcrumb_interrupted_text_template": "",
+                "breadcrumb_resumed_text_template": "",
+                "breadcrumb_ended_text_template": "",
+                "route_empty_text": "",
+                "route_max_link_points": "60",
                 "checkout_empty_text": "",
                 "payment_empty_text": "",
                 "checkout_pay_button_text": "",
@@ -3663,10 +6125,23 @@ def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
                 "contact_success_text": module_values["contact_success_text"],
                 "contact_invalid_text": module_values["contact_invalid_text"],
                 "require_live_location": module_values["require_live_location"],
+                "find_closest_saved_location": module_values["find_closest_saved_location"],
+                "match_closest_saved_location": module_values["match_closest_saved_location"],
+                "closest_location_tolerance_meters": module_values["closest_location_tolerance_meters"],
+                "closest_location_group_text": module_values["closest_location_group_text"],
+                "closest_location_group_send_timing": module_values["closest_location_group_send_timing"],
+                "closest_location_group_send_after_step": module_values["closest_location_group_send_after_step"],
+                "location_invalid_text": module_values["location_invalid_text"],
                 "track_breadcrumb": module_values["track_breadcrumb"],
                 "store_history_by_day": module_values["store_history_by_day"],
                 "breadcrumb_interval_minutes": module_values["breadcrumb_interval_minutes"],
                 "breadcrumb_min_distance_meters": module_values["breadcrumb_min_distance_meters"],
+                "breadcrumb_started_text_template": module_values["breadcrumb_started_text_template"],
+                "breadcrumb_interrupted_text_template": module_values["breadcrumb_interrupted_text_template"],
+                "breadcrumb_resumed_text_template": module_values["breadcrumb_resumed_text_template"],
+                "breadcrumb_ended_text_template": module_values["breadcrumb_ended_text_template"],
+                "route_empty_text": module_values["route_empty_text"],
+                "route_max_link_points": module_values["route_max_link_points"],
                 "checkout_empty_text": module_values["checkout_empty_text"],
                 "payment_empty_text": module_values["payment_empty_text"],
                 "checkout_pay_button_text": module_values["checkout_pay_button_text"],
@@ -3798,6 +6273,20 @@ def _parse_cart_int_text(raw: str, *, default: int, minimum: int, field_label: s
     except ValueError as exc:
         raise ValueError(f"{field_label} must be an integer") from exc
     return max(parsed, minimum)
+
+
+def _parse_positive_int_text(raw: str, *, default: int | None, field_label: str) -> int | None:
+    """Parse an integer editor field while requiring a positive value."""
+    value = raw.strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_label} must be an integer") from exc
+    if parsed <= 0:
+        raise ValueError(f"{field_label} must be greater than zero")
+    return parsed
 
 
 def _parse_non_negative_float_text(
@@ -4168,11 +6657,22 @@ def _parse_share_location_chain_step(
     parse_mode: str,
     button_text: str,
     success_text_template: str,
+    invalid_text_template: object = "",
     require_live_location: object = False,
+    find_closest_saved_location: object = False,
+    match_closest_saved_location: object = False,
+    closest_location_tolerance_meters: object = "",
+    closest_location_group_text_template: object = "",
+    closest_location_group_send_timing: object = "",
+    closest_location_group_send_after_step: object = "",
     track_breadcrumb: object = False,
     store_history_by_day: object = False,
     breadcrumb_interval_minutes: object = "",
     breadcrumb_min_distance_meters: object = "",
+    breadcrumb_started_text_template: object = "",
+    breadcrumb_interrupted_text_template: object = "",
+    breadcrumb_resumed_text_template: object = "",
+    breadcrumb_ended_text_template: object = "",
     run_if_context_keys: object = (),
     skip_if_context_keys: object = (),
 ) -> dict[str, object]:
@@ -4184,14 +6684,42 @@ def _parse_share_location_chain_step(
             parse_mode_value=parse_mode or None,
             button_text=button_text,
             success_text=success_text_template,
+            invalid_text_template=str(invalid_text_template or ""),
             require_live_location=_is_truthy_text(require_live_location),
+            find_closest_saved_location=_is_truthy_text(find_closest_saved_location),
+            match_closest_saved_location=_is_truthy_text(match_closest_saved_location),
+            closest_location_tolerance_meters=str(closest_location_tolerance_meters or ""),
+            closest_location_group_text_template=str(closest_location_group_text_template or ""),
+            closest_location_group_send_timing=str(closest_location_group_send_timing or ""),
+            closest_location_group_send_after_step=str(closest_location_group_send_after_step or ""),
             track_breadcrumb=_is_truthy_text(track_breadcrumb),
             store_history_by_day=_is_truthy_text(store_history_by_day),
             breadcrumb_interval_minutes=str(breadcrumb_interval_minutes or ""),
             breadcrumb_min_distance_meters=str(breadcrumb_min_distance_meters or ""),
+            breadcrumb_started_text_template=str(breadcrumb_started_text_template or ""),
+            breadcrumb_interrupted_text_template=str(breadcrumb_interrupted_text_template or ""),
+            breadcrumb_resumed_text_template=str(breadcrumb_resumed_text_template or ""),
+            breadcrumb_ended_text_template=str(breadcrumb_ended_text_template or ""),
         ),
         run_if_context_keys=run_if_context_keys,
         skip_if_context_keys=skip_if_context_keys,
+    )
+
+
+def _parse_route_chain_step(
+    *,
+    text_template: str,
+    parse_mode: str,
+    empty_text_template: object = "",
+    max_link_points: object = "",
+) -> dict[str, object]:
+    return _build_route_step(
+        default_text="Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}",
+        default_empty_text="No breadcrumb route available yet.",
+        text_template=text_template,
+        parse_mode_value=parse_mode or None,
+        route_empty_text=str(empty_text_template or ""),
+        route_max_link_points=str(max_link_points or ""),
     )
 
 
@@ -4402,13 +6930,39 @@ def _parse_route_chain_steps(
                         parse_mode=parse_mode,
                         button_text=str(serialized.get("button_text", "")),
                         success_text_template=str(serialized.get("success_text_template", "")),
+                        invalid_text_template=serialized.get("invalid_text_template", ""),
                         require_live_location=serialized.get("require_live_location"),
+                        find_closest_saved_location=serialized.get("find_closest_saved_location"),
+                        match_closest_saved_location=serialized.get("match_closest_saved_location"),
+                        closest_location_tolerance_meters=serialized.get("closest_location_tolerance_meters", ""),
+                        closest_location_group_text_template=serialized.get(
+                            "closest_location_group_text_template",
+                            "",
+                        ),
+                        closest_location_group_send_timing=serialized.get(
+                            "closest_location_group_send_timing",
+                            "",
+                        ),
+                        closest_location_group_send_after_step=serialized.get(
+                            "closest_location_group_send_after_step",
+                            "",
+                        ),
                         track_breadcrumb=serialized.get("track_breadcrumb"),
                         store_history_by_day=serialized.get("store_history_by_day"),
                         breadcrumb_interval_minutes=serialized.get("breadcrumb_interval_minutes", ""),
                         breadcrumb_min_distance_meters=serialized.get("breadcrumb_min_distance_meters", ""),
                         run_if_context_keys=serialized.get("run_if_context_keys", []),
                         skip_if_context_keys=serialized.get("skip_if_context_keys", []),
+                    )
+                )
+                continue
+            if module_type == "route":
+                steps.append(
+                    _parse_route_chain_step(
+                        text_template=str(serialized.get("text_template", "")),
+                        parse_mode=parse_mode,
+                        empty_text_template=serialized.get("empty_text_template", serialized.get("route_empty_text", "")),
+                        max_link_points=serialized.get("max_link_points", serialized.get("route_max_link_points", "")),
                     )
                 )
                 continue
@@ -4504,7 +7058,7 @@ def _parse_route_chain_steps(
                 steps.append({"module_type": "forget_user_data"})
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -4655,6 +7209,17 @@ def _parse_route_chain_steps(
                 )
             )
             continue
+        if module_type == "route":
+            parse_mode = parts[4] if len(parts) >= 5 else ""
+            steps.append(
+                _parse_route_chain_step(
+                    text_template=parts[1] if len(parts) >= 2 else "",
+                    parse_mode=parse_mode,
+                    empty_text_template=parts[2] if len(parts) >= 3 else "",
+                    max_link_points=parts[3] if len(parts) >= 4 else "",
+                )
+            )
+            continue
         if module_type == "checkout":
             if len(parts) < 5:
                 raise ValueError(
@@ -4773,7 +7338,7 @@ def _parse_route_chain_steps(
             steps.append({"module_type": "forget_user_data"})
             continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
         )
     return steps
 
@@ -4891,6 +7456,16 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "invalid_text_template": str(step.get("invalid_text_template", "")),
             }
         elif module_type == "share_location":
+            (
+                find_closest_saved_location,
+                match_closest_saved_location,
+                track_breadcrumb,
+            ) = _normalize_share_location_live_mode(
+                require_live_location=bool(step.get("require_live_location", False)),
+                find_closest_saved_location=bool(step.get("find_closest_saved_location", False)),
+                match_closest_saved_location=bool(step.get("match_closest_saved_location", False)),
+                track_breadcrumb=bool(step.get("track_breadcrumb", False)),
+            )
             payload = {
                 "module_type": "share_location",
                 "text_template": str(step.get("text_template", "")),
@@ -4899,20 +7474,57 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "success_text_template": str(step.get("success_text_template", "")),
                 "require_live_location": bool(step.get("require_live_location", False)),
             }
-            if bool(step.get("require_live_location", False)) and bool(step.get("track_breadcrumb", False)):
+            if match_closest_saved_location and str(step.get("invalid_text_template", "")).strip():
+                payload["invalid_text_template"] = str(step.get("invalid_text_template", ""))
+            if find_closest_saved_location:
+                payload["find_closest_saved_location"] = True
+                if str(step.get("closest_location_group_text_template", "")).strip():
+                    payload["closest_location_group_text_template"] = str(
+                        step.get("closest_location_group_text_template", "")
+                    )
+                    payload["closest_location_group_send_timing"] = str(
+                        step.get("closest_location_group_send_timing", "end")
+                    ).strip() or "end"
+                    if step.get("closest_location_group_send_after_step") not in {None, ""}:
+                        payload["closest_location_group_send_after_step"] = step.get(
+                            "closest_location_group_send_after_step"
+                        )
+            if match_closest_saved_location:
+                payload["match_closest_saved_location"] = True
+                if step.get("closest_location_tolerance_meters") not in {None, ""}:
+                    payload["closest_location_tolerance_meters"] = step.get("closest_location_tolerance_meters")
+            if bool(step.get("require_live_location", False)) and track_breadcrumb:
                 payload["track_breadcrumb"] = True
                 if step.get("breadcrumb_interval_minutes") not in {None, ""}:
                     payload["breadcrumb_interval_minutes"] = step.get("breadcrumb_interval_minutes")
                 if step.get("breadcrumb_min_distance_meters") not in {None, ""}:
                     payload["breadcrumb_min_distance_meters"] = step.get("breadcrumb_min_distance_meters")
-            if bool(step.get("store_history_by_day", False)):
-                payload["store_history_by_day"] = True
+                if str(step.get("breadcrumb_started_text_template", "")).strip():
+                    payload["breadcrumb_started_text_template"] = str(step.get("breadcrumb_started_text_template", ""))
+                if str(step.get("breadcrumb_interrupted_text_template", "")).strip():
+                    payload["breadcrumb_interrupted_text_template"] = str(
+                        step.get("breadcrumb_interrupted_text_template", "")
+                    )
+                if str(step.get("breadcrumb_resumed_text_template", "")).strip():
+                    payload["breadcrumb_resumed_text_template"] = str(
+                        step.get("breadcrumb_resumed_text_template", "")
+                    )
+                if str(step.get("breadcrumb_ended_text_template", "")).strip():
+                    payload["breadcrumb_ended_text_template"] = str(step.get("breadcrumb_ended_text_template", ""))
             run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
             skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
             if run_if_context_keys:
                 payload["run_if_context_keys"] = run_if_context_keys
             if skip_if_context_keys:
                 payload["skip_if_context_keys"] = skip_if_context_keys
+        elif module_type == "route":
+            payload = {
+                "module_type": "route",
+                "text_template": str(step.get("text_template", "")),
+                "empty_text_template": str(step.get("empty_text_template", step.get("route_empty_text", ""))),
+                "max_link_points": step.get("max_link_points", step.get("route_max_link_points", 60)),
+                "parse_mode": parse_mode,
+            }
         elif module_type == "checkout":
             payload = {
                 "module_type": "checkout",

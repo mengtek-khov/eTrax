@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from etrax.adapters.local.json_user_profile_log_store import JsonUserProfileLogStore
+from etrax.core.flow import ModuleOutcome
 from etrax.core.telegram import (
     CartButtonConfig,
+    END_BREADCRUMB_CALLBACK_DATA,
     ForgetUserDataConfig,
     LoadCommandConfig,
     SendMessageConfig,
@@ -20,6 +23,7 @@ from etrax.core.telegram import (
 from etrax.standalone.bot_runtime_manager import (
     BotRuntimeController,
     BotRuntimeManager,
+    RuntimeSnapshot,
     _build_callback_context_updates,
     _handle_update,
     _validate_cart_dependent_modules,
@@ -42,10 +46,21 @@ class FakeRuntimeModule:
         return None
 
 
+class FakeContextUpdatingRuntimeModule:
+    def __init__(self, updates: dict[str, Any]) -> None:
+        self.updates = dict(updates)
+        self.calls: list[dict[str, Any]] = []
+
+    def execute(self, context: dict[str, Any]) -> ModuleOutcome:
+        self.calls.append(dict(context))
+        return ModuleOutcome(context_updates=dict(self.updates))
+
+
 class FakeCallbackGateway:
     def __init__(self) -> None:
         self.acks: list[dict[str, Any]] = []
         self.messages: list[dict[str, Any]] = []
+        self.edited_reply_markups: list[dict[str, Any]] = []
 
     def answer_callback_query(
         self,
@@ -81,6 +96,23 @@ class FakeCallbackGateway:
             "reply_markup": reply_markup,
         }
         self.messages.append(payload)
+        return payload
+
+    def edit_message_reply_markup(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        message_id: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": reply_markup,
+        }
+        self.edited_reply_markups.append(payload)
         return payload
 
 
@@ -243,6 +275,21 @@ class FakeCallbackContextModule:
         self.continuation_modules = tuple(continuation_modules or ())
 
 
+class FakeLifecycleThread:
+    def __init__(self, *, alive: bool = True) -> None:
+        self._alive = alive
+        self.join_timeouts: list[float] = []
+
+    def is_alive(self) -> bool:
+        return self._alive
+
+    def join(self, timeout: float | None = None) -> None:
+        self.join_timeouts.append(0.0 if timeout is None else float(timeout))
+
+    def finish(self) -> None:
+        self._alive = False
+
+
 def test_resolve_start_send_config_uses_module_registry() -> None:
     payload = {
         "module_registry": {
@@ -308,6 +355,43 @@ def test_run_loop_reloads_start_command_config_before_handling_update(tmp_path) 
     manager._run_loop(controller)
 
     assert [item["text"] for item in gateway.sent_messages] == ["Fresh start config"]
+
+
+def test_stop_returns_stopping_while_poll_thread_is_still_alive() -> None:
+    manager = BotRuntimeManager(
+        token_service=FakeTokenResolver({}),
+        bot_config_dir=Path(".") / "bot_processes",
+        state_file=Path(".") / "update_offsets.json",
+        poll_timeout_seconds=25,
+    )
+    thread = FakeLifecycleThread(alive=True)
+    controller = BotRuntimeController(bot_id="support-bot", thread=thread, active=True)
+    manager._controllers["support-bot"] = controller
+
+    stopped, message = manager.stop("support-bot")
+
+    assert stopped is False
+    assert message == "stopping"
+    assert controller.active is True
+    assert controller.stop_event.is_set() is True
+    assert thread.join_timeouts == [27.0]
+
+
+def test_start_returns_stopping_while_previous_poll_thread_is_still_alive() -> None:
+    manager = BotRuntimeManager(
+        token_service=FakeTokenResolver({}),
+        bot_config_dir=Path(".") / "bot_processes",
+        state_file=Path(".") / "update_offsets.json",
+    )
+    controller = BotRuntimeController(bot_id="support-bot", active=True)
+    controller.stop_event.set()
+    controller.thread = FakeLifecycleThread(alive=True)
+    manager._controllers["support-bot"] = controller
+
+    started, message = manager.start("support-bot")
+
+    assert started is False
+    assert message == "stopping"
 
 
 def test_resolve_start_send_config_returns_none_when_disabled() -> None:
@@ -433,6 +517,7 @@ def test_resolve_command_menu_uses_explicit_config_commands_only() -> None:
 
     assert commands == [
         {"command": "start", "description": "Start bot"},
+        {"command": "restart", "description": "Restart bot"},
         {"command": "status", "description": "Check status"},
         {"command": "help", "description": "Help center"},
     ]
@@ -456,6 +541,7 @@ def test_resolve_command_menu_applies_description_overrides() -> None:
     assert commands == [
         {"command": "start", "description": "Begin flow"},
         {"command": "menu", "description": "Open commands"},
+        {"command": "restart", "description": "Restart bot"},
     ]
 
 
@@ -485,6 +571,7 @@ def test_resolve_command_menu_can_hide_start_and_menu_defaults() -> None:
     commands = resolve_command_menu(payload)
 
     assert commands == [
+        {"command": "restart", "description": "Restart bot"},
         {"command": "help", "description": "Get help"},
     ]
 
@@ -503,6 +590,7 @@ def test_resolve_command_menu_includes_explicit_custom_commands() -> None:
 
     assert commands == [
         {"command": "start", "description": "Start bot"},
+        {"command": "restart", "description": "Restart bot"},
         {"command": "status", "description": "Check status"},
         {"command": "help", "description": "Help center"},
     ]
@@ -539,15 +627,20 @@ def test_resolve_command_send_configs_supports_per_command_module_setup() -> Non
     command_defs = resolve_command_menu(payload)
     command_configs = resolve_command_send_configs(payload, "support-bot", commands=command_defs)
 
-    assert set(command_configs.keys()) == {"start", "help"}
+    assert set(command_configs.keys()) == {"start", "help", "restart"}
     start_pipeline = command_configs["start"]
     help_pipeline = command_configs["help"]
+    restart_pipeline = command_configs["restart"]
     assert len(start_pipeline) == 1
     assert len(help_pipeline) == 1
+    assert len(restart_pipeline) == 1
     assert start_pipeline[0].text_template == "Hello {user_first_name}"
     assert start_pipeline[0].parse_mode == "HTML"
     assert help_pipeline[0].text_template == "Help Menu\n\n/faq - FAQ\n/agent - Contact agent"
     assert help_pipeline[0].parse_mode == "MarkdownV2"
+    assert isinstance(restart_pipeline[0], SendMessageConfig)
+    assert restart_pipeline[0].text_template == "Hello {user_first_name}"
+    assert restart_pipeline[0].parse_mode == "HTML"
 
 
 def test_resolve_command_send_configs_falls_back_to_default_template() -> None:
@@ -730,6 +823,7 @@ def test_resolve_callback_temporary_command_menus_supports_callback_submenu_comm
     assert resolved["etrax"]["commands"] == [
         {"command": "next", "description": "Next station", "restore_original_menu": False},
         {"command": "route", "description": "Route", "restore_original_menu": True},
+        {"command": "restart", "description": "Restart bot", "restore_original_menu": True},
     ]
     next_pipeline = resolved["etrax"]["command_modules"]["next"]
     route_pipeline = resolved["etrax"]["command_modules"]["route"]
@@ -737,6 +831,89 @@ def test_resolve_callback_temporary_command_menus_supports_callback_submenu_comm
     assert next_pipeline[0].text_template == "Next station"
     assert isinstance(route_pipeline[0], SendMessageConfig)
     assert route_pipeline[0].text_template == "Route details"
+    assert "restart" not in resolved["etrax"]["command_modules"]
+
+
+def test_restore_persisted_temporary_command_menus_republishes_chat_menu(tmp_path) -> None:
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def set_my_commands(
+            self,
+            *,
+            bot_token: str,
+            commands: list[dict[str, str]],
+            scope: dict[str, Any] | None = None,
+            language_code: str | None = None,
+        ) -> dict[str, Any]:
+            payload = {
+                "bot_token": bot_token,
+                "commands": [dict(item) for item in commands],
+                "scope": dict(scope) if isinstance(scope, dict) else scope,
+                "language_code": language_code,
+            }
+            self.calls.append(payload)
+            return payload
+
+    manager = BotRuntimeManager(
+        token_service=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        bot_config_dir=tmp_path / "bot_processes",
+        state_file=tmp_path / "update_offsets.json",
+        profile_log_store=JsonUserProfileLogStore(tmp_path / "profile_log.json"),
+        temporary_command_menu_state_file=tmp_path / "temporary_command_menus.json",
+    )
+    manager._temporary_command_menu_state_store.set_active_menu(
+        bot_id="support-bot",
+        chat_id="12345",
+        source_callback_key="etrax",
+    )
+    gateway = Gateway()
+    active_menus: dict[str, dict[str, object]] = {}
+    runtime_snapshot = RuntimeSnapshot(
+        command_menu=[{"command": "start", "description": "Start bot"}],
+        command_modules={},
+        callback_modules={},
+        temporary_command_menus={
+            "etrax": {
+                "commands": [
+                    {"command": "route", "description": "Route"},
+                    {"command": "end", "description": "End"},
+                    {"command": "restart", "description": "Restart bot"},
+                ],
+                "command_modules": {
+                    "route": [],
+                    "end": [],
+                },
+            }
+        },
+        cart_modules={},
+        callback_continuation_modules={},
+        callback_context_updates={},
+        checkout_modules={},
+    )
+
+    manager._restore_persisted_temporary_command_menus(
+        bot_id="support-bot",
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        gateway=gateway,  # type: ignore[arg-type]
+        runtime_snapshot=runtime_snapshot,
+        active_temporary_command_menus_by_chat=active_menus,
+    )
+
+    assert active_menus["support-bot:12345"]["source_callback_key"] == "etrax"
+    assert gateway.calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "commands": [
+                {"command": "route", "description": "Route"},
+                {"command": "end", "description": "End"},
+                {"command": "restart", "description": "Restart bot"},
+            ],
+            "scope": {"type": "chat", "chat_id": "12345"},
+            "language_code": None,
+        }
+    ]
 
 
 def test_resolve_command_send_configs_supports_command_module_steps() -> None:
@@ -779,7 +956,11 @@ def test_resolve_command_send_configs_supports_share_location_steps() -> None:
                     "text_template": "Share your location, {user_first_name}.",
                     "button_text": "Verify Location",
                     "success_text_template": "Saved {location_latitude},{location_longitude}",
+                    "invalid_text_template": "Too far from {closest_location_name}",
                     "require_live_location": True,
+                    "find_closest_saved_location": True,
+                    "match_closest_saved_location": True,
+                    "closest_location_tolerance_meters": 120,
                     "track_breadcrumb": True,
                     "store_history_by_day": True,
                     "breadcrumb_interval_minutes": 10,
@@ -799,7 +980,11 @@ def test_resolve_command_send_configs_supports_share_location_steps() -> None:
     assert isinstance(verify_pipeline[0], ShareLocationConfig)
     assert verify_pipeline[0].button_text == "Verify Location"
     assert verify_pipeline[0].success_text_template == "Saved {location_latitude},{location_longitude}"
+    assert verify_pipeline[0].invalid_text_template == "Too far from {closest_location_name}"
     assert verify_pipeline[0].require_live_location is True
+    assert verify_pipeline[0].find_closest_saved_location is True
+    assert verify_pipeline[0].match_closest_saved_location is True
+    assert verify_pipeline[0].closest_location_tolerance_meters == 120.0
     assert verify_pipeline[0].track_breadcrumb is True
     assert verify_pipeline[0].store_history_by_day is True
     assert verify_pipeline[0].breadcrumb_interval_minutes == 10.0
@@ -1019,6 +1204,55 @@ def test_handle_update_acknowledges_unknown_callback_without_executing_pipeline(
             "text": None,
             "show_alert": False,
         }
+    ]
+
+
+def test_handle_update_skips_duplicate_callback_query_execution() -> None:
+    driver_module = FakeRuntimeModule()
+    gateway = FakeCallbackGateway()
+    processed_callback_query_ids: dict[str, float] = {}
+    update = {
+        "callback_query": {
+            "id": "callback-dup-1",
+            "data": "Driver",
+            "from": {
+                "first_name": "Alice",
+                "username": "alice_user",
+            },
+            "message": {
+                "chat": {"id": 998877},
+                "text": "Here is our service!",
+            },
+        }
+    }
+
+    first_sent_count = _handle_update(
+        update,
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={"Driver": [driver_module]},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        processed_callback_query_ids=processed_callback_query_ids,
+    )
+    second_sent_count = _handle_update(
+        update,
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={"Driver": [driver_module]},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        processed_callback_query_ids=processed_callback_query_ids,
+    )
+
+    assert first_sent_count == 1
+    assert second_sent_count == 0
+    assert len(driver_module.calls) == 1
+    assert [entry["callback_query_id"] for entry in gateway.acks] == [
+        "callback-dup-1",
+        "callback-dup-1",
     ]
 
 
@@ -1390,6 +1624,983 @@ def test_handle_update_validates_shared_location_and_runs_continuation() -> None
     }
 
 
+def test_handle_update_matches_closest_saved_location_within_tolerance() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeRuntimeModule()
+    locations_file = Path("data/_test_share_location_match_locations.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Saved near {closest_location_name}",
+                invalid_text_template="Too far from {closest_location_name}",
+                match_closest_saved_location=True,
+                closest_location_tolerance_meters=100.0,
+            ),
+            continuation_modules=[continuation],
+        )
+
+        request_count = _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert request_count == 1
+
+        valid_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert valid_count == 2
+        assert gateway.messages[1]["text"] == "Saved near Main Office"
+        assert len(continuation.calls) == 1
+        context = continuation.calls[0]
+        assert context["closest_location_found"] is True
+        assert context["closest_location_within_tolerance"] is True
+        assert context["closest_location_name"] == "Main Office"
+        assert context["closest_location_code"] == "LOC-001"
+        assert context["closest_location_distance_meters"] < 100.0
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_finds_closest_saved_location_without_rejecting() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeRuntimeModule()
+    locations_file = Path("data/_test_share_location_find_locations.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest is {closest_location_name}",
+                find_closest_saved_location=True,
+            ),
+            continuation_modules=[continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.6764,
+                        "longitude": 105.0482,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[1]["text"] == "Closest is Main Office"
+        assert len(continuation.calls) == 1
+        context = continuation.calls[0]
+        assert context["closest_location_found"] is True
+        assert context["closest_location_name"] == "Main Office"
+        assert context["closest_location_within_tolerance"] is False
+        assert store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_defaults_to_closest_location_response_for_find_mode() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeRuntimeModule()
+    locations_file = Path("data/_test_share_location_find_default_success.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                find_closest_saved_location=True,
+            ),
+            continuation_modules=[continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[1]["text"] == "Closest saved location is Main Office."
+        assert len(continuation.calls) == 1
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_sends_find_closest_group_message_when_location_has_group_id() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    locations_file = Path("data/_test_share_location_find_group_message.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_text_template="{user_first_name} checked in near {closest_location_name}",
+            ),
+            continuation_modules=[],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[1]["chat_id"] == "12345"
+        assert gateway.messages[1]["text"] == "Closest saved location is Main Office."
+        assert gateway.messages[2]["chat_id"] == "-1001234567890"
+        assert gateway.messages[2]["text"] == "Alice checked in near Main Office"
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_delays_find_closest_group_message_until_after_continuation_updates() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeContextUpdatingRuntimeModule({"approval_status": "approved"})
+    locations_file = Path("data/_test_share_location_find_group_delayed.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_text_template="{user_first_name} checked in near {closest_location_name} with status {approval_status}",
+                closest_location_group_send_timing="end",
+            ),
+            continuation_modules=[continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 3
+        assert len(continuation.calls) == 1
+        assert gateway.messages[1]["chat_id"] == "12345"
+        assert gateway.messages[2]["chat_id"] == "-1001234567890"
+        assert gateway.messages[2]["text"] == "Alice checked in near Main Office with status approved"
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_sends_find_closest_group_message_after_requested_continuation_step() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    first_continuation = FakeContextUpdatingRuntimeModule({"approval_status": "approved"})
+    second_continuation = FakeContextUpdatingRuntimeModule({"approval_status": "completed"})
+    locations_file = Path("data/_test_share_location_find_group_after_step.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_text_template="{user_first_name} checked in near {closest_location_name} with status {approval_status}",
+                closest_location_group_send_timing="after_step",
+                closest_location_group_send_after_step=1,
+            ),
+            continuation_modules=[first_continuation, second_continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 4
+        assert len(first_continuation.calls) == 1
+        assert len(second_continuation.calls) == 1
+        assert gateway.messages[2]["chat_id"] == "-1001234567890"
+        assert gateway.messages[2]["text"] == "Alice checked in near Main Office with status approved"
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_ignores_find_closest_group_message_failure() -> None:
+    class FailingGroupGateway(FakeCallbackGateway):
+        def send_message(
+            self,
+            *,
+            bot_token: str,
+            chat_id: str,
+            text: str,
+            parse_mode: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            if chat_id == "-1001234567890":
+                raise RuntimeError("telegram sendMessage failed with HTTP 400: {\"ok\":false,\"error_code\":400,\"description\":\"Bad Request: chat not found\"}")
+            return super().send_message(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+
+    gateway = FailingGroupGateway()
+    store = FakeLocationRequestStore()
+    locations_file = Path("data/_test_share_location_find_group_failure.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_text_template="{user_first_name} checked in near {closest_location_name}",
+            ),
+            continuation_modules=[],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 1
+        assert gateway.messages[1]["chat_id"] == "12345"
+        assert gateway.messages[1]["text"] == "Closest saved location is Main Office."
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_finds_closest_saved_location_from_wrapped_entries_payload() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeRuntimeModule()
+    locations_file = Path("data/_test_share_location_wrapped_entries.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                {
+                    "entries": [
+                        {
+                            "id": "loc-1",
+                            "location_name": "Main Office",
+                            "location_code": "LOC-001",
+                            "latitude": "11.5564",
+                            "longitude": "104.9282",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest is {closest_location_name}",
+                find_closest_saved_location=True,
+            ),
+            continuation_modules=[continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[1]["text"] == "Closest is Main Office"
+        assert len(continuation.calls) == 1
+        context = continuation.calls[0]
+        assert context["closest_location_list_count"] == 1
+        assert context["closest_location_found"] is True
+        assert context["closest_location_name"] == "Main Office"
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_retries_when_location_is_outside_saved_location_tolerance() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeRuntimeModule()
+    locations_file = Path("data/_test_share_location_match_locations.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Saved near {closest_location_name}",
+                invalid_text_template="Too far from {closest_location_name}",
+                match_closest_saved_location=True,
+                closest_location_tolerance_meters=50.0,
+            ),
+            continuation_modules=[continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        invalid_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.5764,
+                        "longitude": 104.9482,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert invalid_count == 1
+        assert gateway.messages[1]["text"] == "Too far from Main Office"
+        assert gateway.messages[1]["reply_markup"] == {
+            "keyboard": [[{"text": "Share Location", "request_location": True}]],
+            "resize_keyboard": True,
+            "one_time_keyboard": True,
+        }
+        assert len(continuation.calls) == 0
+        pending_request = store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77")
+        assert pending_request is not None
+        assert pending_request.closest_location_mismatch_notified is True
+
+        repeated_invalid_count = _handle_update(
+            {
+                "edited_message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.5770,
+                        "longitude": 104.9490,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert repeated_invalid_count == 0
+        assert len(gateway.messages) == 2
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_uses_wrong_location_default_message_for_closest_match_failure() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeRuntimeModule()
+    locations_file = Path("data/_test_share_location_match_default_invalid_locations.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Saved near {closest_location_name}",
+                invalid_text_template="",
+                match_closest_saved_location=True,
+                closest_location_tolerance_meters=50.0,
+            ),
+            continuation_modules=[continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        invalid_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.5764,
+                        "longitude": 104.9482,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert invalid_count == 1
+        assert gateway.messages[1]["text"] == "You are at the wrong location."
+        assert len(continuation.calls) == 0
+        assert store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
 def test_handle_update_requires_live_location_before_running_continuation() -> None:
     gateway = FakeCallbackGateway()
     store = FakeLocationRequestStore()
@@ -1568,8 +2779,16 @@ def test_handle_update_tracks_live_location_as_breadcrumb(tmp_path) -> None:
         profile_log_store=profile_store,
     )
 
-    assert first_live_count == 2
+    assert first_live_count == 3
     assert len(continuation.calls) == 1
+    assert gateway.messages[1]["text"] == "Saved 11.5564,104.9282"
+    assert (
+        gateway.messages[2]["text"]
+        == "Breadcrumb started. Tap End Breadcrumb when you finish. If live location stops, share live location again to continue."
+    )
+    assert gateway.messages[2]["reply_markup"] == {
+        "inline_keyboard": [[{"text": "End Breadcrumb", "callback_data": "__end_breadcrumb__"}]]
+    }
     first_context = continuation.calls[0]
     assert first_context["location_breadcrumb_count"] == 1
     assert first_context["location_breadcrumb_total_distance_meters"] == 0.0
@@ -1606,7 +2825,7 @@ def test_handle_update_tracks_live_location_as_breadcrumb(tmp_path) -> None:
     )
 
     assert followup_count == 0
-    assert len(gateway.messages) == 2
+    assert len(gateway.messages) == 3
     assert len(continuation.calls) == 1
     profile = profile_store.get_profile(bot_id="support-bot", user_id="77")
     assert profile is not None
@@ -1619,6 +2838,206 @@ def test_handle_update_tracks_live_location_as_breadcrumb(tmp_path) -> None:
         {"latitude": 11.5568, "longitude": 104.9286},
     ]
     assert profile["location_breadcrumb_total_distance_meters"] > 0
+
+
+def test_handle_update_notifies_when_live_breadcrumb_interrupts_and_ends_session(tmp_path) -> None:
+    gateway = FakeCallbackGateway()
+    profile_store = JsonUserProfileLogStore(tmp_path / "profile_log.json")
+    store = FakeLocationRequestStore()
+    share_module = ShareLocationModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        location_request_store=store,
+        config=ShareLocationConfig(
+            bot_id="support-bot",
+            text_template="Share your live location, {user_first_name}.",
+            button_text="Share Live Location",
+            success_text_template="Saved {location_latitude},{location_longitude}",
+            require_live_location=True,
+            track_breadcrumb=True,
+            breadcrumb_started_text_template="Tap End Breadcrumb when finished.",
+            breadcrumb_interrupted_text_template="Live sharing stopped. Tap End Breadcrumb or reshare live location to continue.",
+            breadcrumb_resumed_text_template="Breadcrumb resumed. Tap End Breadcrumb when you finish.",
+            breadcrumb_ended_text_template="Breadcrumb saved.",
+        ),
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "text": "/verify_location",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_location": [share_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=store,
+        profile_log_store=profile_store,
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "message_id": 901,
+                "date": 1704067200,
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+                "location": {
+                    "latitude": 11.5564,
+                    "longitude": 104.9282,
+                    "live_period": 60,
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=store,
+        profile_log_store=profile_store,
+    )
+
+    interrupted_count = _handle_update(
+        {
+            "edited_message": {
+                "message_id": 901,
+                "edit_date": 1704067350,
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+                "location": {
+                    "latitude": 11.5564,
+                    "longitude": 104.9282,
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=store,
+        profile_log_store=profile_store,
+    )
+
+    assert interrupted_count == 1
+    assert gateway.messages[-1]["text"] == "Live sharing stopped. Tap End Breadcrumb or reshare live location to continue."
+    assert gateway.messages[-1]["reply_markup"] == {
+        "inline_keyboard": [[{"text": "End Breadcrumb", "callback_data": "__end_breadcrumb__"}]]
+    }
+    pending_request = store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77")
+    assert pending_request is not None
+    profile = profile_store.get_profile(bot_id="support-bot", user_id="77")
+    assert profile is not None
+    assert profile["location_breadcrumb_active"] is False
+    assert profile["location_breadcrumb_count"] == 1
+
+    resumed_count = _handle_update(
+        {
+            "message": {
+                "message_id": 902,
+                "date": 1704067380,
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+                "location": {
+                    "latitude": 11.5569,
+                    "longitude": 104.9286,
+                    "live_period": 60,
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=store,
+        profile_log_store=profile_store,
+    )
+
+    assert resumed_count == 1
+    assert gateway.messages[-1]["text"] == "Breadcrumb resumed. Tap End Breadcrumb when you finish."
+    assert gateway.messages[-1]["reply_markup"] == {
+        "inline_keyboard": [[{"text": "End Breadcrumb", "callback_data": "__end_breadcrumb__"}]]
+    }
+    pending_request = store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77")
+    assert pending_request is not None
+    assert pending_request.breadcrumb_interruption_notified is False
+    profile = profile_store.get_profile(bot_id="support-bot", user_id="77")
+    assert profile is not None
+    assert profile["location_breadcrumb_active"] is True
+    assert profile["location_breadcrumb_count"] == 2
+
+    end_count = _handle_update(
+        {
+            "callback_query": {
+                "id": "callback-end-breadcrumb",
+                "data": END_BREADCRUMB_CALLBACK_DATA,
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+                "message": {
+                    "message_id": 991,
+                    "chat": {"id": 12345},
+                    "text": "Live sharing stopped. Tap End Breadcrumb or reshare live location to continue.",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=store,
+        profile_log_store=profile_store,
+    )
+
+    assert end_count == 1
+    assert gateway.acks[-1]["callback_query_id"] == "callback-end-breadcrumb"
+    assert gateway.edited_reply_markups[-1] == {
+        "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        "chat_id": "12345",
+        "message_id": "991",
+        "reply_markup": None,
+    }
+    assert gateway.messages[-1]["text"] == "Breadcrumb saved."
+    assert store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
+    profile = profile_store.get_profile(bot_id="support-bot", user_id="77")
+    assert profile is not None
+    assert profile["location_breadcrumb_active"] is False
+    assert profile["location_breadcrumb_count"] == 0
+    assert profile["location_breadcrumb_points"] == []
+    assert len(profile["location_breadcrumb_sessions"]) == 1
+    session = profile["location_breadcrumb_sessions"][0]
+    assert session["ended_reason"] == "ended_by_user"
+    assert session["points"] == [{"latitude": 11.5564, "longitude": 104.9282}]
 
 
 def test_handle_update_tracks_breadcrumb_when_time_or_distance_threshold_is_met(tmp_path) -> None:

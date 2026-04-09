@@ -68,6 +68,10 @@ def test_share_location_module_sends_request_keyboard_and_registers_pending_requ
             parse_mode="HTML",
             button_text="Send Location",
             success_text_template="Saved {location_latitude},{location_longitude}",
+            invalid_text_template="Closest saved location is {closest_location_name}.",
+            find_closest_saved_location=True,
+            match_closest_saved_location=True,
+            closest_location_tolerance_meters=120.0,
             store_history_by_day=True,
             breadcrumb_interval_minutes=10.0,
             breadcrumb_min_distance_meters=50.0,
@@ -100,7 +104,11 @@ def test_share_location_module_sends_request_keyboard_and_registers_pending_requ
     assert pending is not None
     assert pending.button_text == "Send Location"
     assert pending.success_text_template == "Saved {location_latitude},{location_longitude}"
+    assert pending.invalid_text_template == "Closest saved location is {closest_location_name}."
     assert pending.require_live_location is False
+    assert pending.find_closest_saved_location is True
+    assert pending.match_closest_saved_location is True
+    assert pending.closest_location_tolerance_meters == 120.0
     assert pending.store_history_by_day is True
     assert pending.breadcrumb_interval_seconds == 600.0
     assert pending.breadcrumb_min_distance_meters == 50.0

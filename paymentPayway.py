@@ -7,8 +7,6 @@ import json
 from datetime import datetime
 
 import requests
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
 
 DEFAULT_MERCHANT_ID = "ec463323"
 DEFAULT_API_KEY = "ae53289bf8449e6c5587a2ebb4ba3859f535eea7"
@@ -142,6 +140,14 @@ def get_hash(
 
 
 def encrypt_source(source: bytes, public_key_pem: bytes, maxlength: int = 117) -> str:
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            "PayWay payment support requires a working 'cryptography' installation on this Python runtime"
+        ) from exc
+
     public_key = serialization.load_pem_public_key(public_key_pem)
     output = b""
     source_bytes = source

@@ -1,0 +1,9 @@
+{
+  "support-bot": {
+    "12345": {
+      "bot_id": "support-bot",
+      "chat_id": "12345",
+      "source_callback_key": "etrax"
+    }
+  }
+}

@@ -14,7 +14,7 @@
             "actual_value": "false",
             "callback_data": "i_am_not_18",
             "row": 1,
-            "text": "\u274c I am under 18"
+            "text": "\u274cOops I'm not 18"
           }
         ],
         "module_type": "inline_button",
@@ -32,135 +32,17 @@
                 "actual_value": "false",
                 "callback_data": "i_am_not_18",
                 "row": 1,
-                "text": "\u274c I am under 18"
+                "text": "\u274cOops I'm not 18"
               }
             ],
             "module_type": "inline_button",
             "parse_mode": null,
             "save_callback_data_to_key": "i_am_18",
-            "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18 years or older.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
+            "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
           }
         ],
         "save_callback_data_to_key": "i_am_18",
-        "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18 years or older.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
-      },
-      "etrax": {
-        "module_type": "send_message",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "eTrax temporary menu is active for this chat. Use /next, /route, /distance, /clear, /genstations, or /optimize."
-          }
-        ],
-        "temporary_command_modules": {
-          "clear": {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "pipeline": [
-              {
-                "module_type": "send_message",
-                "parse_mode": null,
-                "text_template": "Example /clear temporary command. Replace this module with your real clear flow."
-              }
-            ],
-            "text_template": "Example /clear temporary command. Replace this module with your real clear flow."
-          },
-          "distance": {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "pipeline": [
-              {
-                "module_type": "send_message",
-                "parse_mode": null,
-                "text_template": "Example /distance temporary command. Replace this module with your real distance flow."
-              }
-            ],
-            "text_template": "Example /distance temporary command. Replace this module with your real distance flow."
-          },
-          "genstations": {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "pipeline": [
-              {
-                "module_type": "send_message",
-                "parse_mode": null,
-                "text_template": "Example /genstations temporary command. Replace this module with your real genstations flow."
-              }
-            ],
-            "text_template": "Example /genstations temporary command. Replace this module with your real genstations flow."
-          },
-          "next": {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "pipeline": [
-              {
-                "module_type": "send_message",
-                "parse_mode": null,
-                "text_template": "Example /next temporary command. Replace this module with your real next flow."
-              }
-            ],
-            "text_template": "Example /next temporary command. Replace this module with your real next flow."
-          },
-          "optimize": {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "pipeline": [
-              {
-                "module_type": "send_message",
-                "parse_mode": null,
-                "text_template": "Example /optimize temporary command. Replace this module with your real optimize flow."
-              }
-            ],
-            "text_template": "Example /optimize temporary command. Replace this module with your real optimize flow."
-          },
-          "route": {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "pipeline": [
-              {
-                "module_type": "send_message",
-                "parse_mode": null,
-                "text_template": "Example /route temporary command. Replace this module with your real route flow."
-              }
-            ],
-            "text_template": "Example /route temporary command. Replace this module with your real route flow."
-          }
-        },
-        "temporary_commands": [
-          {
-            "command": "next",
-            "description": "Next",
-            "restore_original_menu": true
-          },
-          {
-            "command": "route",
-            "description": "Route",
-            "restore_original_menu": true
-          },
-          {
-            "command": "distance",
-            "description": "Distance",
-            "restore_original_menu": true
-          },
-          {
-            "command": "clear",
-            "description": "Clear",
-            "restore_original_menu": true
-          },
-          {
-            "command": "genstations",
-            "description": "Generate stations",
-            "restore_original_menu": true
-          },
-          {
-            "command": "optimize",
-            "description": "Optimize",
-            "restore_original_menu": true
-          }
-        ],
-        "text_template": "eTrax temporary menu is active for this chat. Use /next, /route, /distance, /clear, /genstations, or /optimize."
+        "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
       },
       "i_am_18": {
         "button_text": "Open Mini App",
@@ -207,6 +89,9 @@
           {
             "module_type": "inline_button_module",
             "save_callback_data_to_key": "i_am_18",
+            "skip_if_context_keys": [
+              "profile.i_am_18"
+            ],
             "target_callback_key": "age verify"
           }
         ],
@@ -224,39 +109,43 @@
           }
         ],
         "temporary_command_modules": {
-          "one": {
+          "end": {
             "module_type": "send_message",
             "parse_mode": null,
             "pipeline": [
               {
                 "module_type": "send_message",
                 "parse_mode": null,
-                "text_template": "hello here is one"
+                "text_template": "Now etrax is end"
               }
             ],
-            "text_template": "hello here is one"
+            "text_template": "Now etrax is end"
           },
-          "two": {
-            "module_type": "send_message",
+          "route": {
+            "empty_text_template": "No breadcrumb route available yet.",
+            "max_link_points": 400,
+            "module_type": "route",
             "parse_mode": null,
             "pipeline": [
               {
-                "module_type": "send_message",
+                "empty_text_template": "No breadcrumb route available yet.",
+                "max_link_points": 400,
+                "module_type": "route",
                 "parse_mode": null,
-                "text_template": "here is two"
+                "text_template": "Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}"
               }
             ],
-            "text_template": "here is two"
+            "text_template": "Breadcrumb Route\nDistance: {route_total_distance_text}\nMap: {route_link}"
           }
         },
         "temporary_commands": [
           {
-            "command": "one",
+            "command": "route",
             "description": "Command",
-            "restore_original_menu": true
+            "restore_original_menu": false
           },
           {
-            "command": "two",
+            "command": "end",
             "description": "Command",
             "restore_original_menu": true
           }
@@ -265,16 +154,6 @@
       }
     },
     "command_modules": {
-      "etrax": {
-        "module_type": "callback_module",
-        "pipeline": [
-          {
-            "module_type": "callback_module",
-            "target_callback_key": "etrax"
-          }
-        ],
-        "target_callback_key": "etrax"
-      },
       "etrex": {
         "module_type": "callback_module",
         "pipeline": [
@@ -283,21 +162,19 @@
             "target_callback_key": "tracking location"
           },
           {
-            "breadcrumb_interval_minutes": 5.0,
-            "breadcrumb_min_distance_meters": 10.0,
             "button_text": "Share My Location",
+            "find_closest_saved_location": true,
+            "closest_location_group_text_template": "{user_first_name} checked in near {closest_location_name}.",
             "module_type": "share_location",
             "parse_mode": null,
             "require_live_location": true,
-            "store_history_by_day": true,
-            "success_text_template": "Thanks, your location was received good.",
-            "text_template": "Please share your live location",
-            "track_breadcrumb": true
+            "success_text_template": "Closest saved location is {closest_location_name}.",
+            "text_template": "Please share your live location"
           }
         ],
         "target_callback_key": "tracking location"
       },
-      "restart": {
+      "reset": {
         "module_type": "forget_user_data",
         "pipeline": [
           {
@@ -342,27 +219,11 @@
             "text_template": "\u178f\u17be\u17a2\u17d2\u1793\u1780\u1785\u1784\u17cb\u1785\u17c2\u1780\u179a\u17c6\u179b\u17c2\u1780\u179b\u17c1\u1781\u1791\u17bc\u179a\u179f\u17d0\u1796\u17d2\u1791\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\u1791\u17c1?\nWould you like to share your phone number?"
           },
           {
-            "buttons": [
-              {
-                "actual_value": "true",
-                "callback_data": "i_am_18",
-                "row": 1,
-                "text": "\u2705 I am 18+"
-              },
-              {
-                "actual_value": "false",
-                "callback_data": "i_am_not_18",
-                "row": 1,
-                "text": "\u274c I am under 18"
-              }
-            ],
-            "module_type": "inline_button",
-            "parse_mode": "None",
-            "save_callback_data_to_key": "i_am_18",
+            "module_type": "callback_module",
             "skip_if_context_keys": [
               "profile.i_am_18"
             ],
-            "text_template": "\ud83d\udd1e Age Verification Required\n\nBefore continuing, please confirm that you are 18 years or older.\n\nThis helps us ensure a safe and appropriate experience for all users.\n\n\ud83d\udc47 Tap the button below to proceed:"
+            "target_callback_key": "age verify"
           },
           {
             "module_type": "callback_module",
@@ -386,16 +247,12 @@
     },
     "commands": [
       {
-        "command": "restart",
-        "description": "Restart"
+        "command": "reset",
+        "description": "Forgot user"
       },
       {
         "command": "etrex",
         "description": "Etrex"
-      },
-      {
-        "command": "etrax",
-        "description": "eTrax menu"
       }
     ]
   },
@@ -437,6 +294,6 @@
   "token_ref": {
     "bot_id": "Testing 2"
   },
-  "updated_at": "2026-04-06T07:33:07.153858+00:00",
+  "updated_at": "2026-04-09T04:30:10.264488+00:00",
   "version": 1
 }
