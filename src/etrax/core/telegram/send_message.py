@@ -95,9 +95,7 @@ class SendTelegramMessageModule:
 
     def _resolve_text(self, context: dict[str, Any], *, bot_id: str) -> str:
         text_template = self._resolve_text_template(context=context)
-        render_context = dict(context)
-        render_context.setdefault("bot_id", bot_id)
-        render_context.setdefault("bot_name", bot_id)
+        render_context = self._build_render_context(context=context, bot_id=bot_id)
         if text_template:
             required_fields = {
                 field_name
@@ -115,6 +113,20 @@ class SendTelegramMessageModule:
         if not text:
             raise ValueError("message text is required for send message module")
         return text
+
+    def _build_render_context(self, *, context: dict[str, Any], bot_id: str) -> dict[str, Any]:
+        render_context = dict(context)
+        render_context.setdefault("bot_id", bot_id)
+        render_context.setdefault("bot_name", bot_id)
+
+        latitude = render_context.get("location_latitude")
+        longitude = render_context.get("location_longitude")
+        if latitude not in (None, "") and longitude not in (None, ""):
+            render_context.setdefault(
+                "location",
+                f"https://www.google.com/maps?q={latitude},{longitude}",
+            )
+        return render_context
 
     def _resolve_text_template(self, *, context: dict[str, Any]) -> str | None:
         template = self._config.text_template

@@ -18,6 +18,16 @@ from .checkout import (
 from .contracts import BotTokenResolver, CartStateStore, TelegramMessageGateway, UserProfileStore
 from .callback_module import LoadCallbackConfig, LoadCallbackModule
 from .command_module import LoadCommandConfig, LoadCommandModule
+from .custom_code import (
+    CustomCodeConfig,
+    CustomCodeFunctionProvider,
+    CustomCodeModule,
+)
+from .bind_code import (
+    BindCodeConfig,
+    BindCodeModule,
+    BoundCodeStore,
+)
 from .forget_user_data import ForgetUserDataConfig, ForgetUserDataModule
 from .inline_button import SendInlineButtonConfig, SendTelegramInlineButtonModule
 from .load_inline_button import LoadInlineButtonConfig, LoadInlineButtonModule
@@ -47,9 +57,19 @@ from .share_contact import (
     render_share_contact_text,
     shared_contact_belongs_to_user,
 )
+from .ask_selfie import (
+    AskSelfieConfig,
+    AskSelfieModule,
+    PendingSelfieRequest,
+    SelfieRequestStore,
+    extract_selfie_context,
+    render_ask_selfie_text,
+    selfie_photo_present,
+)
 from .share_location import (
     DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS,
     DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING,
+    DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE,
     DEFAULT_BREADCRUMB_ENDED,
     DEFAULT_BREADCRUMB_INTERRUPTED,
     DEFAULT_BREADCRUMB_RESUMED,
@@ -75,6 +95,7 @@ from .share_location import (
     render_share_location_text,
 )
 from .send_message import SendMessageConfig, SendTelegramMessageModule
+from .send_location import SendLocationConfig, SendTelegramLocationModule
 from .send_photo import SendPhotoConfig, SendTelegramPhotoModule
 
 __all__ = [
@@ -86,16 +107,28 @@ __all__ = [
     "LoadCallbackModule",
     "LoadCommandConfig",
     "LoadCommandModule",
+    "BindCodeConfig",
+    "BindCodeModule",
+    "BoundCodeStore",
+    "CustomCodeConfig",
+    "CustomCodeFunctionProvider",
+    "CustomCodeModule",
     "LoadInlineButtonConfig",
     "LoadInlineButtonModule",
     "SendMessageConfig",
     "SendTelegramMessageModule",
+    "SendLocationConfig",
+    "SendTelegramLocationModule",
     "SendPhotoConfig",
     "SendTelegramPhotoModule",
     "ShareContactConfig",
     "ShareContactModule",
     "ContactRequestStore",
     "PendingContactRequest",
+    "AskSelfieConfig",
+    "AskSelfieModule",
+    "SelfieRequestStore",
+    "PendingSelfieRequest",
     "ShareLocationConfig",
     "ShareLocationModule",
     "LocationRequestStore",
@@ -104,6 +137,7 @@ __all__ = [
     "DEFAULT_LOCATION_INVALID",
     "DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS",
     "DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING",
+    "DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE",
     "DEFAULT_BREADCRUMB_STARTED",
     "DEFAULT_BREADCRUMB_INTERRUPTED",
     "DEFAULT_BREADCRUMB_RESUMED",
@@ -148,13 +182,16 @@ __all__ = [
     "build_location_request_reply_markup",
     "build_remove_keyboard_reply_markup",
     "extract_contact_context",
+    "extract_selfie_context",
     "extract_location_context",
     "location_is_live",
+    "render_ask_selfie_text",
     "render_share_contact_text",
     "render_share_location_text",
     "render_route_text",
     "format_distance_text",
     "normalize_route_points",
+    "selfie_photo_present",
     "shared_contact_belongs_to_user",
 ]
 

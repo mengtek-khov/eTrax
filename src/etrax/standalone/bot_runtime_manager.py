@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from etrax.adapters.local.bot_process_scaffold_store import JsonBotProcessScaffoldStore
 from etrax.adapters.local.json_cart_state_store import JsonCartStateStore
+from etrax.adapters.local.json_bound_code_store import JsonBoundCodeStore
 from etrax.adapters.local.json_temporary_command_menu_state_store import JsonTemporaryCommandMenuStateStore
 from etrax.adapters.local.json_user_profile_log_store import JsonUserProfileLogStore
 from etrax.adapters.telegram import TelegramBotApiGateway
@@ -22,8 +23,10 @@ from etrax.core.telegram import (
     CheckoutCartModule,
     ContactRequestStore,
     LocationRequestStore,
+    PendingSelfieRequest,
     PendingContactRequest,
     PendingLocationRequest,
+    SelfieRequestStore,
 )
 from etrax.core.flow import FlowModule
 from etrax.core.token import BotTokenService
@@ -223,6 +226,33 @@ class _InMemoryLocationRequestStore(LocationRequestStore):
             return self._values.pop(key, None)
 
 
+class _InMemorySelfieRequestStore(SelfieRequestStore):
+    """Process-local pending selfie request store for standalone runtime."""
+
+    def __init__(self) -> None:
+        """Initialize the in-memory pending-selfie index."""
+        self._values: dict[tuple[str, str, str], PendingSelfieRequest] = {}
+        self._lock = Lock()
+
+    def set_pending(self, request: PendingSelfieRequest) -> None:
+        """Store a pending ask-selfie request by bot, chat, and user."""
+        key = (request.bot_id, request.chat_id, request.user_id)
+        with self._lock:
+            self._values[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingSelfieRequest | None:
+        """Look up a pending selfie request without removing it."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.get(key)
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingSelfieRequest | None:
+        """Remove and return a pending selfie request once it is handled."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.pop(key, None)
+
+
 class BotRuntimeManager:
     """Runs per-bot long-poll workers and delegates module-specific work to focused runtime helpers."""
 
@@ -256,6 +286,9 @@ class BotRuntimeManager:
         self._profile_log_store = profile_log_store or JsonUserProfileLogStore(
             profile_log_file or state_file.with_name("profile_log.json")
         )
+        self._bound_code_store = JsonBoundCodeStore(
+            state_file.with_name("bound_codes.json")
+        )
         self._temporary_command_menu_state_store = temporary_command_menu_state_store or JsonTemporaryCommandMenuStateStore(
             temporary_command_menu_state_file or state_file.with_name("temporary_command_menus.json")
         )
@@ -268,6 +301,7 @@ class BotRuntimeManager:
         self._controllers: dict[str, BotRuntimeController] = {}
         self._lock = Lock()
         self._contact_request_store = _InMemoryContactRequestStore()
+        self._selfie_request_store = _InMemorySelfieRequestStore()
         self._location_request_store = _InMemoryLocationRequestStore()
 
     def start(self, bot_id: str) -> tuple[bool, str]:
@@ -369,6 +403,7 @@ class BotRuntimeManager:
         offset = _load_offset(self._state_file, bot_id)
         callback_continuation_by_message: dict[str, list[FlowModule]] = {}
         callback_context_updates_by_message: dict[str, dict[str, object]] = {}
+        inline_button_cleanup_by_message: dict[str, bool] = {}
         processed_callback_query_ids: dict[str, float] = {}
         active_temporary_command_menus_by_chat: dict[str, dict[str, object]] = {}
         polling_token_lock: _PollingTokenLock | None = None
@@ -455,10 +490,12 @@ class BotRuntimeManager:
                             callback_continuation_by_message=callback_continuation_by_message,
                             callback_context_updates=runtime_snapshot.callback_context_updates,
                             callback_context_updates_by_message=callback_context_updates_by_message,
+                            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                             checkout_modules=runtime_snapshot.checkout_modules,
                             gateway=gateway,
                             bot_token=token,
                             contact_request_store=self._contact_request_store,
+                            selfie_request_store=self._selfie_request_store,
                             location_request_store=self._location_request_store,
                             profile_log_store=self._profile_log_store,
                             processed_callback_query_ids=processed_callback_query_ids,
@@ -571,8 +608,10 @@ class BotRuntimeManager:
                 token_service=self._token_service,
                 gateway=gateway,
                 cart_state_store=self._cart_state_store,
+                bound_code_store=self._bound_code_store,
                 profile_log_store=self._profile_log_store,
                 contact_request_store=self._contact_request_store,
+                selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
@@ -585,8 +624,10 @@ class BotRuntimeManager:
                 token_service=self._token_service,
                 gateway=gateway,
                 cart_state_store=self._cart_state_store,
+                bound_code_store=self._bound_code_store,
                 profile_log_store=self._profile_log_store,
                 contact_request_store=self._contact_request_store,
+                selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
@@ -605,8 +646,10 @@ class BotRuntimeManager:
                     token_service=self._token_service,
                     gateway=gateway,
                     cart_state_store=self._cart_state_store,
+                    bound_code_store=self._bound_code_store,
                     profile_log_store=self._profile_log_store,
                     contact_request_store=self._contact_request_store,
+                    selfie_request_store=self._selfie_request_store,
                     location_request_store=self._location_request_store,
                     cart_configs=cart_configs,
                     checkout_modules=checkout_modules,
@@ -634,8 +677,10 @@ class BotRuntimeManager:
                 token_service=self._token_service,
                 gateway=gateway,
                 cart_state_store=self._cart_state_store,
+                bound_code_store=self._bound_code_store,
                 profile_log_store=self._profile_log_store,
                 contact_request_store=self._contact_request_store,
+                selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,

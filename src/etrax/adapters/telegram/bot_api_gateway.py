@@ -56,6 +56,21 @@ class TelegramBotApiGateway:
 
         return self._request_json(bot_token=bot_token, method="sendPhoto", payload=payload)
 
+    def send_location(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        latitude: float,
+        longitude: float,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "chat_id": chat_id,
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+        return self._request_json(bot_token=bot_token, method="sendLocation", payload=payload)
+
     def edit_message_text(
         self,
         *,

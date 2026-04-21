@@ -53,6 +53,7 @@ class FakeTokenResolver:
 class FakeGateway:
     def __init__(self) -> None:
         self.message_calls: list[dict[str, Any]] = []
+        self.edited_reply_markups: list[dict[str, Any]] = []
 
     def send_message(
         self,
@@ -72,6 +73,23 @@ class FakeGateway:
             "bot_token_suffix": bot_token[-4:],
         }
         self.message_calls.append(payload)
+        return payload
+
+    def edit_message_reply_markup(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        message_id: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": reply_markup,
+        }
+        self.edited_reply_markups.append(payload)
         return payload
 
 
@@ -1152,6 +1170,100 @@ def test_handle_message_update_registers_mirrored_inline_button_callback_value_b
 
     assert handled == 1
     assert callback_target.contexts[0]["selected_plan"] == "Basic"
+
+
+def test_handle_callback_query_update_removes_inline_buttons_after_handled_click() -> None:
+    class MessageIdGateway(FakeGateway):
+        def send_message(
+            self,
+            *,
+            bot_token: str,
+            chat_id: str,
+            text: str,
+            parse_mode: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            payload = super().send_message(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+            payload["message_id"] = 901
+            return payload
+
+    gateway = MessageIdGateway()
+    inline_button_target = SendTelegramInlineButtonModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        config=SendInlineButtonConfig(
+            bot_id="support-bot",
+            chat_id="12345",
+            text_template="Choose plan",
+            buttons=[{"text": "Basic", "callback_data": "basic_plan"}],
+            remove_inline_buttons_on_click=True,
+        ),
+    )
+    callback_target = CaptureModule()
+    inline_button_cleanup_by_message: dict[str, bool] = {}
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [inline_button_target]},
+        callback_modules={"basic_plan": [callback_target]},
+        start_returning_user=False,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+    )
+
+    assert sent == 1
+    assert inline_button_cleanup_by_message == {
+        "support-bot:12345:901:basic_plan": True,
+    }
+
+    handled = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-basic",
+                "data": "basic_plan",
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                },
+                "message": {
+                    "message_id": 901,
+                    "chat": {"id": 12345},
+                    "text": "Choose plan",
+                },
+            }
+        },
+        bot_id="support-bot",
+        callback_modules={"basic_plan": [callback_target]},
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert handled == 1
+    assert gateway.edited_reply_markups == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "chat_id": "12345",
+            "message_id": "901",
+            "reply_markup": None,
+        }
+    ]
+    assert inline_button_cleanup_by_message == {}
 
 
 def test_handle_message_update_registers_inline_button_module_override_save_target() -> None:

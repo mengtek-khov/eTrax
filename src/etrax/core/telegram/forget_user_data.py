@@ -5,6 +5,7 @@ from typing import Any
 
 from ..flow import ModuleOutcome
 from .contracts import CartStateStore, UserProfileStore
+from .ask_selfie import SelfieRequestStore
 from .share_contact import ContactRequestStore
 from .share_location import LocationRequestStore
 
@@ -28,6 +29,14 @@ _PROFILE_CONTEXT_KEYS_TO_CLEAR = (
     "location_breadcrumb_total_distance_meters",
     "location_breadcrumb_active",
     "location_breadcrumb_sessions",
+    "selfie_file_id",
+    "selfie_file_unique_id",
+    "selfie_width",
+    "selfie_height",
+    "selfie_file_size",
+    "selfie_caption",
+    "selfie_message_id",
+    "selfie_photo_count",
     "last_command",
     "last_callback_data",
 )
@@ -70,6 +79,14 @@ _RESERVED_PROFILE_KEYS = {
     "location_breadcrumb_active",
     "location_breadcrumb_sessions",
     "location_shared_at",
+    "selfie_file_id",
+    "selfie_file_unique_id",
+    "selfie_width",
+    "selfie_height",
+    "selfie_file_size",
+    "selfie_caption",
+    "selfie_message_id",
+    "selfie_photo_count",
 }
 
 _PROTECTED_CONTEXT_KEYS = {
@@ -118,12 +135,14 @@ class ForgetUserDataModule:
         cart_state_store: CartStateStore,
         profile_store: UserProfileStore,
         contact_request_store: ContactRequestStore | None = None,
+        selfie_request_store: SelfieRequestStore | None = None,
         location_request_store: LocationRequestStore | None = None,
         config: ForgetUserDataConfig | None = None,
     ) -> None:
         self._cart_state_store = cart_state_store
         self._profile_store = profile_store
         self._contact_request_store = contact_request_store
+        self._selfie_request_store = selfie_request_store
         self._location_request_store = location_request_store
         self._config = config or ForgetUserDataConfig()
 
@@ -158,6 +177,17 @@ class ForgetUserDataModule:
                 is not None
             )
 
+        cleared_pending_selfie_request = False
+        if self._selfie_request_store is not None:
+            cleared_pending_selfie_request = (
+                self._selfie_request_store.pop_pending(
+                    bot_id=bot_id,
+                    chat_id=chat_id,
+                    user_id=user_id,
+                )
+                is not None
+            )
+
         context_updates = {
             self._config.context_result_key: {
                 "bot_id": bot_id,
@@ -166,6 +196,7 @@ class ForgetUserDataModule:
                 "cleared_profile": True,
                 "cleared_cart": True,
                 "cleared_pending_contact_request": cleared_pending_contact_request,
+                "cleared_pending_selfie_request": cleared_pending_selfie_request,
                 "cleared_pending_location_request": cleared_pending_location_request,
             },
             "profile": {},

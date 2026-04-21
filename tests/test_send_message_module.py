@@ -121,6 +121,30 @@ def test_send_message_module_provides_bot_name_from_bot_id() -> None:
     assert gateway.calls[0]["text"] == "Welcome to sales-bot"
 
 
+def test_send_message_module_builds_location_shortcut_from_shared_coordinates() -> None:
+    gateway = FakeGateway()
+    module = SendTelegramMessageModule(
+        token_resolver=FakeTokenResolver({"ops-bot": "987654:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        config=SendMessageConfig(
+            bot_id="ops-bot",
+            chat_id="77",
+            text_template="Map: {location}",
+        ),
+    )
+
+    module.execute(
+        {
+            "location_latitude": "11.525578",
+            "location_longitude": "104.874476",
+        }
+    )
+
+    assert gateway.calls[0]["text"] == (
+        "Map: https://www.google.com/maps?q=11.525578,104.874476"
+    )
+
+
 def test_send_message_module_raises_when_token_missing() -> None:
     module = SendTelegramMessageModule(
         token_resolver=FakeTokenResolver({}),

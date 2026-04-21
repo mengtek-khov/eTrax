@@ -55,6 +55,286 @@ def test_parse_chain_steps_supports_json_inline_button_with_multiline_text() -> 
     ]
 
 
+def test_parse_chain_steps_preserves_share_location_group_callback_action() -> None:
+    raw = json.dumps(
+        {
+            "module_type": "share_location",
+            "text_template": "Please share your live location",
+            "button_text": "Share My Location",
+            "success_text_template": "Closest saved location is {closest_location_name}.",
+            "require_live_location": True,
+            "find_closest_saved_location": True,
+            "closest_location_group_action_type": "callback_module",
+            "closest_location_group_callback_key": "group_notify",
+            "closest_location_group_send_timing": "end",
+        },
+        separators=(",", ":"),
+    )
+
+    steps = _parse_chain_steps(command_name="etrex", raw=raw)
+
+    assert steps == [
+        {
+            "module_type": "share_location",
+            "text_template": "Please share your live location",
+            "parse_mode": None,
+            "button_text": "Share My Location",
+            "success_text_template": "Closest saved location is {closest_location_name}.",
+            "require_live_location": True,
+            "find_closest_saved_location": True,
+            "closest_location_group_action_type": "callback_module",
+            "closest_location_group_callback_key": "group_notify",
+            "closest_location_group_send_timing": "end",
+        }
+    ]
+
+
+def test_parse_chain_steps_supports_bind_code_json() -> None:
+    raw = json.dumps(
+        {
+            "module_type": "bind_code",
+            "prefix": "ETX-",
+            "number_width": 4,
+            "start_number": 1,
+        },
+        separators=(",", ":"),
+    )
+
+    steps = _parse_chain_steps(command_name="etrex", raw=raw)
+
+    assert steps == [
+        {
+            "module_type": "bind_code",
+            "prefix": "ETX-",
+            "number_width": 4,
+            "start_number": 1,
+        }
+    ]
+
+
+def test_build_command_module_entry_supports_bind_code() -> None:
+    entry = _build_command_module_entry(
+        command_name="etrex",
+        module_type="bind_code",
+        text_template="",
+        returning_text_template="",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        custom_code_function_name="",
+        bind_code_prefix="ETX-",
+        bind_code_number_width="4",
+        bind_code_start_number="1",
+        location_latitude="",
+        location_longitude="",
+        require_live_location="",
+        find_closest_saved_location="",
+        match_closest_saved_location="",
+        closest_location_tolerance_meters="",
+        closest_location_group_action_type="",
+        closest_location_group_text="",
+        closest_location_group_callback_key="",
+        closest_location_group_custom_code_function_name="",
+        closest_location_group_send_timing="",
+        closest_location_group_send_after_step="",
+        location_invalid_text="",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
+        route_empty_text="",
+        route_max_link_points="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "bind_code"
+    assert entry["prefix"] == "ETX-"
+    assert entry["number_width"] == 4
+    assert entry["start_number"] == 1
+
+
+def test_build_command_module_entry_preserves_share_location_group_action_type_without_callback_key() -> None:
+    entry = _build_command_module_entry(
+        command_name="etrex",
+        module_type="share_location",
+        text_template="Please share your live location",
+        returning_text_template="",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="Share My Location",
+        mini_app_button_text="",
+        contact_success_text="Closest saved location is {closest_location_name}.",
+        contact_invalid_text="",
+        custom_code_function_name="",
+        location_latitude="",
+        location_longitude="",
+        require_live_location="1",
+        find_closest_saved_location="1",
+        match_closest_saved_location="",
+        closest_location_tolerance_meters="",
+        closest_location_group_action_type="callback_module",
+        closest_location_group_text="",
+        closest_location_group_callback_key="",
+        closest_location_group_custom_code_function_name="",
+        closest_location_group_send_timing="end",
+        closest_location_group_send_after_step="",
+        location_invalid_text="",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
+        route_empty_text="",
+        route_max_link_points="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["closest_location_group_action_type"] == "callback_module"
+    assert "closest_location_group_callback_key" not in entry
+    assert entry["closest_location_group_send_timing"] == "end"
+
+
+def test_build_command_module_entry_prefers_callback_group_action_when_callback_key_present() -> None:
+    entry = _build_command_module_entry(
+        command_name="etrex",
+        module_type="share_location",
+        text_template="Please share your live location",
+        returning_text_template="",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="Share My Location",
+        mini_app_button_text="",
+        contact_success_text="Closest saved location is {closest_location_name}.",
+        contact_invalid_text="",
+        custom_code_function_name="",
+        location_latitude="",
+        location_longitude="",
+        require_live_location="1",
+        find_closest_saved_location="1",
+        match_closest_saved_location="",
+        closest_location_tolerance_meters="",
+        closest_location_group_action_type="message",
+        closest_location_group_text="old message should not win",
+        closest_location_group_callback_key="group_notify",
+        closest_location_group_custom_code_function_name="",
+        closest_location_group_send_timing="end",
+        closest_location_group_send_after_step="",
+        location_invalid_text="",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
+        route_empty_text="",
+        route_max_link_points="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["closest_location_group_action_type"] == "callback_module"
+    assert entry["closest_location_group_callback_key"] == "group_notify"
+    assert "closest_location_group_text_template" not in entry
+
+
 def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
     html = _render_config_page(
         bot_id="support-bot",
@@ -491,6 +771,40 @@ def test_pipeline_to_chain_steps_round_trips_inline_button_save_target() -> None
     ]
 
 
+def test_pipeline_to_chain_steps_round_trips_inline_button_remove_after_click_flag() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "inline_button",
+            "text_template": "Choose one",
+            "parse_mode": None,
+            "buttons": [
+                {"text": "Driver", "callback_data": "driver", "row": 1},
+            ],
+            "remove_inline_buttons_on_click": True,
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="start", raw=serialized)
+
+    assert steps == [
+        {
+            "module_type": "inline_button",
+            "text_template": "Choose one",
+            "parse_mode": None,
+            "buttons": [
+                {"text": "Driver", "callback_data": "driver", "row": 1},
+            ],
+            "remove_inline_buttons_on_click": True,
+        }
+    ]
+
+
 def test_pipeline_to_chain_steps_round_trips_callback_module_step() -> None:
     pipeline = [
         {
@@ -583,6 +897,60 @@ def test_pipeline_to_chain_steps_round_trips_share_contact_step() -> None:
     ]
 
 
+def test_pipeline_to_chain_steps_round_trips_ask_selfie_step() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "ask_selfie",
+            "text_template": "Send a selfie.",
+            "parse_mode": "HTML",
+            "success_text_template": "Saved {selfie_file_id}",
+            "invalid_text_template": "Please send a selfie photo.",
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="verify_selfie", raw=serialized)
+
+    assert steps == [
+        {
+            "module_type": "ask_selfie",
+            "text_template": "Send a selfie.",
+            "parse_mode": "HTML",
+            "success_text_template": "Saved {selfie_file_id}",
+            "invalid_text_template": "Please send a selfie photo.",
+        }
+    ]
+
+
+def test_pipeline_to_chain_steps_round_trips_custom_code_step() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "custom_code",
+            "function_name": "example_noop",
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="custom", raw=serialized)
+
+    assert steps == [
+        {
+            "module_type": "custom_code",
+            "function_name": "example_noop",
+        }
+    ]
+
+
 def test_pipeline_to_chain_steps_round_trips_share_location_step() -> None:
     pipeline = [
         {
@@ -621,6 +989,32 @@ def test_pipeline_to_chain_steps_round_trips_share_location_step() -> None:
             "closest_location_tolerance_meters": 120,
             "run_if_context_keys": ["profile.phone_number"],
             "skip_if_context_keys": ["location_latitude"],
+        }
+    ]
+
+
+def test_pipeline_to_chain_steps_round_trips_send_location_step() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "send_location",
+            "location_latitude": "{location_latitude}",
+            "location_longitude": "{location_longitude}",
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="notify_location", raw=serialized)
+
+    assert steps == [
+        {
+            "module_type": "send_location",
+            "location_latitude": "{location_latitude}",
+            "location_longitude": "{location_longitude}",
         }
     ]
 
@@ -879,6 +1273,105 @@ def test_build_command_module_entry_persists_command_module_target() -> None:
     assert entry["pipeline"][0]["target_command_key"] == "route"
 
 
+def test_build_command_module_entry_persists_ask_selfie_templates() -> None:
+    entry = _build_command_module_entry(
+        command_name="verify_selfie",
+        module_type="ask_selfie",
+        text_template="Send a selfie.",
+        hide_caption="",
+        parse_mode="HTML",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="Saved {selfie_file_id}",
+        contact_invalid_text="Please send a selfie photo.",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "ask_selfie"
+    assert entry["success_text_template"] == "Saved {selfie_file_id}"
+    assert entry["invalid_text_template"] == "Please send a selfie photo."
+    assert entry["pipeline"][0]["module_type"] == "ask_selfie"
+
+
+def test_build_command_module_entry_persists_custom_code_function() -> None:
+    entry = _build_command_module_entry(
+        command_name="custom",
+        module_type="custom_code",
+        text_template="",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        custom_code_function_name="example_noop",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "custom_code"
+    assert entry["function_name"] == "example_noop"
+    assert entry["pipeline"][0]["module_type"] == "custom_code"
+    assert entry["pipeline"][0]["function_name"] == "example_noop"
+
+
 def test_build_command_module_entry_persists_inline_button_module_target() -> None:
     entry = _build_command_module_entry(
         command_name="launch",
@@ -1019,7 +1512,10 @@ def test_build_command_module_entry_defaults_find_closest_success_text() -> None
         find_closest_saved_location="1",
         match_closest_saved_location="",
         closest_location_tolerance_meters="",
+        closest_location_group_action_type="callback_module",
         closest_location_group_text="Checked in near {closest_location_name}",
+        closest_location_group_callback_key="group_notify",
+        closest_location_group_custom_code_function_name="",
         closest_location_group_send_timing="after_step",
         closest_location_group_send_after_step="4",
         location_invalid_text="",
@@ -1057,7 +1553,9 @@ def test_build_command_module_entry_defaults_find_closest_success_text() -> None
     assert entry["require_live_location"] is True
     assert entry["find_closest_saved_location"] is True
     assert entry["success_text_template"] == "Closest saved location is {closest_location_name}."
-    assert entry["closest_location_group_text_template"] == "Checked in near {closest_location_name}"
+    assert entry["closest_location_group_action_type"] == "callback_module"
+    assert entry["closest_location_group_callback_key"] == "group_notify"
+    assert "closest_location_group_text_template" not in entry
     assert entry["closest_location_group_send_timing"] == "after_step"
     assert entry["closest_location_group_send_after_step"] == 4
 
@@ -1184,6 +1682,33 @@ def test_extract_command_module_form_values_keeps_callback_module_target() -> No
     assert values["inline_save_callback_data_to_key"] == "selected_age_flag"
 
 
+def test_extract_command_module_form_values_keeps_inline_button_remove_after_click_flag() -> None:
+    values = _extract_command_module_form_values(
+        command_name="launch",
+        raw_module={
+            "module_type": "inline_button",
+            "text_template": "Choose one",
+            "buttons": [
+                {"text": "Driver", "callback_data": "driver", "row": 1},
+            ],
+            "remove_inline_buttons_on_click": True,
+            "pipeline": [
+                {
+                    "module_type": "inline_button",
+                    "text_template": "Choose one",
+                    "buttons": [
+                        {"text": "Driver", "callback_data": "driver", "row": 1},
+                    ],
+                    "remove_inline_buttons_on_click": True,
+                }
+            ],
+        },
+        default_text_template="Command /launch received.",
+        default_menu_title="Launch Menu",
+    )
+
+    assert values["inline_remove_buttons_on_click"] == "1"
+
 
 def test_extract_command_module_form_values_keeps_command_module_target() -> None:
     values = _extract_command_module_form_values(
@@ -1253,7 +1778,10 @@ def test_extract_command_module_form_values_keeps_share_location_live_flags() ->
             "find_closest_saved_location": True,
             "match_closest_saved_location": True,
             "closest_location_tolerance_meters": 120,
+            "closest_location_group_action_type": "custom_code",
             "closest_location_group_text_template": "Checked in near {closest_location_name}",
+            "closest_location_group_callback_key": "group_notify",
+            "closest_location_group_custom_code_function_name": "example_noop",
             "closest_location_group_send_timing": "after_step",
             "closest_location_group_send_after_step": 4,
             "track_breadcrumb": True,
@@ -1275,7 +1803,10 @@ def test_extract_command_module_form_values_keeps_share_location_live_flags() ->
                     "find_closest_saved_location": True,
                     "match_closest_saved_location": True,
                     "closest_location_tolerance_meters": 120,
+                    "closest_location_group_action_type": "custom_code",
                     "closest_location_group_text_template": "Checked in near {closest_location_name}",
+                    "closest_location_group_callback_key": "group_notify",
+                    "closest_location_group_custom_code_function_name": "example_noop",
                     "closest_location_group_send_timing": "after_step",
                     "closest_location_group_send_after_step": 4,
                     "track_breadcrumb": True,
@@ -1299,7 +1830,10 @@ def test_extract_command_module_form_values_keeps_share_location_live_flags() ->
     assert values["find_closest_saved_location"] == "1"
     assert values["match_closest_saved_location"] == "1"
     assert values["closest_location_tolerance_meters"] == "120"
+    assert values["closest_location_group_action_type"] == "custom_code"
     assert values["closest_location_group_text"] == "Checked in near {closest_location_name}"
+    assert values["closest_location_group_callback_key"] == "group_notify"
+    assert values["closest_location_group_custom_code_function_name"] == "example_noop"
     assert values["closest_location_group_send_timing"] == "after_step"
     assert values["closest_location_group_send_after_step"] == "4"
     assert values["location_invalid_text"] == "Too far from {closest_location_name}"
@@ -1311,6 +1845,43 @@ def test_extract_command_module_form_values_keeps_share_location_live_flags() ->
     assert values["breadcrumb_interrupted_text_template"] == "Live sharing stopped."
     assert values["breadcrumb_resumed_text_template"] == "Breadcrumb resumed."
     assert values["breadcrumb_ended_text_template"] == "Breadcrumb saved."
+
+
+def test_extract_command_module_form_values_supports_ask_selfie() -> None:
+    values = _extract_command_module_form_values(
+        command_name="verify_selfie",
+        raw_module={
+            "module_type": "ask_selfie",
+            "text_template": "Send a selfie.",
+            "parse_mode": "HTML",
+            "success_text_template": "Saved {selfie_file_id}",
+            "invalid_text_template": "Please send a selfie photo.",
+        },
+        default_text_template="Command /verify_selfie received.",
+        default_menu_title="Verify Selfie Menu",
+    )
+
+    assert values["module_type"] == "ask_selfie"
+    assert values["text_template"] == "Send a selfie."
+    assert values["parse_mode"] == "HTML"
+    assert values["contact_success_text"] == "Saved {selfie_file_id}"
+    assert values["contact_invalid_text"] == "Please send a selfie photo."
+
+
+def test_extract_command_module_form_values_supports_custom_code() -> None:
+    values = _extract_command_module_form_values(
+        command_name="custom",
+        raw_module={
+            "module_type": "custom_code",
+            "function_name": "example_noop",
+        },
+        default_text_template="Command /custom received.",
+        default_menu_title="Custom Menu",
+    )
+
+    assert values["module_type"] == "custom_code"
+    assert values["text_template"] == ""
+    assert values["custom_code_function_name"] == "example_noop"
 
 
 def test_extract_command_rows_keeps_share_location_live_flags() -> None:

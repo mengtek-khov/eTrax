@@ -78,6 +78,7 @@
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '{bot_name}', $event)\">Bot</button>` +
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '{user_first_name}', $event)\">Name</button>` +
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '{user_username}', $event)\">Username</button>` +
+        `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '{location}', $event)\">Location</button>` +
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '\\n', $event)\">Line</button>` +
         `</div>` +
         `<textarea${idAttr} ` +

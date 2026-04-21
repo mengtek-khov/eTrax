@@ -183,6 +183,7 @@
     const matchClosestSavedLocation = normalizeCheckboxValue(source.match_closest_saved_location);
     const trackBreadcrumb = requireLiveLocation && normalizeCheckboxValue(source.track_breadcrumb);
     const storeHistoryByDay = normalizeCheckboxValue(source.store_history_by_day);
+    const removeInlineButtonsOnClick = normalizeCheckboxValue(source.remove_inline_buttons_on_click);
     return {
       module_type: normalizeType(source.module_type || fallbackType),
       text_template: source.text_template == null ? "" : String(source.text_template),
@@ -207,13 +208,28 @@
           ? ""
           : String(source.skip_if_context_keys),
       save_callback_data_to_key: source.save_callback_data_to_key == null ? "" : String(source.save_callback_data_to_key),
+      remove_inline_buttons_on_click: removeInlineButtonsOnClick,
       target_callback_key: source.target_callback_key == null ? "" : String(source.target_callback_key),
       target_command_key: source.target_command_key == null ? "" : String(source.target_command_key),
       photo_url: source.photo_url == null ? "" : String(source.photo_url),
+      location_latitude: source.location_latitude == null ? "" : String(source.location_latitude),
+      location_longitude: source.location_longitude == null ? "" : String(source.location_longitude),
       button_text: source.button_text == null ? "" : String(source.button_text),
+      function_name: source.function_name == null ? "" : String(source.function_name),
+      bind_code_prefix: source.bind_code_prefix == null ? "" : String(source.bind_code_prefix),
+      bind_code_number_width: source.bind_code_number_width == null ? "4" : String(source.bind_code_number_width),
+      bind_code_start_number: source.bind_code_start_number == null ? "1" : String(source.bind_code_start_number),
       success_text_template: source.success_text_template == null ? "" : String(source.success_text_template),
+      closest_location_group_action_type:
+        source.closest_location_group_action_type == null ? "message" : String(source.closest_location_group_action_type),
       closest_location_group_text_template:
         source.closest_location_group_text_template == null ? "" : String(source.closest_location_group_text_template),
+      closest_location_group_callback_key:
+        source.closest_location_group_callback_key == null ? "" : String(source.closest_location_group_callback_key),
+      closest_location_group_custom_code_function_name:
+        source.closest_location_group_custom_code_function_name == null
+          ? ""
+          : String(source.closest_location_group_custom_code_function_name),
       closest_location_group_send_timing:
         source.closest_location_group_send_timing == null ? "end" : String(source.closest_location_group_send_timing),
       closest_location_group_send_after_step:

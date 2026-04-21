@@ -114,6 +114,9 @@
     if (!("save_callback_data_to_key" in normalized) && "inline_save_callback_data_to_key" in source) {
       normalized.save_callback_data_to_key = source.inline_save_callback_data_to_key;
     }
+    if (!("remove_inline_buttons_on_click" in normalized) && "inline_remove_buttons_on_click" in source) {
+      normalized.remove_inline_buttons_on_click = source.inline_remove_buttons_on_click;
+    }
     if (!("target_callback_key" in normalized) && "callback_target_key" in source) {
       normalized.target_callback_key = source.callback_target_key;
     }
@@ -156,6 +159,9 @@
     }
     if (!("url" in normalized) && "mini_app_url" in source) {
       normalized.url = source.mini_app_url;
+    }
+    if (!("function_name" in normalized) && "custom_code_function_name" in source) {
+      normalized.function_name = source.custom_code_function_name;
     }
     if (!("title_template" in normalized) && "payment_title_template" in source) {
       normalized.title_template = source.payment_title_template;
@@ -217,6 +223,7 @@
         target_command_key: "",
         photo_url: "",
       button_text: "",
+      function_name: "",
       success_text_template: "",
       invalid_text_template: "",
       max_link_points: "60",
@@ -339,12 +346,18 @@
         .map((value) => String(value || "").trim())
         .filter((value) => Boolean(value))
       : [];
+    const customCodeFunctionOptions = Array.isArray(parsed.custom_code_function_options)
+      ? parsed.custom_code_function_options
+        .map((value) => String(value || "").trim())
+        .filter((value) => Boolean(value))
+      : [];
     const startReturningTextTemplate = typeof start.start_returning_text_template === "string"
       ? start.start_returning_text_template
       : "Welcome back, {user_first_name}.";
     return {
       moduleOptions: moduleSystem.optionList(),
       profileLogContextKeys,
+      customCodeFunctionOptions,
       startDescription: start.description ? String(start.description) : "",
       startReturningTextTemplate: String(startReturningTextTemplate || "Welcome back, {user_first_name}."),
       startEditor: createEditor(start.module_values || defaultStartValues()),
@@ -418,18 +431,28 @@
   <input type="hidden" name="start_inline_run_if_context_keys" :value="startPrimary.run_if_context_keys">
   <input type="hidden" name="start_inline_skip_if_context_keys" :value="startPrimary.skip_if_context_keys">
   <input type="hidden" name="start_inline_save_callback_data_to_key" :value="startPrimary.save_callback_data_to_key">
+  <input type="hidden" name="start_inline_remove_buttons_on_click" :value="startPrimary.remove_inline_buttons_on_click ? '1' : ''">
   <input type="hidden" name="start_callback_target_key" :value="startPrimary.target_callback_key">
   <input type="hidden" name="start_command_target_key" :value="startPrimary.target_command_key">
   <input type="hidden" name="start_photo_url" :value="startPrimary.photo_url">
+  <input type="hidden" name="start_location_latitude" :value="startPrimary.location_latitude">
+  <input type="hidden" name="start_location_longitude" :value="startPrimary.location_longitude">
   <input type="hidden" name="start_contact_button_text" :value="startPrimary.button_text">
   <input type="hidden" name="start_mini_app_button_text" :value="startPrimary.button_text">
+  <input type="hidden" name="start_custom_code_function_name" :value="startPrimary.function_name">
+  <input type="hidden" name="start_bind_code_prefix" :value="startPrimary.bind_code_prefix">
+  <input type="hidden" name="start_bind_code_number_width" :value="startPrimary.bind_code_number_width">
+  <input type="hidden" name="start_bind_code_start_number" :value="startPrimary.bind_code_start_number">
   <input type="hidden" name="start_contact_success_text" :value="startPrimary.success_text_template">
   <input type="hidden" name="start_contact_invalid_text" :value="startPrimary.invalid_text_template">
   <input type="hidden" name="start_require_live_location" :value="startPrimary.require_live_location ? '1' : ''">
   <input type="hidden" name="start_find_closest_saved_location" :value="startPrimary.find_closest_saved_location ? '1' : ''">
   <input type="hidden" name="start_match_closest_saved_location" :value="startPrimary.match_closest_saved_location ? '1' : ''">
   <input type="hidden" name="start_closest_location_tolerance_meters" :value="startPrimary.closest_location_tolerance_meters">
+  <input type="hidden" name="start_closest_location_group_action_type" :value="startPrimary.closest_location_group_action_type">
   <input type="hidden" name="start_closest_location_group_text" :value="startPrimary.closest_location_group_text_template">
+  <input type="hidden" name="start_closest_location_group_callback_key" :value="startPrimary.closest_location_group_callback_key">
+  <input type="hidden" name="start_closest_location_group_custom_code_function_name" :value="startPrimary.closest_location_group_custom_code_function_name">
   <input type="hidden" name="start_closest_location_group_send_timing" :value="startPrimary.closest_location_group_send_timing">
   <input type="hidden" name="start_closest_location_group_send_after_step" :value="startPrimary.closest_location_group_send_after_step">
   <input type="hidden" name="start_location_invalid_text" :value="startPrimary.invalid_text_template">
@@ -522,18 +545,28 @@
 	      <input type="hidden" name="command_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
 	      <input type="hidden" name="command_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
 	      <input type="hidden" name="command_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
+	      <input type="hidden" name="command_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
 	      <input type="hidden" name="command_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 	      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 	      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
+	      <input type="hidden" name="command_location_latitude" :value="primaryStep(entry.editor).location_latitude">
+	      <input type="hidden" name="command_location_longitude" :value="primaryStep(entry.editor).location_longitude">
 	      <input type="hidden" name="command_contact_button_text" :value="primaryStep(entry.editor).button_text">
 	      <input type="hidden" name="command_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
+	      <input type="hidden" name="command_custom_code_function_name" :value="primaryStep(entry.editor).function_name">
+	      <input type="hidden" name="command_bind_code_prefix" :value="primaryStep(entry.editor).bind_code_prefix">
+	      <input type="hidden" name="command_bind_code_number_width" :value="primaryStep(entry.editor).bind_code_number_width">
+	      <input type="hidden" name="command_bind_code_start_number" :value="primaryStep(entry.editor).bind_code_start_number">
 	      <input type="hidden" name="command_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
 	      <input type="hidden" name="command_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
 	      <input type="hidden" name="command_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
 	      <input type="hidden" name="command_find_closest_saved_location" :value="primaryStep(entry.editor).find_closest_saved_location ? '1' : ''">
 	      <input type="hidden" name="command_match_closest_saved_location" :value="primaryStep(entry.editor).match_closest_saved_location ? '1' : ''">
 	      <input type="hidden" name="command_closest_location_tolerance_meters" :value="primaryStep(entry.editor).closest_location_tolerance_meters">
+	      <input type="hidden" name="command_closest_location_group_action_type" :value="primaryStep(entry.editor).closest_location_group_action_type">
 	      <input type="hidden" name="command_closest_location_group_text" :value="primaryStep(entry.editor).closest_location_group_text_template">
+	      <input type="hidden" name="command_closest_location_group_callback_key" :value="primaryStep(entry.editor).closest_location_group_callback_key">
+	      <input type="hidden" name="command_closest_location_group_custom_code_function_name" :value="primaryStep(entry.editor).closest_location_group_custom_code_function_name">
 	      <input type="hidden" name="command_closest_location_group_send_timing" :value="primaryStep(entry.editor).closest_location_group_send_timing">
 	      <input type="hidden" name="command_closest_location_group_send_after_step" :value="primaryStep(entry.editor).closest_location_group_send_after_step">
 	      <input type="hidden" name="command_location_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
@@ -704,20 +737,30 @@
       <input type="hidden" name="callback_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
       <input type="hidden" name="callback_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
       <input type="hidden" name="callback_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
+      <input type="hidden" name="callback_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
       <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
-      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
-      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
-      <input type="hidden" name="callback_contact_button_text" :value="primaryStep(entry.editor).button_text">
-      <input type="hidden" name="callback_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
+	      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
+	      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
+	      <input type="hidden" name="callback_location_latitude" :value="primaryStep(entry.editor).location_latitude">
+	      <input type="hidden" name="callback_location_longitude" :value="primaryStep(entry.editor).location_longitude">
+	      <input type="hidden" name="callback_contact_button_text" :value="primaryStep(entry.editor).button_text">
+	      <input type="hidden" name="callback_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
+	      <input type="hidden" name="callback_custom_code_function_name" :value="primaryStep(entry.editor).function_name">
+      <input type="hidden" name="callback_bind_code_prefix" :value="primaryStep(entry.editor).bind_code_prefix">
+      <input type="hidden" name="callback_bind_code_number_width" :value="primaryStep(entry.editor).bind_code_number_width">
+      <input type="hidden" name="callback_bind_code_start_number" :value="primaryStep(entry.editor).bind_code_start_number">
 	      <input type="hidden" name="callback_contact_success_text" :value="primaryStep(entry.editor).success_text_template">
 	      <input type="hidden" name="callback_contact_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
 	      <input type="hidden" name="callback_require_live_location" :value="primaryStep(entry.editor).require_live_location ? '1' : ''">
 	      <input type="hidden" name="callback_find_closest_saved_location" :value="primaryStep(entry.editor).find_closest_saved_location ? '1' : ''">
-	      <input type="hidden" name="callback_match_closest_saved_location" :value="primaryStep(entry.editor).match_closest_saved_location ? '1' : ''">
-	      <input type="hidden" name="callback_closest_location_tolerance_meters" :value="primaryStep(entry.editor).closest_location_tolerance_meters">
-	      <input type="hidden" name="callback_closest_location_group_text" :value="primaryStep(entry.editor).closest_location_group_text_template">
-	      <input type="hidden" name="callback_closest_location_group_send_timing" :value="primaryStep(entry.editor).closest_location_group_send_timing">
-	      <input type="hidden" name="callback_closest_location_group_send_after_step" :value="primaryStep(entry.editor).closest_location_group_send_after_step">
+      <input type="hidden" name="callback_match_closest_saved_location" :value="primaryStep(entry.editor).match_closest_saved_location ? '1' : ''">
+      <input type="hidden" name="callback_closest_location_tolerance_meters" :value="primaryStep(entry.editor).closest_location_tolerance_meters">
+      <input type="hidden" name="callback_closest_location_group_action_type" :value="primaryStep(entry.editor).closest_location_group_action_type">
+      <input type="hidden" name="callback_closest_location_group_text" :value="primaryStep(entry.editor).closest_location_group_text_template">
+      <input type="hidden" name="callback_closest_location_group_callback_key" :value="primaryStep(entry.editor).closest_location_group_callback_key">
+      <input type="hidden" name="callback_closest_location_group_custom_code_function_name" :value="primaryStep(entry.editor).closest_location_group_custom_code_function_name">
+      <input type="hidden" name="callback_closest_location_group_send_timing" :value="primaryStep(entry.editor).closest_location_group_send_timing">
+      <input type="hidden" name="callback_closest_location_group_send_after_step" :value="primaryStep(entry.editor).closest_location_group_send_after_step">
 	      <input type="hidden" name="callback_location_invalid_text" :value="primaryStep(entry.editor).invalid_text_template">
 	      <input type="hidden" name="callback_track_breadcrumb" :value="primaryStep(entry.editor).track_breadcrumb ? '1' : ''">
 	      <input type="hidden" name="callback_breadcrumb_interval_minutes" :value="primaryStep(entry.editor).breadcrumb_interval_minutes">
@@ -1428,18 +1471,26 @@
             inline_run_if_context_keys: primary.run_if_context_keys,
             inline_skip_if_context_keys: primary.skip_if_context_keys,
             inline_save_callback_data_to_key: primary.save_callback_data_to_key,
+            inline_remove_buttons_on_click: primary.remove_inline_buttons_on_click ? "1" : "",
             callback_target_key: primary.target_callback_key,
             command_target_key: primary.target_command_key,
             photo_url: primary.photo_url,
             contact_button_text: primary.button_text,
             mini_app_button_text: primary.button_text,
+            custom_code_function_name: primary.function_name,
+            bind_code_prefix: primary.bind_code_prefix,
+            bind_code_number_width: primary.bind_code_number_width,
+            bind_code_start_number: primary.bind_code_start_number,
 	            contact_success_text: primary.success_text_template,
 	            contact_invalid_text: primary.invalid_text_template,
 	            require_live_location: primary.require_live_location ? "1" : "",
 	            find_closest_saved_location: primary.find_closest_saved_location ? "1" : "",
 	            match_closest_saved_location: primary.match_closest_saved_location ? "1" : "",
 	            closest_location_tolerance_meters: primary.closest_location_tolerance_meters,
+	            closest_location_group_action_type: primary.closest_location_group_action_type,
 	            closest_location_group_text: primary.closest_location_group_text_template,
+	            closest_location_group_callback_key: primary.closest_location_group_callback_key,
+	            closest_location_group_custom_code_function_name: primary.closest_location_group_custom_code_function_name,
 	            closest_location_group_send_timing: primary.closest_location_group_send_timing,
 	            closest_location_group_send_after_step: primary.closest_location_group_send_after_step,
 	            location_invalid_text: primary.invalid_text_template,
@@ -1506,7 +1557,130 @@
       state = {};
     }
 
-    global.Vue.createApp(buildVueOptions(state)).mount(root);
+    const vueApp = global.Vue.createApp(buildVueOptions(state)).mount(root);
+    const form = root.closest("form");
+    if (form) {
+      setupAutosave(form, vueApp);
+    }
+  }
+
+  function setupAutosave(form, vueApp) {
+    const statusNode = document.querySelector("#config-autosave-status");
+    let timerId = null;
+    let inFlight = false;
+    let rerunRequested = false;
+    let lastSavedBody = serializeForm(form);
+
+    function setStatus(message) {
+      if (!statusNode) {
+        return;
+      }
+      statusNode.textContent = message;
+    }
+
+    function serializeForm(targetForm) {
+      return new URLSearchParams(new FormData(targetForm)).toString();
+    }
+
+    function scheduleAutosave(delayMs) {
+      if (!form || form.dataset.autosaveEnabled === "0") {
+        return;
+      }
+      if (timerId !== null) {
+        global.clearTimeout(timerId);
+      }
+      setStatus("Autosave pending...");
+      timerId = global.setTimeout(() => {
+        timerId = null;
+        void runAutosave();
+      }, typeof delayMs === "number" ? delayMs : 900);
+    }
+
+    async function runAutosave() {
+      const body = serializeForm(form);
+      if (!body || body === lastSavedBody) {
+        setStatus("All changes saved.");
+        return;
+      }
+      if (inFlight) {
+        rerunRequested = true;
+        return;
+      }
+      inFlight = true;
+      setStatus("Saving...");
+      try {
+        const response = await fetch(form.action, {
+          method: String(form.method || "post").toUpperCase(),
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Etrax-Autosave": "1",
+          },
+          body,
+        });
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (_error) {
+          payload = {};
+        }
+        if (!response.ok || payload.ok === false) {
+          throw new Error(String(payload.error || payload.message || `HTTP ${response.status}`));
+        }
+        lastSavedBody = body;
+        setStatus(String(payload.message || "All changes saved."));
+      } catch (error) {
+        const message = error && error.message ? error.message : "Unknown autosave error";
+        setStatus(`Autosave failed: ${message}`);
+      } finally {
+        inFlight = false;
+        if (rerunRequested) {
+          rerunRequested = false;
+          scheduleAutosave(300);
+        }
+      }
+    }
+
+    const handleFormInput = (event) => {
+      const target = event && event.target ? event.target : null;
+      if (!target) {
+        return;
+      }
+      if (target.closest('button[type="submit"]')) {
+        return;
+      }
+      scheduleAutosave(900);
+    };
+
+    const handleFormClick = (event) => {
+      const button = event && event.target ? event.target.closest("button") : null;
+      if (!button || button.type === "submit") {
+        return;
+      }
+      global.setTimeout(() => {
+        if (vueApp && typeof vueApp.$nextTick === "function") {
+          vueApp.$nextTick(() => scheduleAutosave(900));
+          return;
+        }
+        scheduleAutosave(900);
+      }, 0);
+    };
+
+    form.addEventListener("input", handleFormInput, true);
+    form.addEventListener("change", handleFormInput, true);
+    form.addEventListener("click", handleFormClick, true);
+    form.addEventListener(
+      "submit",
+      () => {
+        if (timerId !== null) {
+          global.clearTimeout(timerId);
+          timerId = null;
+        }
+        setStatus("Saving...");
+      },
+      true
+    );
+    setStatus("All changes saved.");
   }
 
   global.EtraxConfigVue = {

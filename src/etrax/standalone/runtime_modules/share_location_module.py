@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import inspect
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -13,6 +15,7 @@ from etrax.core.telegram import (
     DEFAULT_BREADCRUMB_INTERRUPTED,
     DEFAULT_BREADCRUMB_RESUMED,
     DEFAULT_BREADCRUMB_STARTED,
+    DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE,
     DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING,
     DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS,
     DEFAULT_FIND_CLOSEST_LOCATION_SUCCESS,
@@ -38,6 +41,7 @@ from etrax.core.telegram import (
 )
 from etrax.core.token import BotTokenService
 from etrax.core.telegram.share_location import haversine_distance_meters
+from etrax.standalone.custom_code_functions import resolve_custom_code_function
 
 from ..runtime_contracts import UserProfileLogStore
 from .utils import normalize_parse_mode
@@ -65,6 +69,14 @@ def resolve_share_location_step_config(
             timing=step.get("closest_location_group_send_timing"),
             after_step=step.get("closest_location_group_send_after_step"),
         )[1],
+        closest_location_group_action_type=_normalize_closest_location_group_action_type(
+            step.get("closest_location_group_action_type")
+        ),
+        closest_location_group_callback_key=str(step.get("closest_location_group_callback_key", "")).strip() or None,
+        closest_location_group_custom_code_function_name=str(
+            step.get("closest_location_group_custom_code_function_name", "")
+        ).strip()
+        or None,
         invalid_text_template=str(step.get("invalid_text_template", "")).strip() or None,
         require_live_location=str(step.get("require_live_location", "")).strip().lower() in {"1", "true", "yes", "on"},
         find_closest_saved_location=str(step.get("find_closest_saved_location", "")).strip().lower() in {"1", "true", "yes", "on"},
@@ -122,9 +134,11 @@ def handle_location_message_update(
     gateway: TelegramBotApiGateway,
     bot_token: str,
     location_request_store: LocationRequestStore | None,
+    command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    inline_button_cleanup_by_message: dict[str, bool] | None = None,
     profile_log_store: UserProfileLogStore | None = None,
     locations_file: Path | None = None,
 ) -> int:
@@ -374,62 +388,61 @@ def handle_location_message_update(
         ),
         after_step=getattr(pending_request, "closest_location_group_send_after_step", None),
     )
-    group_message_completed = False
-    if group_send_timing == "immediate":
-        sent_count += _send_closest_location_group_message(
+    deferred_group_action_module: FlowModule | None = None
+    if group_send_timing != "immediate":
+        deferred_group_action_module = _DeferredClosestLocationGroupActionModule(
+            pending_request=pending_request,
+            gateway=gateway,
+            bot_token=bot_token,
+            bot_id=bot_id,
+            command_modules=command_modules,
+            callback_modules=callback_modules,
+            callback_continuation_by_message=callback_continuation_by_message,
+            callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        )
+    else:
+        sent_count += _run_closest_location_group_action(
             pending_request=pending_request,
             context=context,
             gateway=gateway,
             bot_token=bot_token,
             bot_id=bot_id,
+            command_modules=command_modules,
+            callback_modules=callback_modules,
+            callback_continuation_by_message=callback_continuation_by_message,
+            callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         )
-        group_message_completed = True
 
     continuation_modules = list(pending_request.continuation_modules)
+    if deferred_group_action_module is not None:
+        if group_send_timing == "after_step":
+            continuation_modules = _insert_group_action_after_step(
+                continuation_modules,
+                after_step=group_send_after_step or _logical_continuation_length(continuation_modules),
+                deferred_module=deferred_group_action_module,
+            )
+        else:
+            continuation_modules = _insert_group_action_after_step(
+                continuation_modules,
+                after_step=_logical_continuation_length(continuation_modules),
+                deferred_module=deferred_group_action_module,
+            )
+
     if continuation_modules:
         from etrax.standalone.runtime_update_router import execute_pipeline
 
-        if group_send_timing == "after_step":
-            split_index = min(group_send_after_step or len(continuation_modules), len(continuation_modules))
-            if split_index > 0:
-                sent_count += execute_pipeline(
-                    continuation_modules[:split_index],
-                    context,
-                    callback_modules=callback_modules,
-                    callback_continuation_by_message=callback_continuation_by_message,
-                    callback_context_updates_by_message=callback_context_updates_by_message,
-                )
-            sent_count += _send_closest_location_group_message(
-                pending_request=pending_request,
-                context=context,
-                gateway=gateway,
-                bot_token=bot_token,
-                bot_id=bot_id,
-            )
-            group_message_completed = True
-            if split_index < len(continuation_modules):
-                sent_count += execute_pipeline(
-                    continuation_modules[split_index:],
-                    context,
-                    callback_modules=callback_modules,
-                    callback_continuation_by_message=callback_continuation_by_message,
-                    callback_context_updates_by_message=callback_context_updates_by_message,
-                )
-        else:
-            sent_count += execute_pipeline(
-                continuation_modules,
-                context,
-                callback_modules=callback_modules,
-                callback_continuation_by_message=callback_continuation_by_message,
-                callback_context_updates_by_message=callback_context_updates_by_message,
-            )
-    if not group_message_completed:
-        sent_count += _send_closest_location_group_message(
-            pending_request=pending_request,
-            context=context,
+        sent_count += execute_pipeline(
+            continuation_modules,
+            context,
+            command_modules=command_modules,
+            callback_modules=callback_modules,
+            callback_continuation_by_message=callback_continuation_by_message,
+            callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
             gateway=gateway,
             bot_token=bot_token,
-            bot_id=bot_id,
         )
     return sent_count
 
@@ -544,6 +557,48 @@ RUNTIME_MODULE_SPEC = {
 
 RUNTIME_CONTACT_MESSAGE_HANDLERS = (handle_location_message_update,)
 RUNTIME_CALLBACK_QUERY_HANDLERS: tuple[Callable[..., int], ...] = (handle_breadcrumb_end_callback_query_update,)
+
+
+class _DeferredClosestLocationGroupActionModule:
+    """Execute one deferred closest-location group action inside a later continuation pass."""
+
+    def __init__(
+        self,
+        *,
+        pending_request: PendingLocationRequest,
+        gateway: TelegramBotApiGateway,
+        bot_token: str,
+        bot_id: str,
+        command_modules: dict[str, list[FlowModule]] | None,
+        callback_modules: dict[str, list[FlowModule]] | None,
+        callback_continuation_by_message: dict[str, list[FlowModule]] | None,
+        callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+        inline_button_cleanup_by_message: dict[str, bool] | None,
+    ) -> None:
+        self._pending_request = pending_request
+        self._gateway = gateway
+        self._bot_token = bot_token
+        self._bot_id = bot_id
+        self._command_modules = command_modules
+        self._callback_modules = callback_modules
+        self._callback_continuation_by_message = callback_continuation_by_message
+        self._callback_context_updates_by_message = callback_context_updates_by_message
+        self._inline_button_cleanup_by_message = inline_button_cleanup_by_message
+
+    def execute(self, context: dict[str, Any]) -> object:
+        sent_count = _run_closest_location_group_action(
+            pending_request=self._pending_request,
+            context=context,
+            gateway=self._gateway,
+            bot_token=self._bot_token,
+            bot_id=self._bot_id,
+            command_modules=self._command_modules,
+            callback_modules=self._callback_modules,
+            callback_continuation_by_message=self._callback_continuation_by_message,
+            callback_context_updates_by_message=self._callback_context_updates_by_message,
+            inline_button_cleanup_by_message=self._inline_button_cleanup_by_message,
+        )
+        return None if sent_count > 0 else None
 
 
 def _extract_location_message(update: dict[str, Any]) -> dict[str, Any] | None:
@@ -796,6 +851,143 @@ def _normalize_closest_location_group_send_config(
     return DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING, None
 
 
+def _normalize_closest_location_group_action_type(raw_value: object) -> str:
+    normalized = str(raw_value or "").strip().lower().replace(" ", "_")
+    if normalized in {"callback", "callback_module"}:
+        return "callback_module"
+    if normalized in {"custom", "custom_code"}:
+        return "custom_code"
+    return DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE
+
+
+def _module_continuation_modules(module: FlowModule) -> tuple[FlowModule, ...]:
+    continuation = getattr(module, "_continuation_modules", None)
+    if continuation is None:
+        continuation = getattr(module, "continuation_modules", ())
+    if isinstance(continuation, tuple):
+        return continuation
+    if isinstance(continuation, list):
+        return tuple(continuation)
+    return ()
+
+
+def _with_module_continuation(module: FlowModule, continuation_modules: list[FlowModule]) -> FlowModule:
+    cloned = copy.copy(module)
+    if hasattr(cloned, "_continuation_modules"):
+        cloned._continuation_modules = tuple(continuation_modules)
+    return cloned
+
+
+def _module_supports_stored_continuation(module: FlowModule) -> bool:
+    return hasattr(module, "_continuation_modules")
+
+
+def _logical_continuation_length(modules: list[FlowModule] | tuple[FlowModule, ...]) -> int:
+    total = 0
+    for module in modules:
+        total += 1
+        total += _logical_continuation_length(_module_continuation_modules(module))
+    return total
+
+
+def _insert_group_action_after_step(
+    modules: list[FlowModule] | tuple[FlowModule, ...],
+    *,
+    after_step: int,
+    deferred_module: FlowModule,
+) -> list[FlowModule]:
+    result: list[FlowModule] = []
+    remaining = max(int(after_step), 0)
+    for index, module in enumerate(modules):
+        continuation = list(_module_continuation_modules(module))
+        logical_length = 1 + _logical_continuation_length(continuation)
+        if remaining > logical_length:
+            result.append(module)
+            remaining -= logical_length
+            continue
+        if remaining == 1 and continuation:
+            result.append(_with_module_continuation(module, [deferred_module, *continuation]))
+            result.extend(list(modules)[index + 1 :])
+            return result
+        if remaining == 1 and _module_supports_stored_continuation(module):
+            result.append(_with_module_continuation(module, [deferred_module]))
+            result.extend(list(modules)[index + 1 :])
+            return result
+        if remaining > 1 and continuation:
+            updated_continuation = _insert_group_action_after_step(
+                continuation,
+                after_step=remaining - 1,
+                deferred_module=deferred_module,
+            )
+            result.append(_with_module_continuation(module, updated_continuation))
+            result.extend(list(modules)[index + 1 :])
+            return result
+        result.append(module)
+        result.append(deferred_module)
+        result.extend(list(modules)[index + 1 :])
+        return result
+    result.append(deferred_module)
+    return result
+
+
+def _run_closest_location_group_action(
+    *,
+    pending_request: PendingLocationRequest,
+    context: dict[str, Any],
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    bot_id: str,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+    callback_continuation_by_message: dict[str, list[FlowModule]] | None,
+    callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    inline_button_cleanup_by_message: dict[str, bool] | None,
+) -> int:
+    if not pending_request.find_closest_saved_location:
+        return 0
+    closest_location_group_id = str(context.get("closest_location_telegram_group_id", "")).strip()
+    if not closest_location_group_id:
+        return 0
+    action_type = _normalize_closest_location_group_action_type(
+        getattr(
+            pending_request,
+            "closest_location_group_action_type",
+            DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE,
+        )
+    )
+    if action_type == "callback_module":
+        return _run_closest_location_group_callback_pipeline(
+            pending_request=pending_request,
+            context=context,
+            gateway=gateway,
+            bot_token=bot_token,
+            bot_id=bot_id,
+            chat_id=closest_location_group_id,
+            command_modules=command_modules,
+            callback_modules=callback_modules,
+            callback_continuation_by_message=callback_continuation_by_message,
+            callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        )
+    if action_type == "custom_code":
+        return _run_closest_location_group_custom_code(
+            pending_request=pending_request,
+            context=context,
+            gateway=gateway,
+            bot_token=bot_token,
+            bot_id=bot_id,
+            chat_id=closest_location_group_id,
+        )
+    return _send_closest_location_group_message(
+        pending_request=pending_request,
+        context=context,
+        gateway=gateway,
+        bot_token=bot_token,
+        bot_id=bot_id,
+        chat_id=closest_location_group_id,
+    )
+
+
 def _send_closest_location_group_message(
     *,
     pending_request: PendingLocationRequest,
@@ -803,16 +995,15 @@ def _send_closest_location_group_message(
     gateway: TelegramBotApiGateway,
     bot_token: str,
     bot_id: str,
+    chat_id: str,
 ) -> int:
-    if not pending_request.find_closest_saved_location:
-        return 0
-    closest_location_group_id = str(context.get("closest_location_telegram_group_id", "")).strip()
-    if not closest_location_group_id or not pending_request.closest_location_group_text_template:
+    if not pending_request.closest_location_group_text_template:
         return 0
     try:
+        render_context = _build_closest_location_group_template_context(context)
         group_text = render_share_location_text(
             pending_request.closest_location_group_text_template,
-            context,
+            render_context,
             default_text="",
             field_label="share_location closest_location_group_text_template",
         )
@@ -820,7 +1011,7 @@ def _send_closest_location_group_message(
             return 0
         gateway.send_message(
             bot_token=bot_token,
-            chat_id=closest_location_group_id,
+            chat_id=chat_id,
             text=group_text,
             parse_mode=pending_request.parse_mode,
             reply_markup=None,
@@ -830,11 +1021,208 @@ def _send_closest_location_group_message(
 
         print_runtime_error(
             bot_id,
-            f"closest-location group notification failed for chat_id={closest_location_group_id}",
+            f"closest-location group notification failed for chat_id={chat_id}",
             details=str(exc),
         )
         return 0
     return 1
+
+
+def _build_closest_location_group_action_context(
+    *,
+    context: dict[str, Any],
+    chat_id: str,
+    action_type: str,
+) -> dict[str, Any]:
+    group_context = dict(context)
+    origin_chat_id = str(context.get("chat_id", "")).strip()
+    if origin_chat_id and "closest_location_group_origin_chat_id" not in group_context:
+        group_context["closest_location_group_origin_chat_id"] = origin_chat_id
+    origin_user_id = str(context.get("user_id", "")).strip()
+    if origin_user_id and "closest_location_group_origin_user_id" not in group_context:
+        group_context["closest_location_group_origin_user_id"] = origin_user_id
+    origin_bot_id = str(context.get("bot_id", "")).strip()
+    if origin_bot_id and "closest_location_group_origin_bot_id" not in group_context:
+        group_context["closest_location_group_origin_bot_id"] = origin_bot_id
+    group_context["closest_location_group_target_chat_id"] = chat_id
+    group_context["closest_location_group_action_type"] = action_type
+    group_context["chat_id"] = chat_id
+    return group_context
+
+
+def _run_closest_location_group_callback_pipeline(
+    *,
+    pending_request: PendingLocationRequest,
+    context: dict[str, Any],
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    bot_id: str,
+    chat_id: str,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+    callback_continuation_by_message: dict[str, list[FlowModule]] | None,
+    callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    inline_button_cleanup_by_message: dict[str, bool] | None,
+) -> int:
+    callback_key = str(getattr(pending_request, "closest_location_group_callback_key", "") or "").strip()
+    if not callback_key:
+        return 0
+    if not callback_modules:
+        return 0
+    target_pipeline = callback_modules.get(callback_key, [])
+    if not target_pipeline:
+        return 0
+    group_context = _build_closest_location_group_action_context(
+        context=context,
+        chat_id=chat_id,
+        action_type="callback_module",
+    )
+    try:
+        from etrax.standalone.runtime_update_router import execute_pipeline
+
+        return execute_pipeline(
+            list(target_pipeline),
+            group_context,
+            command_modules=command_modules,
+            callback_modules=callback_modules,
+            callback_continuation_by_message=callback_continuation_by_message,
+            callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+            callback_execution_stack=(callback_key,),
+            gateway=gateway,
+            bot_token=bot_token,
+        )
+    except (RuntimeError, ValueError) as exc:
+        from ..runtime_support import print_runtime_error
+
+        print_runtime_error(
+            bot_id,
+            f"closest-location group callback action failed for chat_id={chat_id}",
+            details=str(exc),
+        )
+        return 0
+
+
+def _invoke_custom_code_function(function: Callable[..., Any], **kwargs: object) -> Any:
+    signature = inspect.signature(function)
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()
+    )
+    if accepts_kwargs:
+        return function(**kwargs)
+    filtered = {key: value for key, value in kwargs.items() if key in signature.parameters}
+    return function(**filtered)
+
+
+class _FixedBotTokenResolver:
+    def __init__(self, *, bot_id: str, bot_token: str) -> None:
+        self._bot_id = str(bot_id).strip()
+        self._bot_token = str(bot_token).strip()
+
+    def get_token(self, bot_id: str) -> str | None:
+        return self._bot_token if str(bot_id).strip() == self._bot_id else None
+
+
+def _run_closest_location_group_custom_code(
+    *,
+    pending_request: PendingLocationRequest,
+    context: dict[str, Any],
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    bot_id: str,
+    chat_id: str,
+) -> int:
+    function_name = str(
+        getattr(pending_request, "closest_location_group_custom_code_function_name", "") or ""
+    ).strip()
+    if not function_name:
+        return 0
+    group_context = _build_closest_location_group_action_context(
+        context=context,
+        chat_id=chat_id,
+        action_type="custom_code",
+    )
+    try:
+        function = resolve_custom_code_function(function_name)
+        result = _invoke_custom_code_function(
+            function,
+            context=group_context,
+            bot_id=bot_id,
+            chat_id=chat_id,
+            user_id=str(group_context.get("user_id", "")).strip(),
+            gateway=gateway,
+            token_resolver=_FixedBotTokenResolver(bot_id=bot_id, bot_token=bot_token),
+        )
+        if isinstance(result, dict):
+            group_context.update(result)
+        elif hasattr(result, "context_updates") and isinstance(result.context_updates, dict):
+            group_context.update(result.context_updates)
+    except (RuntimeError, ValueError) as exc:
+        from ..runtime_support import print_runtime_error
+
+        print_runtime_error(
+            bot_id,
+            f"closest-location group custom-code action failed for chat_id={chat_id}",
+            details=str(exc),
+        )
+        return 0
+    return 1
+
+
+def _build_closest_location_group_template_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Add short aliases for delayed closest-location group-message templates."""
+    render_context = dict(context)
+
+    def set_alias(alias: str, source_key: str) -> None:
+        if alias in render_context:
+            return
+        if source_key in context:
+            render_context[alias] = context[source_key]
+
+    for alias, source_key in (
+        ("closest_name", "closest_location_name"),
+        ("closest_code", "closest_location_code"),
+        ("closest_company", "closest_location_company"),
+        ("closest_zone", "closest_location_zone"),
+        ("closest_group_id", "closest_location_telegram_group_id"),
+        ("closest_lat", "closest_location_latitude"),
+        ("closest_lng", "closest_location_longitude"),
+        ("closest_distance", "closest_location_distance_text"),
+        ("closest_distance_m", "closest_location_distance_meters"),
+        ("phone", "contact_phone_number"),
+        ("contact_first", "contact_first_name"),
+        ("contact_last", "contact_last_name"),
+        ("contact_id", "contact_user_id"),
+        ("lat", "location_latitude"),
+        ("lng", "location_longitude"),
+        ("accuracy", "location_horizontal_accuracy"),
+        ("live_period", "location_live_period"),
+        ("heading", "location_heading"),
+        ("alert_radius", "location_proximity_alert_radius"),
+        ("selfie", "selfie_file_id"),
+        ("selfie_id", "selfie_file_id"),
+        ("selfie_unique", "selfie_file_unique_id"),
+        ("selfie_caption", "selfie_caption"),
+        ("selfie_count", "selfie_photo_count"),
+    ):
+        set_alias(alias, source_key)
+
+    if "location" not in render_context:
+        latitude = render_context.get("lat", context.get("location_latitude"))
+        longitude = render_context.get("lng", context.get("location_longitude"))
+        latitude_text = str(latitude).strip() if latitude is not None else ""
+        longitude_text = str(longitude).strip() if longitude is not None else ""
+        if latitude_text and longitude_text:
+            render_context["location"] = f"https://www.google.com/maps?q={latitude_text},{longitude_text}"
+
+    if "contact_name" not in render_context:
+        first_name = str(render_context.get("contact_first", "")).strip()
+        last_name = str(render_context.get("contact_last", "")).strip()
+        contact_name = " ".join(value for value in (first_name, last_name) if value)
+        if contact_name:
+            render_context["contact_name"] = contact_name
+
+    return render_context
 
 
 def _normalize_context_key_rules(raw_value: object) -> tuple[str, ...]:

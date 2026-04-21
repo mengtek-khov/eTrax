@@ -9,11 +9,17 @@ import pytest
 from etrax.adapters.local.json_user_profile_log_store import JsonUserProfileLogStore
 from etrax.core.flow import ModuleOutcome
 from etrax.core.telegram import (
+    AskSelfieConfig,
+    AskSelfieModule,
     CartButtonConfig,
+    CustomCodeConfig,
     END_BREADCRUMB_CALLBACK_DATA,
     ForgetUserDataConfig,
     LoadCommandConfig,
     SendMessageConfig,
+    SendTelegramMessageModule,
+    SendPhotoConfig,
+    SendTelegramPhotoModule,
     ShareContactConfig,
     ShareContactModule,
     ShareLocationConfig,
@@ -60,6 +66,8 @@ class FakeCallbackGateway:
     def __init__(self) -> None:
         self.acks: list[dict[str, Any]] = []
         self.messages: list[dict[str, Any]] = []
+        self.photos: list[dict[str, Any]] = []
+        self.locations: list[dict[str, Any]] = []
         self.edited_reply_markups: list[dict[str, Any]] = []
 
     def answer_callback_query(
@@ -96,6 +104,44 @@ class FakeCallbackGateway:
             "reply_markup": reply_markup,
         }
         self.messages.append(payload)
+        return payload
+
+    def send_photo(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        photo: str,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "chat_id": chat_id,
+            "photo": photo,
+            "caption": caption,
+            "parse_mode": parse_mode,
+            "reply_markup": reply_markup,
+        }
+        self.photos.append(payload)
+        return payload
+
+    def send_location(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        latitude: float,
+        longitude: float,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "chat_id": chat_id,
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+        self.locations.append(payload)
         return payload
 
     def edit_message_reply_markup(
@@ -155,6 +201,20 @@ class FakeContactRequestStore:
 
 
 class FakeLocationRequestStore:
+    def __init__(self) -> None:
+        self.pending: dict[tuple[str, str, str], object] = {}
+
+    def set_pending(self, request: object) -> None:
+        self.pending[(request.bot_id, request.chat_id, request.user_id)] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.get((bot_id, chat_id, user_id))
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.pop((bot_id, chat_id, user_id), None)
+
+
+class FakeSelfieRequestStore:
     def __init__(self) -> None:
         self.pending: dict[tuple[str, str, str], object] = {}
 
@@ -797,6 +857,56 @@ def test_resolve_command_send_configs_supports_share_contact_steps() -> None:
     assert verify_pipeline[0].success_text_template == "Saved {contact_phone_number}"
     assert verify_pipeline[0].invalid_text_template == "That contact is not yours."
 
+
+def test_resolve_command_send_configs_supports_ask_selfie_steps() -> None:
+    payload = {
+        "command_menu": {
+            "commands": [
+                {"command": "selfie", "description": "Verify selfie"},
+            ],
+            "command_modules": {
+                "selfie": {
+                    "module_type": "ask_selfie",
+                    "text_template": "Send a selfie, {user_first_name}.",
+                    "success_text_template": "Saved {selfie_file_id}",
+                    "invalid_text_template": "Please send a selfie photo.",
+                }
+            },
+        }
+    }
+
+    command_defs = resolve_command_menu(payload)
+    command_configs = resolve_command_send_configs(payload, "support-bot", commands=command_defs)
+
+    selfie_pipeline = command_configs["selfie"]
+    assert len(selfie_pipeline) == 1
+    assert isinstance(selfie_pipeline[0], AskSelfieConfig)
+    assert selfie_pipeline[0].success_text_template == "Saved {selfie_file_id}"
+    assert selfie_pipeline[0].invalid_text_template == "Please send a selfie photo."
+
+
+def test_resolve_command_send_configs_supports_custom_code_steps() -> None:
+    payload = {
+        "command_menu": {
+            "commands": [
+                {"command": "custom", "description": "Run custom code"},
+            ],
+            "command_modules": {
+                "custom": {
+                    "module_type": "custom_code",
+                    "function_name": "example_noop",
+                }
+            },
+        }
+    }
+
+    command_defs = resolve_command_menu(payload)
+    command_configs = resolve_command_send_configs(payload, "support-bot", commands=command_defs)
+
+    custom_pipeline = command_configs["custom"]
+    assert len(custom_pipeline) == 1
+    assert isinstance(custom_pipeline[0], CustomCodeConfig)
+    assert custom_pipeline[0].function_name == "example_noop"
 
 
 def test_resolve_callback_temporary_command_menus_supports_callback_submenu_commands() -> None:
@@ -1531,6 +1641,143 @@ def test_handle_update_validates_shared_contact_and_runs_continuation() -> None:
     ]
 
 
+def test_handle_update_validates_selfie_and_runs_continuation() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeSelfieRequestStore()
+    continuation = FakeRuntimeModule()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie, {user_first_name}.",
+            success_text_template="Saved {selfie_file_id}",
+        ),
+        continuation_modules=[continuation],
+    )
+
+    request_count = _handle_update(
+        {
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    assert request_count == 1
+    assert gateway.messages[0]["text"] == "Send a selfie, Alice."
+
+    invalid_count = _handle_update(
+        {
+            "message": {
+                "text": "not a photo",
+                "chat": {"id": 12345},
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    assert invalid_count == 1
+    assert gateway.messages[1]["text"] == "Please send a selfie photo."
+
+    valid_count = _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 901,
+                "caption": "At the office",
+                "from": {
+                    "id": 77,
+                    "first_name": "Alice",
+                    "username": "alice_user",
+                },
+                "photo": [
+                    {
+                        "file_id": "thumb-file-id",
+                        "file_unique_id": "thumb-unique-id",
+                        "width": 90,
+                        "height": 90,
+                    },
+                    {
+                        "file_id": "full-file-id",
+                        "file_unique_id": "full-unique-id",
+                        "width": 1080,
+                        "height": 1350,
+                        "file_size": 54321,
+                    },
+                ],
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    assert valid_count == 2
+    assert gateway.messages[2]["text"] == "Saved full-file-id"
+    assert continuation.calls == [
+        {
+            "bot_id": "support-bot",
+            "bot_name": "support-bot",
+            "chat_id": "12345",
+            "user_id": "77",
+            "user_first_name": "Alice",
+            "user_username": "alice_user",
+            "start_payload": "",
+            "menu_payload": "",
+            "command_name": "verify_selfie",
+            "command_payload": "",
+            "selfie_file_id": "full-file-id",
+            "selfie_file_unique_id": "full-unique-id",
+            "selfie_width": 1080,
+            "selfie_height": 1350,
+            "selfie_file_size": 54321,
+            "selfie_caption": "At the office",
+            "selfie_message_id": 901,
+            "selfie_photo_count": 2,
+            "ask_selfie_result": {
+                "bot_id": "support-bot",
+                "chat_id": "12345",
+                "user_id": "77",
+                "file_id": "full-file-id",
+                "file_unique_id": "full-unique-id",
+                "caption": "At the office",
+                "message_id": 901,
+                "photo_count": 2,
+            },
+        }
+    ]
+
+
 def test_handle_update_validates_shared_location_and_runs_continuation() -> None:
     gateway = FakeCallbackGateway()
     store = FakeLocationRequestStore()
@@ -2086,6 +2333,109 @@ def test_handle_update_delays_find_closest_group_message_until_after_continuatio
         locations_file.unlink(missing_ok=True)
 
 
+def test_handle_update_group_message_template_supports_shortcuts() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    continuation = FakeContextUpdatingRuntimeModule(
+        {
+            "contact_phone_number": "+85512345678",
+            "contact_first_name": "Alice",
+            "contact_last_name": "Doe",
+            "selfie_file_id": "selfie-file-1",
+        }
+    )
+    locations_file = Path("data/_test_share_location_find_group_shortcuts.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_text_template=(
+                    "{closest_name} {closest_code} {phone} {contact_name} {selfie} {location}"
+                ),
+                closest_location_group_send_timing="end",
+            ),
+            continuation_modules=[continuation],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 3
+        assert gateway.messages[2]["chat_id"] == "-1001234567890"
+        assert gateway.messages[2]["text"] == (
+            "Main Office LOC-001 +85512345678 Alice Doe selfie-file-1 "
+            "https://www.google.com/maps?q=11.55645,104.92825"
+        )
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
 def test_handle_update_sends_find_closest_group_message_after_requested_continuation_step() -> None:
     gateway = FakeCallbackGateway()
     store = FakeLocationRequestStore()
@@ -2177,6 +2527,410 @@ def test_handle_update_sends_find_closest_group_message_after_requested_continua
         assert len(second_continuation.calls) == 1
         assert gateway.messages[2]["chat_id"] == "-1001234567890"
         assert gateway.messages[2]["text"] == "Alice checked in near Main Office with status approved"
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_runs_find_closest_group_callback_pipeline() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    token_resolver = FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"})
+    locations_file = Path("data/_test_share_location_find_group_callback_pipeline.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        share_module = ShareLocationModule(
+            token_resolver=token_resolver,
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_action_type="callback_module",
+                closest_location_group_callback_key="group_notify",
+                closest_location_group_send_timing="end",
+            ),
+            continuation_modules=[],
+        )
+        group_pipeline = [
+            SendTelegramMessageModule(
+                token_resolver=token_resolver,
+                gateway=gateway,
+                config=SendMessageConfig(text_template="Group 1 {closest_location_name}"),
+            ),
+            SendTelegramMessageModule(
+                token_resolver=token_resolver,
+                gateway=gateway,
+                config=SendMessageConfig(text_template="Group 2 {closest_location_code}"),
+            ),
+        ]
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[1]["chat_id"] == "12345"
+        assert gateway.messages[1]["text"] == "Closest saved location is Main Office."
+        assert gateway.messages[2]["chat_id"] == "-1001234567890"
+        assert gateway.messages[2]["text"] == "Group 1 Main Office"
+        assert gateway.messages[3]["chat_id"] == "-1001234567890"
+        assert gateway.messages[3]["text"] == "Group 2 LOC-001"
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_runs_find_closest_group_custom_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeLocationRequestStore()
+    locations_file = Path("data/_test_share_location_find_group_custom_code.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_group_custom_code(
+            *,
+            context: dict[str, Any],
+            bot_id: str,
+            chat_id: str,
+            gateway: FakeCallbackGateway,
+            token_resolver: FakeTokenResolver,
+        ) -> dict[str, Any]:
+            bot_token = token_resolver.get_token(bot_id)
+            gateway.send_message(
+                bot_token=str(bot_token),
+                chat_id=chat_id,
+                text=f"Custom 1 {context['closest_location_name']}",
+            )
+            gateway.send_message(
+                bot_token=str(bot_token),
+                chat_id=chat_id,
+                text=f"Custom 2 {context['closest_location_code']}",
+            )
+            return {"group_custom_code_result": "sent"}
+
+        from etrax.standalone.runtime_modules import share_location_module as share_location_runtime_module
+
+        monkeypatch.setattr(
+            share_location_runtime_module,
+            "resolve_custom_code_function",
+            lambda function_name: fake_group_custom_code
+            if function_name == "group_notify_code"
+            else (_ for _ in ()).throw(ValueError(function_name)),
+        )
+
+        share_module = ShareLocationModule(
+            token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+            gateway=gateway,
+            location_request_store=store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_action_type="custom_code",
+                closest_location_group_custom_code_function_name="group_notify_code",
+                closest_location_group_send_timing="end",
+            ),
+            continuation_modules=[],
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[1]["chat_id"] == "12345"
+        assert gateway.messages[2]["chat_id"] == "-1001234567890"
+        assert gateway.messages[2]["text"] == "Custom 1 Main Office"
+        assert gateway.messages[3]["chat_id"] == "-1001234567890"
+        assert gateway.messages[3]["text"] == "Custom 2 LOC-001"
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_defers_group_callback_until_after_selfie_completion() -> None:
+    gateway = FakeCallbackGateway()
+    location_store = FakeLocationRequestStore()
+    selfie_store = FakeSelfieRequestStore()
+    token_resolver = FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"})
+    locations_file = Path("data/_test_share_location_group_callback_after_selfie.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        ask_selfie_module = AskSelfieModule(
+            token_resolver=token_resolver,
+            gateway=gateway,
+            selfie_request_store=selfie_store,
+            config=AskSelfieConfig(
+                bot_id="support-bot",
+                text_template="Send a selfie, {user_first_name}.",
+                success_text_template="Saved {selfie_file_id}",
+            ),
+            continuation_modules=[],
+        )
+        share_module = ShareLocationModule(
+            token_resolver=token_resolver,
+            gateway=gateway,
+            location_request_store=location_store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_action_type="callback_module",
+                closest_location_group_callback_key="group_notify",
+                closest_location_group_send_timing="end",
+            ),
+            continuation_modules=[ask_selfie_module],
+        )
+        group_pipeline = [
+            SendTelegramPhotoModule(
+                token_resolver=token_resolver,
+                gateway=gateway,
+                config=SendPhotoConfig(
+                    photo="{selfie_file_id}",
+                    caption_template="Checked in at {closest_location_name}",
+                ),
+            )
+        ]
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=location_store,
+            selfie_request_store=selfie_store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=location_store,
+            selfie_request_store=selfie_store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[1]["text"] == "Closest saved location is Main Office."
+        assert gateway.messages[2]["text"] == "Send a selfie, Alice."
+        assert gateway.photos == []
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "message_id": 901,
+                    "caption": "At the office",
+                    "photo": [
+                        {
+                            "file_id": "thumb-file-id",
+                            "file_unique_id": "thumb-unique-id",
+                            "width": 320,
+                            "height": 400,
+                            "file_size": 12345,
+                        },
+                        {
+                            "file_id": "full-file-id",
+                            "file_unique_id": "full-unique-id",
+                            "width": 1080,
+                            "height": 1350,
+                            "file_size": 54321,
+                        },
+                    ],
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=location_store,
+            selfie_request_store=selfie_store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.messages[3]["text"] == "Saved full-file-id"
+        assert gateway.photos == [
+            {
+                "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+                "chat_id": "-1001234567890",
+                "photo": "full-file-id",
+                "caption": "Checked in at Main Office",
+                "parse_mode": None,
+                "reply_markup": None,
+            }
+        ]
     finally:
         locations_file.unlink(missing_ok=True)
 
@@ -2283,9 +3037,174 @@ def test_handle_update_ignores_find_closest_group_message_failure() -> None:
             locations_file=locations_file,
         )
 
-        assert sent_count == 1
+        assert sent_count == 2
         assert gateway.messages[1]["chat_id"] == "12345"
         assert gateway.messages[1]["text"] == "Closest saved location is Main Office."
+    finally:
+        locations_file.unlink(missing_ok=True)
+
+
+def test_handle_update_runs_full_group_callback_pipeline_with_send_photo_continuation() -> None:
+    gateway = FakeCallbackGateway()
+    token_resolver = FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"})
+    location_store = FakeLocationRequestStore()
+    selfie_store = FakeSelfieRequestStore()
+    locations_file = Path("data/_test_share_location_group_callback_continuation.json")
+    try:
+        locations_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "loc-1",
+                        "location_name": "Main Office",
+                        "location_code": "LOC-001",
+                        "latitude": 11.5564,
+                        "longitude": 104.9282,
+                        "telegram_group_id": "-1001234567890",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        ask_selfie_module = AskSelfieModule(
+            token_resolver=token_resolver,
+            gateway=gateway,
+            selfie_request_store=selfie_store,
+            config=AskSelfieConfig(
+                bot_id="support-bot",
+                text_template="Send a selfie, {user_first_name}.",
+                success_text_template="Saved {selfie_file_id}",
+            ),
+            continuation_modules=[],
+        )
+        share_module = ShareLocationModule(
+            token_resolver=token_resolver,
+            gateway=gateway,
+            location_request_store=location_store,
+            config=ShareLocationConfig(
+                bot_id="support-bot",
+                text_template="Share your location, {user_first_name}.",
+                button_text="Share Location",
+                success_text_template="Closest saved location is {closest_location_name}.",
+                find_closest_saved_location=True,
+                closest_location_group_action_type="callback_module",
+                closest_location_group_callback_key="group_notify",
+                closest_location_group_send_timing="end",
+            ),
+            continuation_modules=[ask_selfie_module],
+        )
+        group_pipeline = [
+            SendTelegramPhotoModule(
+                token_resolver=token_resolver,
+                gateway=gateway,
+                config=SendPhotoConfig(
+                    photo="{selfie_file_id}",
+                    caption_template="Checked in at {closest_location_name}",
+                ),
+                continuation_modules=[
+                    SendTelegramMessageModule(
+                        token_resolver=token_resolver,
+                        gateway=gateway,
+                        config=SendMessageConfig(
+                            text_template="Map: {location}",
+                        ),
+                    )
+                ],
+            )
+        ]
+
+        _handle_update(
+            {
+                "message": {
+                    "text": "/verify_location",
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={"verify_location": [share_module]},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=location_store,
+            selfie_request_store=selfie_store,
+            locations_file=locations_file,
+        )
+
+        _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "location": {
+                        "latitude": 11.55645,
+                        "longitude": 104.92825,
+                    },
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=location_store,
+            selfie_request_store=selfie_store,
+            locations_file=locations_file,
+        )
+
+        sent_count = _handle_update(
+            {
+                "message": {
+                    "chat": {"id": 12345},
+                    "from": {
+                        "id": 77,
+                        "first_name": "Alice",
+                        "username": "alice_user",
+                    },
+                    "message_id": 901,
+                    "photo": [
+                        {
+                            "file_id": "full-file-id",
+                            "file_unique_id": "full-unique-id",
+                            "width": 1080,
+                            "height": 1350,
+                            "file_size": 54321,
+                        }
+                    ],
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            callback_modules={"group_notify": group_pipeline},
+            cart_modules={},
+            gateway=gateway,
+            bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            location_request_store=location_store,
+            selfie_request_store=selfie_store,
+            locations_file=locations_file,
+        )
+
+        assert sent_count == 2
+        assert gateway.photos[-1] == {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "chat_id": "-1001234567890",
+            "photo": "full-file-id",
+            "caption": "Checked in at Main Office",
+            "parse_mode": None,
+            "reply_markup": None,
+        }
+        assert gateway.messages[-1]["chat_id"] == "-1001234567890"
+        assert gateway.messages[-1]["text"] == "Map: https://www.google.com/maps?q=11.55645,104.92825"
     finally:
         locations_file.unlink(missing_ok=True)
 

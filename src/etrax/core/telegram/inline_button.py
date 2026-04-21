@@ -30,6 +30,7 @@ class SendInlineButtonConfig:
     run_if_context_keys: tuple[str, ...] = ()
     skip_if_context_keys: tuple[str, ...] = ()
     save_callback_data_to_key: str = ""
+    remove_inline_buttons_on_click: bool = False
 
 
 class SendTelegramInlineButtonModule:
@@ -121,6 +122,10 @@ class SendTelegramInlineButtonModule:
             target_key=target_key,
         )
 
+    @property
+    def remove_inline_buttons_on_click(self) -> bool:
+        return bool(self._config.remove_inline_buttons_on_click)
+
     def copy_with(self, *, save_callback_data_to_key: str | None = None) -> "SendTelegramInlineButtonModule":
         next_config = self._config
         if save_callback_data_to_key is not None:
@@ -141,6 +146,7 @@ class SendTelegramInlineButtonModule:
                 run_if_context_keys=next_config.run_if_context_keys,
                 skip_if_context_keys=next_config.skip_if_context_keys,
                 save_callback_data_to_key=save_callback_data_to_key,
+                remove_inline_buttons_on_click=next_config.remove_inline_buttons_on_click,
             )
         return SendTelegramInlineButtonModule(
             token_resolver=self._token_resolver,

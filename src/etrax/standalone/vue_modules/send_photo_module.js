@@ -102,9 +102,14 @@
       return (
         `<div class=\"module-grid\" v-if=\"isStepType(${ctx}, 'send_photo')\">` +
         `<div>` +
-        `<label${photoFor}>Photo URL or File ID</label>` +
-        `<input${photoIdAttr} placeholder=\"https://example.com/photo.jpg\" :value=\"currentStepField(${ctx}, 'photo_url')\" ` +
+        `<label${photoFor}>Photo URL, File ID, or Template</label>` +
+        `<div class=\"template-toolbar\">` +
+        `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'photo_url', '{selfie_file_id}', $event)\">Use Selfie</button>` +
+        `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'photo_url', '{photo}', $event)\">Use {photo}</button>` +
+        `</div>` +
+        `<input${photoIdAttr} placeholder=\"https://example.com/photo.jpg or {selfie_file_id}\" :value=\"currentStepField(${ctx}, 'photo_url')\" ` +
         `@input=\"updateCurrentStepField(${ctx}, 'photo_url', $event.target.value)\">` +
+        `<p class=\"hint\">Use a Telegram file ID or a context template like <code>{selfie_file_id}</code> after an ask_selfie step.</p>` +
         `</div>` +
         `<div>` +
         `<label class=\"checkbox compact\"><input type=\"checkbox\" :checked=\"currentStepChecked(${ctx}, 'hide_caption')\" @change=\"updateCurrentStepToggle(${ctx}, 'hide_caption', $event.target.checked)\"><span>Hide Caption</span></label>` +

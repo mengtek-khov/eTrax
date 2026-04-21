@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from etrax.core.telegram import (
+    CustomCodeConfig,
+    AskSelfieConfig,
     CartButtonConfig,
     CheckoutCartConfig,
     ForgetUserDataConfig,
@@ -33,6 +35,8 @@ RuntimeStepConfig = (
     | LoadCallbackConfig
     | LoadCommandConfig
     | LoadInlineButtonConfig
+    | CustomCodeConfig
+    | AskSelfieConfig
     | ShareContactConfig
     | ShareLocationConfig
     | SendInlineButtonConfig

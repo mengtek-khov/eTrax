@@ -44,6 +44,29 @@
         "save_callback_data_to_key": "i_am_18",
         "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
       },
+      "group_notify": {
+        "buttons": [],
+        "hide_caption": false,
+        "module_type": "send_photo",
+        "parse_mode": null,
+        "photo_url": "{selfie_file_id}",
+        "pipeline": [
+          {
+            "buttons": [],
+            "hide_caption": false,
+            "module_type": "send_photo",
+            "parse_mode": null,
+            "photo_url": "{selfie_file_id}",
+            "text_template": "here is some example /test_callback"
+          },
+          {
+            "location_latitude": "{location_latitude}",
+            "location_longitude": "{location_longitude}",
+            "module_type": "send_location"
+          }
+        ],
+        "text_template": "here is some example /test_callback"
+      },
       "i_am_18": {
         "button_text": "Open Mini App",
         "module_type": "open_mini_app",
@@ -97,6 +120,18 @@
         ],
         "success_text_template": "Thanks {contact_first_name}, your contact was verified.",
         "text_template": "\u179f\u17bc\u1798\u1785\u17c2\u1780\u179a\u17c6\u179b\u17c2\u1780\u1791\u17c6\u1793\u17b6\u1780\u17cb\u1791\u17c6\u1793\u1784\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\u178a\u17c4\u1799\u1794\u17d2\u179a\u17be\u1794\u17ca\u17bc\u178f\u17bb\u1784\u1781\u17b6\u1784\u1780\u17d2\u179a\u17c4\u1798\u17d4\r\nPlease share your contact using the button below."
+      },
+      "test_callback": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "your message is confirm"
+          }
+        ],
+        "text_template": "your message is confirm"
       },
       "tracking location": {
         "module_type": "send_message",
@@ -163,13 +198,26 @@
           },
           {
             "button_text": "Share My Location",
+            "closest_location_group_action_type": "callback_module",
+            "closest_location_group_callback_key": "group_notify",
+            "closest_location_group_send_timing": "end",
             "find_closest_saved_location": true,
-            "closest_location_group_text_template": "{user_first_name} checked in near {closest_location_name}.",
             "module_type": "share_location",
             "parse_mode": null,
             "require_live_location": true,
             "success_text_template": "Closest saved location is {closest_location_name}.",
             "text_template": "Please share your live location"
+          },
+          {
+            "invalid_text_template": "Please send a selfie photo.",
+            "module_type": "ask_selfie",
+            "parse_mode": null,
+            "success_text_template": "Thanks, your selfie was received.",
+            "text_template": "Please send a selfie photo."
+          },
+          {
+            "function_name": "example_noop",
+            "module_type": "custom_code"
           }
         ],
         "target_callback_key": "tracking location"
@@ -243,6 +291,25 @@
         "start_returning_text_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
         "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}",
         "welcome_back_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}"
+      },
+      "test": {
+        "module_type": "bind_code",
+        "number_width": 4,
+        "pipeline": [
+          {
+            "module_type": "bind_code",
+            "number_width": 4,
+            "prefix": "EMC",
+            "start_number": 1
+          },
+          {
+            "location_latitude": "{location_latitude}",
+            "location_longitude": "{location_longitude}",
+            "module_type": "send_location"
+          }
+        ],
+        "prefix": "EMC",
+        "start_number": 1
       }
     },
     "commands": [
@@ -253,6 +320,10 @@
       {
         "command": "etrex",
         "description": "Etrex"
+      },
+      {
+        "command": "test",
+        "description": "Test"
       }
     ]
   },
@@ -294,6 +365,6 @@
   "token_ref": {
     "bot_id": "Testing 2"
   },
-  "updated_at": "2026-04-09T04:30:10.264488+00:00",
+  "updated_at": "2026-04-20T03:28:40.104097+00:00",
   "version": 1
 }

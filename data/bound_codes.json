@@ -1,0 +1,37 @@
+{
+  "Testing 2": {
+    "bindings_by_code": {
+      "EMC0001": {
+        "assigned_at": "2026-04-10T09:38:46.982813+00:00",
+        "bot_id": "Testing 2",
+        "chat_id": "483083398",
+        "code": "EMC0001",
+        "number": 1,
+        "number_text": "0001",
+        "number_width": 4,
+        "prefix": "EMC",
+        "route_key": "cmd_test",
+        "start_number": 1,
+        "user_id": "483083398"
+      }
+    },
+    "counters": {
+      "cmd_test::EMC": 1
+    },
+    "latest_by_user": {
+      "483083398": {
+        "assigned_at": "2026-04-10T09:38:46.982813+00:00",
+        "bot_id": "Testing 2",
+        "chat_id": "483083398",
+        "code": "EMC0001",
+        "number": 1,
+        "number_text": "0001",
+        "number_width": 4,
+        "prefix": "EMC",
+        "route_key": "cmd_test",
+        "start_number": 1,
+        "user_id": "483083398"
+      }
+    }
+  }
+}

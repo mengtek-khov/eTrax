@@ -20,6 +20,33 @@
     return String(raw || "");
   }
 
+  const closestLocationGroupQuickTokens = [
+    "{closest_name}",
+    "{closest_code}",
+    "{closest_distance}",
+    "{phone}",
+    "{contact_name}",
+    "{contact_first}",
+    "{selfie}",
+    "{selfie_caption}",
+    "{location}",
+    "{accuracy}",
+    "{heading}",
+  ];
+
+  function renderQuickTokenToolbar(ctx, field, tokens) {
+    return (
+      `<div class="template-toolbar">` +
+      tokens
+        .map(
+          (token) =>
+            `<button type="button" class="secondary" @click="applyTemplateSnippet(${ctx}, '${field}', '${token}', '', $event)">${token}</button>`
+        )
+        .join("") +
+      `</div>`
+    );
+  }
+
   function normalizeLiveLocationMode(source) {
     const requireLiveLocation = Boolean(source && source.require_live_location);
     if (!requireLiveLocation) {
@@ -62,6 +89,31 @@
     };
   }
 
+  function normalizeClosestLocationGroupActionType(rawValue) {
+    const normalized = String(rawValue || "").trim().toLowerCase().replace(/\s+/g, "_");
+    if (normalized === "callback" || normalized === "callback_module") {
+      return "callback_module";
+    }
+    if (normalized === "custom" || normalized === "custom_code") {
+      return "custom_code";
+    }
+    return "message";
+  }
+
+  function resolveClosestLocationGroupActionType(rawValue, textTemplate, callbackKey, customCodeFunctionName) {
+    const normalized = normalizeClosestLocationGroupActionType(rawValue);
+    if (String(customCodeFunctionName || "").trim()) {
+      return "custom_code";
+    }
+    if (String(callbackKey || "").trim()) {
+      return "callback_module";
+    }
+    if (String(textTemplate || "").trim()) {
+      return "message";
+    }
+    return normalized;
+  }
+
   moduleSystem.register({
     type: "share_location",
     label: "share_location",
@@ -76,7 +128,10 @@
         photo_url: "",
         button_text: "Share My Location",
         success_text_template: "",
+        closest_location_group_action_type: "message",
         closest_location_group_text_template: "",
+        closest_location_group_callback_key: "",
+        closest_location_group_custom_code_function_name: "",
         closest_location_group_send_timing: "end",
         closest_location_group_send_after_step: "",
         invalid_text_template: "You are at the wrong location.",
@@ -110,6 +165,12 @@
         closest_location_group_text_template: source.closest_location_group_text_template
           ? String(source.closest_location_group_text_template)
           : "",
+        closest_location_group_callback_key: source.closest_location_group_callback_key
+          ? String(source.closest_location_group_callback_key)
+          : "",
+        closest_location_group_custom_code_function_name: source.closest_location_group_custom_code_function_name
+          ? String(source.closest_location_group_custom_code_function_name)
+          : "",
         closest_location_group_send_timing: source.closest_location_group_send_timing
           ? String(source.closest_location_group_send_timing)
           : "end",
@@ -138,6 +199,12 @@
         breadcrumb_ended_text_template: source.breadcrumb_ended_text_template ? String(source.breadcrumb_ended_text_template) : "",
         run_if_context_keys: formatContextKeyLines(source.run_if_context_keys),
         skip_if_context_keys: formatContextKeyLines(source.skip_if_context_keys),
+        closest_location_group_action_type: resolveClosestLocationGroupActionType(
+          source.closest_location_group_action_type,
+          source.closest_location_group_text_template,
+          source.closest_location_group_callback_key,
+          source.closest_location_group_custom_code_function_name
+        ),
       };
     },
     parseChain(parts) {
@@ -180,6 +247,14 @@
       const breadcrumbMinDistanceMeters = String(step.breadcrumb_min_distance_meters || "").trim();
       const invalidTextTemplate = String(step.invalid_text_template || "").trim();
       const closestLocationGroupTextTemplate = String(step.closest_location_group_text_template || "").trim();
+      const closestLocationGroupCallbackKey = String(step.closest_location_group_callback_key || "").trim();
+      const closestLocationGroupCustomCodeFunctionName = String(step.closest_location_group_custom_code_function_name || "").trim();
+      const closestLocationGroupActionType = resolveClosestLocationGroupActionType(
+        step.closest_location_group_action_type,
+        closestLocationGroupTextTemplate,
+        closestLocationGroupCallbackKey,
+        closestLocationGroupCustomCodeFunctionName
+      );
       const closestLocationGroupSendTimingRaw = String(step.closest_location_group_send_timing || "").trim().toLowerCase();
       const closestLocationGroupSendTiming = closestLocationGroupSendTimingRaw === "immediate" || closestLocationGroupSendTimingRaw === "after_step"
         ? closestLocationGroupSendTimingRaw
@@ -199,8 +274,24 @@
       }
       if (findClosestSavedLocation) {
         payload.find_closest_saved_location = true;
-        if (closestLocationGroupTextTemplate) {
-          payload.closest_location_group_text_template = closestLocationGroupTextTemplate;
+        payload.closest_location_group_action_type = closestLocationGroupActionType;
+        const hasClosestLocationGroupAction =
+          closestLocationGroupActionType !== "message" ||
+          Boolean(closestLocationGroupTextTemplate);
+        if (closestLocationGroupActionType === "message") {
+          if (closestLocationGroupTextTemplate) {
+            payload.closest_location_group_text_template = closestLocationGroupTextTemplate;
+          }
+        } else if (closestLocationGroupActionType === "callback_module") {
+          if (closestLocationGroupCallbackKey) {
+            payload.closest_location_group_callback_key = closestLocationGroupCallbackKey;
+          }
+        } else if (closestLocationGroupActionType === "custom_code") {
+          if (closestLocationGroupCustomCodeFunctionName) {
+            payload.closest_location_group_custom_code_function_name = closestLocationGroupCustomCodeFunctionName;
+          }
+        }
+        if (hasClosestLocationGroupAction) {
           payload.closest_location_group_send_timing = closestLocationGroupSendTiming;
           if (closestLocationGroupSendTiming === "after_step" && closestLocationGroupSendAfterStep) {
             payload.closest_location_group_send_after_step = closestLocationGroupSendAfterStep;
@@ -273,20 +364,41 @@
         `<label>Live Location Mode</label>` +
         `<p class="hint">Choose how this step should treat the incoming live location stream.</p>` +
         `<div class="share-location-mode-grid">` +
-        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': !currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :name="'share-location-live-mode-' + ${ctx}" :checked="!currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', false); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Standard Live Location</span><span class="share-location-mode-note">Accept any live location share without checking against saved places.</span></span></label>` +
-        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :name="'share-location-live-mode-' + ${ctx}" :checked="currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', true); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', false); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Find Closest Saved Location</span><span class="share-location-mode-note">Accept the share and attach the nearest saved location details for later steps.</span></span></label>` +
-        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :name="'share-location-live-mode-' + ${ctx}" :checked="currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', true); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', false); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Match Closest Saved Location</span><span class="share-location-mode-note">Only accept the live location when it is within your allowed distance tolerance.</span></span></label>` +
-        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :name="'share-location-live-mode-' + ${ctx}" :checked="currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', true); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Track As Breadcrumb</span><span class="share-location-mode-note">Keep collecting follow-up live points as a breadcrumb trail until the session ends.</span></span></label>` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': !currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :checked="!currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', false); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Standard Live Location</span><span class="share-location-mode-note">Accept any live location share without checking against saved places.</span></span></label>` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :checked="currentStepChecked(${ctx}, 'find_closest_saved_location') && !currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', true); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', false); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Find Closest Saved Location</span><span class="share-location-mode-note">Accept the share and attach the nearest saved location details for later steps.</span></span></label>` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :checked="currentStepChecked(${ctx}, 'match_closest_saved_location') && !currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', true); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', false); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Match Closest Saved Location</span><span class="share-location-mode-note">Only accept the live location when it is within your allowed distance tolerance.</span></span></label>` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': currentStepChecked(${ctx}, 'track_breadcrumb') }]"><input type="radio" :checked="currentStepChecked(${ctx}, 'track_breadcrumb')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'find_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'match_closest_saved_location', false); updateCurrentStepToggle(${ctx}, 'track_breadcrumb', true); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Track As Breadcrumb</span><span class="share-location-mode-note">Keep collecting follow-up live points as a breadcrumb trail until the session ends.</span></span></label>` +
         `</div>` +
         `</div>` +
         `<p class="hint" v-if="isStepType(${ctx}, 'share_location') && currentStepChecked(${ctx}, 'require_live_location') && currentStepChecked(${ctx}, 'find_closest_saved_location')">The closest saved location details are added to context for later steps and message templates.</p>` +
         `<div v-if="isStepType(${ctx}, 'share_location') && currentStepChecked(${ctx}, 'require_live_location') && currentStepChecked(${ctx}, 'find_closest_saved_location')">` +
-        `<label>Closest Location Group Message</label>` +
-        `<textarea placeholder="Leave blank to skip group notification. Example: {user_first_name} checked in near {closest_location_name} at {location_latitude},{location_longitude}." :value="currentStepField(${ctx}, 'closest_location_group_text_template')" @input="updateCurrentStepField(${ctx}, 'closest_location_group_text_template', $event.target.value)"></textarea>` +
-        `<p class="hint">If the matched saved location has a Telegram Group ID, this message is sent to that group.</p>` +
+        `<label>Closest Location Group Action</label>` +
+        `<div class="share-location-mode-grid">` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': (currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'message' }]"><input type="radio" :checked="(currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'message'" @change="if ($event.target.checked) { updateCurrentStepField(${ctx}, 'closest_location_group_action_type', 'message'); updateCurrentStepField(${ctx}, 'closest_location_group_callback_key', ''); updateCurrentStepField(${ctx}, 'closest_location_group_custom_code_function_name', ''); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Send Message</span><span class="share-location-mode-note">Render one group message template after the selected timing.</span></span></label>` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': (currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'callback_module' }]"><input type="radio" :checked="(currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'callback_module'" @change="if ($event.target.checked) { updateCurrentStepField(${ctx}, 'closest_location_group_action_type', 'callback_module'); updateCurrentStepField(${ctx}, 'closest_location_group_text_template', ''); updateCurrentStepField(${ctx}, 'closest_location_group_custom_code_function_name', ''); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Run Callback Module</span><span class="share-location-mode-note">Run a saved callback pipeline in the matched location group chat.</span></span></label>` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': (currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'custom_code' }]"><input type="radio" :checked="(currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'custom_code'" @change="if ($event.target.checked) { updateCurrentStepField(${ctx}, 'closest_location_group_action_type', 'custom_code'); updateCurrentStepField(${ctx}, 'closest_location_group_text_template', ''); updateCurrentStepField(${ctx}, 'closest_location_group_callback_key', ''); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Run Custom Code</span><span class="share-location-mode-note">Execute one custom-code function against the matched location group chat.</span></span></label>` +
+        `</div>` +
+        `<div class="template-editor" v-if="(currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'message'">` +
+        renderQuickTokenToolbar(ctx, "closest_location_group_text_template", closestLocationGroupQuickTokens) +
+        `<textarea placeholder="Leave blank to skip group notification. Example: {user_first_name} checked in near {closest_name} at {location}." :value="currentStepField(${ctx}, 'closest_location_group_text_template')" @input="updateCurrentStepField(${ctx}, 'closest_location_group_text_template', $event.target.value)"></textarea>` +
+        `</div>` +
+        `<div v-if="(currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'callback_module'">` +
+        `<label>Group Callback Module</label>` +
+        `<input list="callback-key-options" placeholder="group_notify" :value="currentStepField(${ctx}, 'closest_location_group_callback_key')" @input="updateCurrentStepField(${ctx}, 'closest_location_group_callback_key', $event.target.value)">` +
+        `<p class="hint">Runs the selected callback pipeline against the matched location group chat so you can send multiple messages or chained modules there.</p>` +
+        `</div>` +
+        `<div v-if="(currentStepField(${ctx}, 'closest_location_group_action_type') || 'message') === 'custom_code'">` +
+        `<label>Group Custom Code Function</label>` +
+        `<select :value="currentStepField(${ctx}, 'closest_location_group_custom_code_function_name')" @change="updateCurrentStepField(${ctx}, 'closest_location_group_custom_code_function_name', $event.target.value)">` +
+        `<option value="">Select custom function</option>` +
+        `<option v-for="functionName in customCodeFunctionOptions" :key="'closest-location-group-fn-' + functionName" :value="functionName">[[ functionName ]]</option>` +
+        `</select>` +
+        `<p class="hint">Runs the custom-code function with the group chat injected into <code>chat_id</code>.</p>` +
+        `</div>` +
+        `<p class="hint">If the matched saved location has a Telegram Group ID, this action runs in that group after the selected timing.</p>` +
         `<div class="module-grid">` +
         `<div>` +
-        `<label>Group Message Timing</label>` +
+        `<label>Group Action Timing</label>` +
         `<select :value="currentStepField(${ctx}, 'closest_location_group_send_timing') || 'end'" @change="updateCurrentStepField(${ctx}, 'closest_location_group_send_timing', $event.target.value)">` +
         `<option value="immediate">Right Away</option>` +
         `<option value="end">At End</option>` +

@@ -102,6 +102,23 @@ class SendTelegramPhotoModule:
         photo = self._config.photo
         if not photo:
             photo = str(context.get(self._config.context_photo_key, "")).strip()
+        else:
+            render_context = dict(context)
+            bot_id = str(context.get(self._config.context_bot_id_key, "")).strip()
+            if bot_id:
+                render_context.setdefault("bot_id", bot_id)
+                render_context.setdefault("bot_name", bot_id)
+            required_fields = {
+                field_name
+                for _, field_name, _, _ in Formatter().parse(photo)
+                if field_name
+            }
+            if required_fields:
+                missing = sorted(field_name for field_name in required_fields if field_name not in render_context)
+                if missing:
+                    missing_text = ", ".join(missing)
+                    raise ValueError(f"photo template is missing context fields: {missing_text}")
+                photo = photo.format_map(render_context).strip()
         if not photo:
             raise ValueError("photo is required for send photo module")
         return photo
@@ -151,6 +168,10 @@ class SendTelegramPhotoModule:
     @property
     def continuation_modules(self) -> tuple[FlowModule, ...]:
         return self._continuation_modules
+
+    @property
+    def continue_immediately(self) -> bool:
+        return not bool(self.callback_data_keys)
 
     @property
     def callback_data_keys(self) -> tuple[str, ...]:

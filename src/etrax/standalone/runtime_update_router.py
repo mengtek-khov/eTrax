@@ -14,6 +14,7 @@ from etrax.core.telegram import (
     CheckoutCartModule,
     ContactRequestStore,
     LocationRequestStore,
+    SelfieRequestStore,
     SendTelegramInlineButtonModule,
 )
 
@@ -43,10 +44,12 @@ def handle_update(
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates: dict[str, dict[str, Any]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    inline_button_cleanup_by_message: dict[str, bool] | None = None,
     checkout_modules: dict[str, CheckoutCartModule] | None = None,
     gateway: TelegramBotApiGateway,
     bot_token: str,
     contact_request_store: ContactRequestStore | None = None,
+    selfie_request_store: SelfieRequestStore | None = None,
     location_request_store: LocationRequestStore | None = None,
     profile_log_store: UserProfileLogStore | None = None,
     processed_callback_query_ids: dict[str, float] | None = None,
@@ -82,6 +85,7 @@ def handle_update(
                 cart_modules=cart_modules,
                 checkout_modules=checkout_modules or {},
                 callback_modules=callback_modules,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
             )
             if sent_count > 0:
                 return sent_count
@@ -110,10 +114,13 @@ def handle_update(
             gateway=gateway,
             bot_token=bot_token,
             contact_request_store=contact_request_store,
+                selfie_request_store=selfie_request_store,
                 location_request_store=location_request_store,
+                command_modules=command_modules,
                 callback_modules=callback_modules,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 profile_log_store=profile_log_store,
                 locations_file=locations_file,
             )
@@ -131,6 +138,7 @@ def handle_update(
         temporary_command_menu_state_store=temporary_command_menu_state_store,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         gateway=gateway,
         bot_token=bot_token,
         profile_log_store=profile_log_store,
@@ -218,6 +226,7 @@ def handle_message_update(
     temporary_command_menu_state_store: TemporaryCommandMenuStateStore | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    inline_button_cleanup_by_message: dict[str, bool] | None = None,
     gateway: TelegramBotApiGateway | None = None,
     bot_token: str = "",
     profile_log_store: UserProfileLogStore | None = None,
@@ -297,6 +306,7 @@ def handle_message_update(
                     temporary_command_menu_state_store=temporary_command_menu_state_store,
                     callback_continuation_by_message=callback_continuation_by_message,
                     callback_context_updates_by_message=callback_context_updates_by_message,
+                    inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                     command_execution_stack=(command_name,),
                     gateway=gateway,
                     bot_token=bot_token,
@@ -321,6 +331,7 @@ def handle_message_update(
             temporary_command_menu_state_store=temporary_command_menu_state_store,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
             command_execution_stack=(command_name,),
             gateway=gateway,
             bot_token=bot_token,
@@ -337,6 +348,7 @@ def handle_message_update(
                 temporary_command_menu_state_store=temporary_command_menu_state_store,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 command_execution_stack=(command_name,),
                 gateway=gateway,
                 bot_token=bot_token,
@@ -361,6 +373,7 @@ def handle_message_update(
         temporary_command_menu_state_store=temporary_command_menu_state_store,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         command_execution_stack=(command_name,),
         gateway=gateway,
         bot_token=bot_token,
@@ -380,6 +393,7 @@ def handle_callback_query_update(
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates: dict[str, dict[str, Any]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    inline_button_cleanup_by_message: dict[str, bool] | None = None,
     gateway: TelegramBotApiGateway | None = None,
     bot_token: str = "",
     profile_log_store: UserProfileLogStore | None = None,
@@ -435,9 +449,20 @@ def handle_callback_query_update(
             active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
             callback_execution_stack=(callback_data,),
             gateway=gateway,
             bot_token=bot_token,
+        )
+        _remove_handled_inline_button_reply_markup(
+            bot_id=bot_id,
+            chat_id=chat_id,
+            message=message,
+            callback_data=callback_data,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+            gateway=gateway,
+            bot_token=bot_token,
+            sent_count=sent_count,
         )
         _activate_callback_temporary_command_menu(
             bot_id=bot_id,
@@ -466,7 +491,7 @@ def handle_callback_query_update(
         if not continuation_pipeline:
             return 0
 
-    return _run_callback_continuation_step(
+    sent_count = _run_callback_continuation_step(
         continuation_pipeline,
         context=context,
         command_modules=command_modules,
@@ -475,10 +500,22 @@ def handle_callback_query_update(
         active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         callback_execution_stack=(callback_data,),
         gateway=gateway,
         bot_token=bot_token,
     )
+    _remove_handled_inline_button_reply_markup(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        message=message,
+        callback_data=callback_data,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        gateway=gateway,
+        bot_token=bot_token,
+        sent_count=sent_count,
+    )
+    return sent_count
 
 
 def _temporary_command_menu_state_key(*, bot_id: str, chat_id: str) -> str:
@@ -810,6 +847,7 @@ def _run_callback_continuation_step(
     temporary_command_menu_state_store: TemporaryCommandMenuStateStore | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    inline_button_cleanup_by_message: dict[str, bool] | None = None,
     callback_execution_stack: tuple[str, ...] = (),
     command_execution_stack: tuple[str, ...] = (),
     gateway: TelegramBotApiGateway | None = None,
@@ -827,6 +865,7 @@ def _run_callback_continuation_step(
         temporary_command_menu_state_store=temporary_command_menu_state_store,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         callback_execution_stack=callback_execution_stack,
         command_execution_stack=command_execution_stack,
         gateway=gateway,
@@ -844,6 +883,7 @@ def execute_pipeline(
     temporary_command_menu_state_store: TemporaryCommandMenuStateStore | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
+    inline_button_cleanup_by_message: dict[str, bool] | None = None,
     callback_execution_stack: tuple[str, ...] = (),
     command_execution_stack: tuple[str, ...] = (),
     gateway: TelegramBotApiGateway | None = None,
@@ -876,6 +916,13 @@ def execute_pipeline(
                 module=module,
                 callback_context_updates_by_message=callback_context_updates_by_message,
             )
+            _register_message_inline_button_cleanup_targets(
+                bot_id=str(context.get("bot_id", "")).strip(),
+                chat_id=str(context.get("chat_id", "")).strip(),
+                context_updates=outcome.context_updates,
+                module=module,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+            )
         target_callback_key = _target_callback_key_for_outcome(module, outcome)
         if target_callback_key:
             sent_count += _execute_loaded_callback_pipeline(
@@ -891,6 +938,7 @@ def execute_pipeline(
                 temporary_command_menu_state_store=temporary_command_menu_state_store,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 gateway=gateway,
                 bot_token=bot_token,
             )
@@ -907,6 +955,7 @@ def execute_pipeline(
                 temporary_command_menu_state_store=temporary_command_menu_state_store,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 gateway=gateway,
                 bot_token=bot_token,
             )
@@ -923,6 +972,7 @@ def execute_pipeline(
                 temporary_command_menu_state_store=temporary_command_menu_state_store,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 command_execution_stack=command_execution_stack,
                 gateway=gateway,
                 bot_token=bot_token,
@@ -939,6 +989,26 @@ def execute_pipeline(
                 temporary_command_menu_state_store=temporary_command_menu_state_store,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+                callback_execution_stack=callback_execution_stack,
+                command_execution_stack=command_execution_stack,
+                gateway=gateway,
+                bot_token=bot_token,
+            )
+            break
+        continuation_modules = _continuation_modules_for_success_outcome(module, outcome)
+        if continuation_modules:
+            sent_count += execute_pipeline(
+                continuation_modules,
+                context,
+                command_modules=command_modules,
+                callback_modules=callback_modules,
+                temporary_command_menus=temporary_command_menus,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                temporary_command_menu_state_store=temporary_command_menu_state_store,
+                callback_continuation_by_message=callback_continuation_by_message,
+                callback_context_updates_by_message=callback_context_updates_by_message,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 callback_execution_stack=callback_execution_stack,
                 command_execution_stack=command_execution_stack,
                 gateway=gateway,
@@ -986,6 +1056,10 @@ def _runtime_module_label(module: object) -> str:
         label = "command_module"
     elif normalized == "sharecontactmodule":
         label = "share_contact"
+    elif normalized == "askselfiemodule":
+        label = "ask_selfie"
+    elif normalized == "customcodemodule":
+        label = "custom_code"
     elif normalized == "sharelocationmodule":
         label = "share_location"
     elif normalized == "sendtelegrammessagemodule":
@@ -1046,6 +1120,7 @@ def _execute_loaded_callback_pipeline(
     context: dict[str, Any],
     callback_continuation_by_message: dict[str, list[FlowModule]] | None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    inline_button_cleanup_by_message: dict[str, bool] | None,
     gateway: TelegramBotApiGateway | None,
     bot_token: str,
 ) -> int:
@@ -1075,6 +1150,7 @@ def _execute_loaded_callback_pipeline(
         temporary_command_menu_state_store=temporary_command_menu_state_store,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         callback_execution_stack=(*callback_execution_stack, target_callback_key),
         command_execution_stack=command_execution_stack,
         gateway=gateway,
@@ -1105,6 +1181,7 @@ def _execute_loaded_inline_button_module(
     context: dict[str, Any],
     callback_continuation_by_message: dict[str, list[FlowModule]] | None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    inline_button_cleanup_by_message: dict[str, bool] | None,
     command_execution_stack: tuple[str, ...],
     gateway: TelegramBotApiGateway | None,
     bot_token: str,
@@ -1124,6 +1201,7 @@ def _execute_loaded_inline_button_module(
         temporary_command_menu_state_store=temporary_command_menu_state_store,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         command_execution_stack=command_execution_stack,
         gateway=gateway,
         bot_token=bot_token,
@@ -1142,6 +1220,7 @@ def _execute_loaded_command_pipeline(
     context: dict[str, Any],
     callback_continuation_by_message: dict[str, list[FlowModule]] | None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None,
+    inline_button_cleanup_by_message: dict[str, bool] | None,
     gateway: TelegramBotApiGateway | None,
     bot_token: str,
 ) -> int:
@@ -1167,6 +1246,7 @@ def _execute_loaded_command_pipeline(
         temporary_command_menu_state_store=temporary_command_menu_state_store,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         command_execution_stack=(*command_execution_stack, target_command_key),
         gateway=gateway,
         bot_token=bot_token,
@@ -1217,6 +1297,22 @@ def _continuation_modules_for_skipped_outcome(
     outcome: object,
 ) -> list[FlowModule]:
     if not _outcome_represents_skip(outcome):
+        return []
+    continuation = getattr(module, "continuation_modules", ())
+    if not continuation:
+        return []
+    return [candidate for candidate in continuation if candidate is not None]
+
+
+def _continuation_modules_for_success_outcome(
+    module: FlowModule,
+    outcome: object,
+) -> list[FlowModule]:
+    if _outcome_represents_skip(outcome):
+        return []
+    if getattr(outcome, "stop", False):
+        return []
+    if not bool(getattr(module, "continue_immediately", False)):
         return []
     continuation = getattr(module, "continuation_modules", ())
     if not continuation:
@@ -1323,6 +1419,95 @@ def _register_message_callback_context_updates(
             callback_data=callback_data,
         )
         callback_context_updates_by_message[key] = dict(pending_context_updates)
+
+
+def _register_message_inline_button_cleanup_targets(
+    *,
+    bot_id: str,
+    chat_id: str,
+    context_updates: dict[str, Any],
+    module: FlowModule,
+    inline_button_cleanup_by_message: dict[str, bool] | None,
+) -> None:
+    if inline_button_cleanup_by_message is None:
+        return
+    if not bot_id or not chat_id:
+        return
+    if not bool(getattr(module, "remove_inline_buttons_on_click", False)):
+        return
+
+    callback_data_keys = _extract_callback_data_keys(module)
+    if not callback_data_keys:
+        return
+
+    message_id = _extract_message_id_from_context_updates(context_updates)
+    if not message_id:
+        return
+
+    for callback_data in callback_data_keys:
+        key = _build_callback_continuation_by_message_key(
+            bot_id=bot_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            callback_data=callback_data,
+        )
+        inline_button_cleanup_by_message[key] = True
+
+
+def _remove_handled_inline_button_reply_markup(
+    *,
+    bot_id: str,
+    chat_id: str,
+    message: dict[str, Any],
+    callback_data: str,
+    inline_button_cleanup_by_message: dict[str, bool] | None,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+    sent_count: int,
+) -> None:
+    if sent_count <= 0:
+        return
+
+    message_id = str(message.get("message_id", "")).strip()
+    if not message_id or not bot_id or not chat_id:
+        return
+
+    route_key = _build_callback_continuation_by_message_key(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        message_id=message_id,
+        callback_data=callback_data,
+    )
+    if not inline_button_cleanup_by_message or not inline_button_cleanup_by_message.get(route_key):
+        return
+
+    _pop_inline_button_cleanup_keys_for_message(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        message_id=message_id,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+    )
+    if gateway is None or not bot_token:
+        return
+    gateway.edit_message_reply_markup(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        message_id=message_id,
+        reply_markup=None,
+    )
+
+
+def _pop_inline_button_cleanup_keys_for_message(
+    *,
+    bot_id: str,
+    chat_id: str,
+    message_id: str,
+    inline_button_cleanup_by_message: dict[str, bool],
+) -> None:
+    prefix = f"{bot_id}:{chat_id}:{message_id}:"
+    stale_keys = [key for key in inline_button_cleanup_by_message if key.startswith(prefix)]
+    for key in stale_keys:
+        inline_button_cleanup_by_message.pop(key, None)
 
 
 def _extract_callback_data_keys(module: object) -> tuple[str, ...]:

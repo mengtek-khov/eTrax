@@ -68,6 +68,16 @@ class TelegramMessageGateway(Protocol):
     ) -> dict[str, Any]:
         """Send a photo message and return normalized transport payload."""
 
+    def send_location(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        latitude: float,
+        longitude: float,
+    ) -> dict[str, Any]:
+        """Send a location message and return normalized transport payload."""
+
     def edit_message_text(
         self,
         *,

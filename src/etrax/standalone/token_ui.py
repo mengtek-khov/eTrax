@@ -29,6 +29,7 @@ from etrax.adapters.local.json_token_store import JsonBotTokenStore
 from etrax.adapters.telegram import TelegramBotApiGateway
 from etrax.core.token import BotTokenService
 from etrax.standalone.bot_runtime_manager import BotRuntimeManager, resolve_command_menu
+from etrax.standalone.custom_code_functions import load_custom_code_function_names
 
 
 def run_token_config_ui(
@@ -218,6 +219,9 @@ def _build_handler(
             if parsed.path == "/module-send-photo.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("send_photo_module.js"))
                 return
+            if parsed.path == "/module-send-location.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("send_location_module.js"))
+                return
             if parsed.path == "/module-menu.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("menu_module.js"))
                 return
@@ -226,6 +230,15 @@ def _build_handler(
                 return
             if parsed.path == "/module-share-contact.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_contact_module.js"))
+                return
+            if parsed.path == "/module-ask-selfie.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("ask_selfie_module.js"))
+                return
+            if parsed.path == "/module-custom-code.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("custom_code_module.js"))
+                return
+            if parsed.path == "/module-bind-code.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("bind_code_module.js"))
                 return
             if parsed.path == "/module-share-location.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_location_module.js"))
@@ -341,12 +354,14 @@ def _build_handler(
                 config_path, payload = _load_bot_config(scaffold_store, bot_config_dir, bot_id)
                 runtime_status = runtime_manager.status_by_bot_id(bot_id)
                 context_key_options = _load_profile_log_context_keys(profile_log_file, bot_id=bot_id)
+                custom_code_function_options = load_custom_code_function_names()
                 html_payload = _render_config_page(
                     bot_id=bot_id.strip(),
                     config_path=config_path,
                     payload=payload,
                     runtime_status=runtime_status,
                     context_key_options=context_key_options,
+                    custom_code_function_options=custom_code_function_options,
                     message=message,
                     level=level,
                 )
@@ -490,6 +505,7 @@ def _build_handler(
         def _handle_config_save(self, form: dict[str, list[str]]) -> None:
             """Convert the submitted editor form back into the stored JSON config format."""
             bot_id = form.get("bot_id", [""])[0].strip()
+            autosave_request = self.headers.get("X-Etrax-Autosave", "").strip() == "1"
             command_menu_enabled = "command_menu_enabled" in form
             include_start_command = "include_start_command" in form
             start_command_description = form.get("start_command_description", [""])[0].strip()
@@ -505,18 +521,34 @@ def _build_handler(
             command_inline_run_if_context_keys = form.get("command_inline_run_if_context_keys", [])
             command_inline_skip_if_context_keys = form.get("command_inline_skip_if_context_keys", [])
             command_inline_save_callback_data_to_keys = form.get("command_inline_save_callback_data_to_key", [])
+            command_inline_remove_buttons_on_click_values = form.get("command_inline_remove_buttons_on_click", [])
             command_callback_target_keys = form.get("command_callback_target_key", [])
             command_command_target_keys = form.get("command_command_target_key", [])
             command_photo_urls = form.get("command_photo_url", [])
+            command_location_latitudes = form.get("command_location_latitude", [])
+            command_location_longitudes = form.get("command_location_longitude", [])
             command_contact_button_texts = form.get("command_contact_button_text", [])
             command_mini_app_button_texts = form.get("command_mini_app_button_text", [])
+            command_custom_code_function_names = form.get("command_custom_code_function_name", [])
+            command_bind_code_prefixes = form.get("command_bind_code_prefix", [])
+            command_bind_code_number_widths = form.get("command_bind_code_number_width", [])
+            command_bind_code_start_numbers = form.get("command_bind_code_start_number", [])
             command_contact_success_texts = form.get("command_contact_success_text", [])
             command_contact_invalid_texts = form.get("command_contact_invalid_text", [])
             command_require_live_locations = form.get("command_require_live_location", [])
             command_find_closest_saved_locations = form.get("command_find_closest_saved_location", [])
             command_match_closest_saved_locations = form.get("command_match_closest_saved_location", [])
             command_closest_location_tolerance_meters = form.get("command_closest_location_tolerance_meters", [])
+            command_closest_location_group_action_types = form.get(
+                "command_closest_location_group_action_type", []
+            )
             command_closest_location_group_texts = form.get("command_closest_location_group_text", [])
+            command_closest_location_group_callback_keys = form.get(
+                "command_closest_location_group_callback_key", []
+            )
+            command_closest_location_group_custom_code_function_names = form.get(
+                "command_closest_location_group_custom_code_function_name", []
+            )
             command_closest_location_group_send_timings = form.get("command_closest_location_group_send_timing", [])
             command_closest_location_group_send_after_steps = form.get("command_closest_location_group_send_after_step", [])
             command_location_invalid_texts = form.get("command_location_invalid_text", [])
@@ -562,18 +594,34 @@ def _build_handler(
             callback_inline_run_if_context_keys = form.get("callback_inline_run_if_context_keys", [])
             callback_inline_skip_if_context_keys = form.get("callback_inline_skip_if_context_keys", [])
             callback_inline_save_callback_data_to_keys = form.get("callback_inline_save_callback_data_to_key", [])
+            callback_inline_remove_buttons_on_click_values = form.get("callback_inline_remove_buttons_on_click", [])
             callback_callback_target_keys = form.get("callback_callback_target_key", [])
             callback_command_target_keys = form.get("callback_command_target_key", [])
             callback_photo_urls = form.get("callback_photo_url", [])
+            callback_location_latitudes = form.get("callback_location_latitude", [])
+            callback_location_longitudes = form.get("callback_location_longitude", [])
             callback_contact_button_texts = form.get("callback_contact_button_text", [])
             callback_mini_app_button_texts = form.get("callback_mini_app_button_text", [])
+            callback_custom_code_function_names = form.get("callback_custom_code_function_name", [])
+            callback_bind_code_prefixes = form.get("callback_bind_code_prefix", [])
+            callback_bind_code_number_widths = form.get("callback_bind_code_number_width", [])
+            callback_bind_code_start_numbers = form.get("callback_bind_code_start_number", [])
             callback_contact_success_texts = form.get("callback_contact_success_text", [])
             callback_contact_invalid_texts = form.get("callback_contact_invalid_text", [])
             callback_require_live_locations = form.get("callback_require_live_location", [])
             callback_find_closest_saved_locations = form.get("callback_find_closest_saved_location", [])
             callback_match_closest_saved_locations = form.get("callback_match_closest_saved_location", [])
             callback_closest_location_tolerance_meters = form.get("callback_closest_location_tolerance_meters", [])
+            callback_closest_location_group_action_types = form.get(
+                "callback_closest_location_group_action_type", []
+            )
             callback_closest_location_group_texts = form.get("callback_closest_location_group_text", [])
+            callback_closest_location_group_callback_keys = form.get(
+                "callback_closest_location_group_callback_key", []
+            )
+            callback_closest_location_group_custom_code_function_names = form.get(
+                "callback_closest_location_group_custom_code_function_name", []
+            )
             callback_closest_location_group_send_timings = form.get("callback_closest_location_group_send_timing", [])
             callback_closest_location_group_send_after_steps = form.get("callback_closest_location_group_send_after_step", [])
             callback_location_invalid_texts = form.get("callback_location_invalid_text", [])
@@ -620,18 +668,34 @@ def _build_handler(
             start_inline_run_if_context_keys = form.get("start_inline_run_if_context_keys", [""])[0].strip()
             start_inline_skip_if_context_keys = form.get("start_inline_skip_if_context_keys", [""])[0].strip()
             start_inline_save_callback_data_to_key = form.get("start_inline_save_callback_data_to_key", [""])[0].strip()
+            start_inline_remove_buttons_on_click = form.get("start_inline_remove_buttons_on_click", [""])[0].strip()
             start_callback_target_key = form.get("start_callback_target_key", [""])[0].strip()
             start_command_target_key = form.get("start_command_target_key", [""])[0].strip()
             start_photo_url = form.get("start_photo_url", [""])[0].strip()
+            start_location_latitude = form.get("start_location_latitude", [""])[0].strip()
+            start_location_longitude = form.get("start_location_longitude", [""])[0].strip()
             start_contact_button_text = form.get("start_contact_button_text", [""])[0].strip()
             start_mini_app_button_text = form.get("start_mini_app_button_text", [""])[0].strip()
+            start_custom_code_function_name = form.get("start_custom_code_function_name", [""])[0].strip()
+            start_bind_code_prefix = form.get("start_bind_code_prefix", [""])[0].strip()
+            start_bind_code_number_width = form.get("start_bind_code_number_width", [""])[0].strip()
+            start_bind_code_start_number = form.get("start_bind_code_start_number", [""])[0].strip()
             start_contact_success_text = form.get("start_contact_success_text", [""])[0].strip()
             start_contact_invalid_text = form.get("start_contact_invalid_text", [""])[0].strip()
             start_require_live_location = form.get("start_require_live_location", [""])[0].strip()
             start_find_closest_saved_location = form.get("start_find_closest_saved_location", [""])[0].strip()
             start_match_closest_saved_location = form.get("start_match_closest_saved_location", [""])[0].strip()
             start_closest_location_tolerance_meters = form.get("start_closest_location_tolerance_meters", [""])[0].strip()
+            start_closest_location_group_action_type = form.get(
+                "start_closest_location_group_action_type", [""]
+            )[0].strip()
             start_closest_location_group_text = form.get("start_closest_location_group_text", [""])[0].strip()
+            start_closest_location_group_callback_key = form.get(
+                "start_closest_location_group_callback_key", [""]
+            )[0].strip()
+            start_closest_location_group_custom_code_function_name = form.get(
+                "start_closest_location_group_custom_code_function_name", [""]
+            )[0].strip()
             start_closest_location_group_send_timing = form.get(
                 "start_closest_location_group_send_timing", [""]
             )[0].strip()
@@ -699,18 +763,30 @@ def _build_handler(
                     command_inline_run_if_context_keys=command_inline_run_if_context_keys,
                     command_inline_skip_if_context_keys=command_inline_skip_if_context_keys,
                     command_inline_save_callback_data_to_keys=command_inline_save_callback_data_to_keys,
+                    command_inline_remove_buttons_on_click_values=command_inline_remove_buttons_on_click_values,
                     command_callback_target_keys=command_callback_target_keys,
                     command_command_target_keys=command_command_target_keys,
                     command_photo_urls=command_photo_urls,
+                    command_location_latitudes=command_location_latitudes,
+                    command_location_longitudes=command_location_longitudes,
                     command_contact_button_texts=command_contact_button_texts,
                     command_mini_app_button_texts=command_mini_app_button_texts,
+                    command_custom_code_function_names=command_custom_code_function_names,
+                    command_bind_code_prefixes=command_bind_code_prefixes,
+                    command_bind_code_number_widths=command_bind_code_number_widths,
+                    command_bind_code_start_numbers=command_bind_code_start_numbers,
                     command_contact_success_texts=command_contact_success_texts,
                     command_contact_invalid_texts=command_contact_invalid_texts,
                     command_require_live_locations=command_require_live_locations,
                     command_find_closest_saved_locations=command_find_closest_saved_locations,
                     command_match_closest_saved_locations=command_match_closest_saved_locations,
                     command_closest_location_tolerance_meters=command_closest_location_tolerance_meters,
+                    command_closest_location_group_action_types=command_closest_location_group_action_types,
                     command_closest_location_group_texts=command_closest_location_group_texts,
+                    command_closest_location_group_callback_keys=command_closest_location_group_callback_keys,
+                    command_closest_location_group_custom_code_function_names=(
+                        command_closest_location_group_custom_code_function_names
+                    ),
                     command_closest_location_group_send_timings=command_closest_location_group_send_timings,
                     command_closest_location_group_send_after_steps=command_closest_location_group_send_after_steps,
                     command_location_invalid_texts=command_location_invalid_texts,
@@ -760,18 +836,30 @@ def _build_handler(
                         inline_run_if_context_keys_text=start_inline_run_if_context_keys,
                         inline_skip_if_context_keys_text=start_inline_skip_if_context_keys,
                         inline_save_callback_data_to_key_text=start_inline_save_callback_data_to_key,
+                        inline_remove_buttons_on_click_text=start_inline_remove_buttons_on_click,
                         callback_target_key=start_callback_target_key,
                         command_target_key=start_command_target_key,
                         photo_url=start_photo_url,
+                        location_latitude=start_location_latitude,
+                        location_longitude=start_location_longitude,
                         contact_button_text=start_contact_button_text,
                         mini_app_button_text=start_mini_app_button_text,
+                        custom_code_function_name=start_custom_code_function_name,
+                        bind_code_prefix=start_bind_code_prefix,
+                        bind_code_number_width=start_bind_code_number_width,
+                        bind_code_start_number=start_bind_code_start_number,
                         contact_success_text=start_contact_success_text,
                         contact_invalid_text=start_contact_invalid_text,
                         require_live_location=start_require_live_location,
                         find_closest_saved_location=start_find_closest_saved_location,
                         match_closest_saved_location=start_match_closest_saved_location,
                         closest_location_tolerance_meters=start_closest_location_tolerance_meters,
+                        closest_location_group_action_type=start_closest_location_group_action_type,
                         closest_location_group_text=start_closest_location_group_text,
+                        closest_location_group_callback_key=start_closest_location_group_callback_key,
+                        closest_location_group_custom_code_function_name=(
+                            start_closest_location_group_custom_code_function_name
+                        ),
                         closest_location_group_send_timing=start_closest_location_group_send_timing,
                         closest_location_group_send_after_step=start_closest_location_group_send_after_step,
                         location_invalid_text=start_location_invalid_text,
@@ -821,18 +909,30 @@ def _build_handler(
                     callback_inline_run_if_context_keys=callback_inline_run_if_context_keys,
                     callback_inline_skip_if_context_keys=callback_inline_skip_if_context_keys,
                     callback_inline_save_callback_data_to_keys=callback_inline_save_callback_data_to_keys,
+                    callback_inline_remove_buttons_on_click_values=callback_inline_remove_buttons_on_click_values,
                     callback_callback_target_keys=callback_callback_target_keys,
                     callback_command_target_keys=callback_command_target_keys,
                     callback_photo_urls=callback_photo_urls,
+                    callback_location_latitudes=callback_location_latitudes,
+                    callback_location_longitudes=callback_location_longitudes,
                     callback_contact_button_texts=callback_contact_button_texts,
                     callback_mini_app_button_texts=callback_mini_app_button_texts,
+                    callback_custom_code_function_names=callback_custom_code_function_names,
+                    callback_bind_code_prefixes=callback_bind_code_prefixes,
+                    callback_bind_code_number_widths=callback_bind_code_number_widths,
+                    callback_bind_code_start_numbers=callback_bind_code_start_numbers,
                     callback_contact_success_texts=callback_contact_success_texts,
                     callback_contact_invalid_texts=callback_contact_invalid_texts,
                     callback_require_live_locations=callback_require_live_locations,
                     callback_find_closest_saved_locations=callback_find_closest_saved_locations,
                     callback_match_closest_saved_locations=callback_match_closest_saved_locations,
                     callback_closest_location_tolerance_meters=callback_closest_location_tolerance_meters,
+                    callback_closest_location_group_action_types=callback_closest_location_group_action_types,
                     callback_closest_location_group_texts=callback_closest_location_group_texts,
+                    callback_closest_location_group_callback_keys=callback_closest_location_group_callback_keys,
+                    callback_closest_location_group_custom_code_function_names=(
+                        callback_closest_location_group_custom_code_function_names
+                    ),
                     callback_closest_location_group_send_timings=callback_closest_location_group_send_timings,
                     callback_closest_location_group_send_after_steps=callback_closest_location_group_send_after_steps,
                     callback_location_invalid_texts=callback_location_invalid_texts,
@@ -895,11 +995,29 @@ def _build_handler(
                 else:
                     status = "success"
                     message = f"Saved command menu config for {bot_id} (synced)"
+                if autosave_request:
+                    self._send_json(
+                        HTTPStatus.OK,
+                        {
+                            "ok": True,
+                            "status": status,
+                            "message": message,
+                            "bot_id": bot_id,
+                            "updated_at": str(payload.get("updated_at", "")),
+                        },
+                    )
+                    return
                 self._redirect(
                     f"/config?bot_id={quote_plus(bot_id)}&level={status}&message={quote_plus(message)}"
                 )
             except (ValueError, RuntimeError) as exc:
                 _print_terminal_error("config-save", str(exc))
+                if autosave_request:
+                    self._send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"ok": False, "error": str(exc), "bot_id": bot_id},
+                    )
+                    return
                 self._redirect(
                     f"/config?bot_id={quote_plus(bot_id)}&level=error&message={quote_plus(str(exc))}"
                 )
@@ -1015,6 +1133,25 @@ def _load_vue_module_js(filename: str) -> str:
     """Load one module-editor script from the standalone Vue module directory."""
     path = Path(__file__).with_name("vue_modules") / filename
     return path.read_text(encoding="utf-8")
+
+
+def _config_editor_asset_version() -> str:
+    """Build a cache-busting version token for standalone config-page JS assets."""
+    asset_paths = [
+        Path(__file__),
+        Path(__file__).with_name("config_vue.js"),
+        Path(__file__).with_name("vendor") / "vue.global.prod.js",
+    ]
+    vue_module_dir = Path(__file__).with_name("vue_modules")
+    for path in vue_module_dir.glob("*.js"):
+        asset_paths.append(path)
+    latest_mtime_ns = 0
+    for path in asset_paths:
+        try:
+            latest_mtime_ns = max(latest_mtime_ns, path.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return str(latest_mtime_ns or int(time.time() * 1_000_000_000))
 
 
 def _render_page(
@@ -2883,6 +3020,7 @@ def _render_config_page(
     payload: dict[str, object],
     runtime_status: dict[str, object],
     context_key_options: Iterable[str] = (),
+    custom_code_function_options: Iterable[str] = (),
     message: str,
     level: str,
 ) -> str:
@@ -2920,6 +3058,9 @@ def _render_config_page(
             "context_key_options": [
                 str(value).strip() for value in context_key_options if str(value).strip()
             ],
+            "custom_code_function_options": [
+                str(value).strip() for value in custom_code_function_options if str(value).strip()
+            ],
         }
     ).replace("</", "<\\/")
     is_running = bool(runtime_status.get("running"))
@@ -2937,6 +3078,7 @@ def _render_config_page(
     toggle_label = "Stop" if is_running else "Run"
     toggle_class = "toggle-stop" if is_running else "toggle-run"
     next_url = f"/config?bot_id={quote_plus(bot_id)}"
+    asset_version = html.escape(_config_editor_asset_version())
 
     status_html = _render_status_html(message=message, level=level)
 
@@ -3407,7 +3549,7 @@ def _render_config_page(
     <div id="config-layout" class="config-layout runtime-error-hidden">
       <div class="config-main">
         <div class="panel">
-          <form method="post" action="/config/save">
+          <form id="config-save-form" method="post" action="/config/save" data-autosave-enabled="1">
             <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
             <h1>Default Bot Command Menu</h1>
             <label class="checkbox">
@@ -3422,6 +3564,7 @@ def _render_config_page(
             </div>
             <div id="command-config-app"></div>
             <div class="actions">
+              <span id="config-autosave-status" class="hint">Autosave ready.</span>
               <button type="submit">Save Config</button>
               <a class="back" href="/">Back to Bot List</a>
             </div>
@@ -3439,24 +3582,28 @@ def _render_config_page(
     </div>
   </div>
   <script id="command-config-state" type="application/json">{config_state_json}</script>
-  <script src="/vue-runtime.js"></script>
-  <script src="/module-system.js"></script>
-  <script src="/module-send-message.js"></script>
-  <script src="/module-send-photo.js"></script>
-  <script src="/module-menu.js"></script>
-  <script src="/module-inline-button.js"></script>
-  <script src="/module-share-contact.js"></script>
-  <script src="/module-share-location.js"></script>
-  <script src="/module-route.js"></script>
-  <script src="/module-checkout.js"></script>
-  <script src="/module-payway-payment.js"></script>
-  <script src="/module-cart-button.js"></script>
-  <script src="/module-open-mini-app.js"></script>
-  <script src="/module-forget-user-data.js"></script>
-  <script src="/module-callback-module.js"></script>
-  <script src="/module-command-module.js"></script>
-  <script src="/module-inline-button-module.js"></script>
-  <script src="/config-vue.js"></script>
+  <script src="/vue-runtime.js?v={asset_version}"></script>
+  <script src="/module-system.js?v={asset_version}"></script>
+  <script src="/module-send-message.js?v={asset_version}"></script>
+  <script src="/module-send-photo.js?v={asset_version}"></script>
+  <script src="/module-send-location.js?v={asset_version}"></script>
+  <script src="/module-menu.js?v={asset_version}"></script>
+  <script src="/module-inline-button.js?v={asset_version}"></script>
+  <script src="/module-share-contact.js?v={asset_version}"></script>
+  <script src="/module-ask-selfie.js?v={asset_version}"></script>
+  <script src="/module-custom-code.js?v={asset_version}"></script>
+  <script src="/module-bind-code.js?v={asset_version}"></script>
+  <script src="/module-share-location.js?v={asset_version}"></script>
+  <script src="/module-route.js?v={asset_version}"></script>
+  <script src="/module-checkout.js?v={asset_version}"></script>
+  <script src="/module-payway-payment.js?v={asset_version}"></script>
+  <script src="/module-cart-button.js?v={asset_version}"></script>
+  <script src="/module-open-mini-app.js?v={asset_version}"></script>
+  <script src="/module-forget-user-data.js?v={asset_version}"></script>
+  <script src="/module-callback-module.js?v={asset_version}"></script>
+  <script src="/module-command-module.js?v={asset_version}"></script>
+  <script src="/module-inline-button-module.js?v={asset_version}"></script>
+  <script src="/config-vue.js?v={asset_version}"></script>
     <script>
       (function() {{
       const configLayout = document.getElementById("config-layout");
@@ -3671,18 +3818,28 @@ def _build_command_modules_from_form(
     command_inline_run_if_context_keys: list[str],
     command_inline_skip_if_context_keys: list[str],
     command_inline_save_callback_data_to_keys: list[str],
+    command_inline_remove_buttons_on_click_values: list[str],
     command_callback_target_keys: list[str],
     command_command_target_keys: list[str],
     command_photo_urls: list[str],
+    command_location_latitudes: list[str],
+    command_location_longitudes: list[str],
     command_contact_button_texts: list[str],
     command_mini_app_button_texts: list[str],
+    command_custom_code_function_names: list[str],
+    command_bind_code_prefixes: list[str],
+    command_bind_code_number_widths: list[str],
+    command_bind_code_start_numbers: list[str],
     command_contact_success_texts: list[str],
     command_contact_invalid_texts: list[str],
     command_require_live_locations: list[str],
     command_find_closest_saved_locations: list[str],
     command_match_closest_saved_locations: list[str],
     command_closest_location_tolerance_meters: list[str],
+    command_closest_location_group_action_types: list[str],
     command_closest_location_group_texts: list[str],
+    command_closest_location_group_callback_keys: list[str],
+    command_closest_location_group_custom_code_function_names: list[str],
     command_closest_location_group_send_timings: list[str],
     command_closest_location_group_send_after_steps: list[str],
     command_location_invalid_texts: list[str],
@@ -3733,18 +3890,28 @@ def _build_command_modules_from_form(
         len(command_inline_run_if_context_keys),
         len(command_inline_skip_if_context_keys),
         len(command_inline_save_callback_data_to_keys),
+        len(command_inline_remove_buttons_on_click_values),
         len(command_callback_target_keys),
         len(command_command_target_keys),
         len(command_photo_urls),
+        len(command_location_latitudes),
+        len(command_location_longitudes),
         len(command_contact_button_texts),
         len(command_mini_app_button_texts),
+        len(command_custom_code_function_names),
+        len(command_bind_code_prefixes),
+        len(command_bind_code_number_widths),
+        len(command_bind_code_start_numbers),
         len(command_contact_success_texts),
         len(command_contact_invalid_texts),
         len(command_require_live_locations),
         len(command_find_closest_saved_locations),
         len(command_match_closest_saved_locations),
         len(command_closest_location_tolerance_meters),
+        len(command_closest_location_group_action_types),
         len(command_closest_location_group_texts),
+        len(command_closest_location_group_callback_keys),
+        len(command_closest_location_group_custom_code_function_names),
         len(command_closest_location_group_send_timings),
         len(command_closest_location_group_send_after_steps),
         len(command_location_invalid_texts),
@@ -3800,12 +3967,35 @@ def _build_command_modules_from_form(
             if idx < len(command_inline_save_callback_data_to_keys)
             else ""
         )
+        inline_remove_buttons_on_click_text = (
+            command_inline_remove_buttons_on_click_values[idx].strip()
+            if idx < len(command_inline_remove_buttons_on_click_values)
+            else ""
+        )
         callback_target_key = command_callback_target_keys[idx].strip() if idx < len(command_callback_target_keys) else ""
         command_target_key = command_command_target_keys[idx].strip() if idx < len(command_command_target_keys) else ""
         photo_url = command_photo_urls[idx].strip() if idx < len(command_photo_urls) else ""
+        location_latitude = (
+            command_location_latitudes[idx].strip() if idx < len(command_location_latitudes) else ""
+        )
+        location_longitude = (
+            command_location_longitudes[idx].strip() if idx < len(command_location_longitudes) else ""
+        )
         contact_button_text = command_contact_button_texts[idx].strip() if idx < len(command_contact_button_texts) else ""
         mini_app_button_text = (
             command_mini_app_button_texts[idx].strip() if idx < len(command_mini_app_button_texts) else ""
+        )
+        custom_code_function_name = (
+            command_custom_code_function_names[idx].strip()
+            if idx < len(command_custom_code_function_names)
+            else ""
+        )
+        bind_code_prefix = command_bind_code_prefixes[idx].strip() if idx < len(command_bind_code_prefixes) else ""
+        bind_code_number_width = (
+            command_bind_code_number_widths[idx].strip() if idx < len(command_bind_code_number_widths) else ""
+        )
+        bind_code_start_number = (
+            command_bind_code_start_numbers[idx].strip() if idx < len(command_bind_code_start_numbers) else ""
         )
         contact_success_text = command_contact_success_texts[idx].strip() if idx < len(command_contact_success_texts) else ""
         contact_invalid_text = command_contact_invalid_texts[idx].strip() if idx < len(command_contact_invalid_texts) else ""
@@ -3827,9 +4017,24 @@ def _build_command_modules_from_form(
             if idx < len(command_closest_location_tolerance_meters)
             else ""
         )
+        closest_location_group_action_type = (
+            command_closest_location_group_action_types[idx].strip()
+            if idx < len(command_closest_location_group_action_types)
+            else ""
+        )
         closest_location_group_text = (
             command_closest_location_group_texts[idx].strip()
             if idx < len(command_closest_location_group_texts)
+            else ""
+        )
+        closest_location_group_callback_key = (
+            command_closest_location_group_callback_keys[idx].strip()
+            if idx < len(command_closest_location_group_callback_keys)
+            else ""
+        )
+        closest_location_group_custom_code_function_name = (
+            command_closest_location_group_custom_code_function_names[idx].strip()
+            if idx < len(command_closest_location_group_custom_code_function_names)
             else ""
         )
         closest_location_group_send_timing = (
@@ -3914,18 +4119,28 @@ def _build_command_modules_from_form(
             inline_run_if_context_keys_text=inline_run_if_context_keys_text,
             inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+            inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
+            location_latitude=location_latitude,
+            location_longitude=location_longitude,
             contact_button_text=contact_button_text,
             mini_app_button_text=mini_app_button_text,
+            custom_code_function_name=custom_code_function_name,
+            bind_code_prefix=bind_code_prefix,
+            bind_code_number_width=bind_code_number_width,
+            bind_code_start_number=bind_code_start_number,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
             require_live_location=require_live_location,
             find_closest_saved_location=find_closest_saved_location,
             match_closest_saved_location=match_closest_saved_location,
             closest_location_tolerance_meters=closest_location_tolerance_meters,
+            closest_location_group_action_type=closest_location_group_action_type,
             closest_location_group_text=closest_location_group_text,
+            closest_location_group_callback_key=closest_location_group_callback_key,
+            closest_location_group_custom_code_function_name=closest_location_group_custom_code_function_name,
             closest_location_group_send_timing=closest_location_group_send_timing,
             closest_location_group_send_after_step=closest_location_group_send_after_step,
             location_invalid_text=location_invalid_text,
@@ -3977,18 +4192,28 @@ def _build_callback_modules_from_form(
     callback_inline_run_if_context_keys: list[str],
     callback_inline_skip_if_context_keys: list[str],
     callback_inline_save_callback_data_to_keys: list[str],
+    callback_inline_remove_buttons_on_click_values: list[str],
     callback_callback_target_keys: list[str],
     callback_command_target_keys: list[str],
     callback_photo_urls: list[str],
+    callback_location_latitudes: list[str],
+    callback_location_longitudes: list[str],
     callback_contact_button_texts: list[str],
     callback_mini_app_button_texts: list[str],
+    callback_custom_code_function_names: list[str],
+    callback_bind_code_prefixes: list[str],
+    callback_bind_code_number_widths: list[str],
+    callback_bind_code_start_numbers: list[str],
     callback_contact_success_texts: list[str],
     callback_contact_invalid_texts: list[str],
     callback_require_live_locations: list[str],
     callback_find_closest_saved_locations: list[str],
     callback_match_closest_saved_locations: list[str],
     callback_closest_location_tolerance_meters: list[str],
+    callback_closest_location_group_action_types: list[str],
     callback_closest_location_group_texts: list[str],
+    callback_closest_location_group_callback_keys: list[str],
+    callback_closest_location_group_custom_code_function_names: list[str],
     callback_closest_location_group_send_timings: list[str],
     callback_closest_location_group_send_after_steps: list[str],
     callback_location_invalid_texts: list[str],
@@ -4040,18 +4265,28 @@ def _build_callback_modules_from_form(
         len(callback_inline_run_if_context_keys),
         len(callback_inline_skip_if_context_keys),
         len(callback_inline_save_callback_data_to_keys),
+        len(callback_inline_remove_buttons_on_click_values),
         len(callback_callback_target_keys),
         len(callback_command_target_keys),
         len(callback_photo_urls),
+        len(callback_location_latitudes),
+        len(callback_location_longitudes),
         len(callback_contact_button_texts),
         len(callback_mini_app_button_texts),
+        len(callback_custom_code_function_names),
+        len(callback_bind_code_prefixes),
+        len(callback_bind_code_number_widths),
+        len(callback_bind_code_start_numbers),
         len(callback_contact_success_texts),
         len(callback_contact_invalid_texts),
         len(callback_require_live_locations),
         len(callback_find_closest_saved_locations),
         len(callback_match_closest_saved_locations),
         len(callback_closest_location_tolerance_meters),
+        len(callback_closest_location_group_action_types),
         len(callback_closest_location_group_texts),
+        len(callback_closest_location_group_callback_keys),
+        len(callback_closest_location_group_custom_code_function_names),
         len(callback_closest_location_group_send_timings),
         len(callback_closest_location_group_send_after_steps),
         len(callback_location_invalid_texts),
@@ -4107,12 +4342,35 @@ def _build_callback_modules_from_form(
             if idx < len(callback_inline_save_callback_data_to_keys)
             else ""
         )
+        inline_remove_buttons_on_click_text = (
+            callback_inline_remove_buttons_on_click_values[idx].strip()
+            if idx < len(callback_inline_remove_buttons_on_click_values)
+            else ""
+        )
         callback_target_key = callback_callback_target_keys[idx].strip() if idx < len(callback_callback_target_keys) else ""
         command_target_key = callback_command_target_keys[idx].strip() if idx < len(callback_command_target_keys) else ""
         photo_url = callback_photo_urls[idx].strip() if idx < len(callback_photo_urls) else ""
+        location_latitude = (
+            callback_location_latitudes[idx].strip() if idx < len(callback_location_latitudes) else ""
+        )
+        location_longitude = (
+            callback_location_longitudes[idx].strip() if idx < len(callback_location_longitudes) else ""
+        )
         contact_button_text = callback_contact_button_texts[idx].strip() if idx < len(callback_contact_button_texts) else ""
         mini_app_button_text = (
             callback_mini_app_button_texts[idx].strip() if idx < len(callback_mini_app_button_texts) else ""
+        )
+        custom_code_function_name = (
+            callback_custom_code_function_names[idx].strip()
+            if idx < len(callback_custom_code_function_names)
+            else ""
+        )
+        bind_code_prefix = callback_bind_code_prefixes[idx].strip() if idx < len(callback_bind_code_prefixes) else ""
+        bind_code_number_width = (
+            callback_bind_code_number_widths[idx].strip() if idx < len(callback_bind_code_number_widths) else ""
+        )
+        bind_code_start_number = (
+            callback_bind_code_start_numbers[idx].strip() if idx < len(callback_bind_code_start_numbers) else ""
         )
         contact_success_text = callback_contact_success_texts[idx].strip() if idx < len(callback_contact_success_texts) else ""
         contact_invalid_text = callback_contact_invalid_texts[idx].strip() if idx < len(callback_contact_invalid_texts) else ""
@@ -4134,9 +4392,24 @@ def _build_callback_modules_from_form(
             if idx < len(callback_closest_location_tolerance_meters)
             else ""
         )
+        closest_location_group_action_type = (
+            callback_closest_location_group_action_types[idx].strip()
+            if idx < len(callback_closest_location_group_action_types)
+            else ""
+        )
         closest_location_group_text = (
             callback_closest_location_group_texts[idx].strip()
             if idx < len(callback_closest_location_group_texts)
+            else ""
+        )
+        closest_location_group_callback_key = (
+            callback_closest_location_group_callback_keys[idx].strip()
+            if idx < len(callback_closest_location_group_callback_keys)
+            else ""
+        )
+        closest_location_group_custom_code_function_name = (
+            callback_closest_location_group_custom_code_function_names[idx].strip()
+            if idx < len(callback_closest_location_group_custom_code_function_names)
             else ""
         )
         closest_location_group_send_timing = (
@@ -4226,18 +4499,28 @@ def _build_callback_modules_from_form(
             inline_run_if_context_keys_text=inline_run_if_context_keys_text,
             inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+            inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
+            location_latitude=location_latitude,
+            location_longitude=location_longitude,
             contact_button_text=contact_button_text,
             mini_app_button_text=mini_app_button_text,
+            custom_code_function_name=custom_code_function_name,
+            bind_code_prefix=bind_code_prefix,
+            bind_code_number_width=bind_code_number_width,
+            bind_code_start_number=bind_code_start_number,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
             require_live_location=require_live_location,
             find_closest_saved_location=find_closest_saved_location,
             match_closest_saved_location=match_closest_saved_location,
             closest_location_tolerance_meters=closest_location_tolerance_meters,
+            closest_location_group_action_type=closest_location_group_action_type,
             closest_location_group_text=closest_location_group_text,
+            closest_location_group_callback_key=closest_location_group_callback_key,
+            closest_location_group_custom_code_function_name=closest_location_group_custom_code_function_name,
             closest_location_group_send_timing=closest_location_group_send_timing,
             closest_location_group_send_after_step=closest_location_group_send_after_step,
             location_invalid_text=location_invalid_text,
@@ -4325,22 +4608,44 @@ def _build_callback_temporary_command_entries(
             inline_run_if_context_keys_text=str(raw_entry.get("inline_run_if_context_keys", "")).strip(),
             inline_skip_if_context_keys_text=str(raw_entry.get("inline_skip_if_context_keys", "")).strip(),
             inline_save_callback_data_to_key_text=str(raw_entry.get("inline_save_callback_data_to_key", "")).strip(),
+            inline_remove_buttons_on_click_text=str(raw_entry.get("inline_remove_buttons_on_click", "")).strip(),
             callback_target_key=str(raw_entry.get("callback_target_key", "")).strip(),
             command_target_key=str(raw_entry.get("command_target_key", "")).strip(),
             photo_url=str(raw_entry.get("photo_url", "")).strip(),
+            location_latitude=str(raw_entry.get("location_latitude", raw_entry.get("latitude", ""))).strip(),
+            location_longitude=str(raw_entry.get("location_longitude", raw_entry.get("longitude", ""))).strip(),
             contact_button_text=str(raw_entry.get("contact_button_text", "")).strip(),
             mini_app_button_text=str(raw_entry.get("mini_app_button_text", "")).strip(),
+            custom_code_function_name=str(
+                raw_entry.get("custom_code_function_name", raw_entry.get("function_name", ""))
+            ).strip(),
+            bind_code_prefix=str(raw_entry.get("bind_code_prefix", raw_entry.get("prefix", ""))).strip(),
+            bind_code_number_width=str(
+                raw_entry.get("bind_code_number_width", raw_entry.get("number_width", ""))
+            ).strip(),
+            bind_code_start_number=str(
+                raw_entry.get("bind_code_start_number", raw_entry.get("start_number", ""))
+            ).strip(),
             contact_success_text=str(raw_entry.get("contact_success_text", "")).strip(),
             contact_invalid_text=str(raw_entry.get("contact_invalid_text", "")).strip(),
             require_live_location=str(raw_entry.get("require_live_location", "")).strip(),
             find_closest_saved_location=str(raw_entry.get("find_closest_saved_location", "")).strip(),
             match_closest_saved_location=str(raw_entry.get("match_closest_saved_location", "")).strip(),
             closest_location_tolerance_meters=str(raw_entry.get("closest_location_tolerance_meters", "")).strip(),
+            closest_location_group_action_type=str(
+                raw_entry.get("closest_location_group_action_type", "")
+            ).strip(),
             closest_location_group_text=str(
                 raw_entry.get(
                     "closest_location_group_text",
                     raw_entry.get("closest_location_group_text_template", ""),
                 )
+            ).strip(),
+            closest_location_group_callback_key=str(
+                raw_entry.get("closest_location_group_callback_key", "")
+            ).strip(),
+            closest_location_group_custom_code_function_name=str(
+                raw_entry.get("closest_location_group_custom_code_function_name", "")
             ).strip(),
             closest_location_group_send_timing=str(
                 raw_entry.get("closest_location_group_send_timing", "")
@@ -4398,6 +4703,7 @@ def _build_command_module_entry(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -4405,11 +4711,20 @@ def _build_command_module_entry(
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    custom_code_function_name: str = "",
+    bind_code_prefix: str = "",
+    bind_code_number_width: str = "",
+    bind_code_start_number: str = "",
+    location_latitude: str = "",
+    location_longitude: str = "",
     require_live_location: str = "",
     find_closest_saved_location: str = "",
     match_closest_saved_location: str = "",
     closest_location_tolerance_meters: str = "",
+    closest_location_group_action_type: str = "",
     closest_location_group_text: str = "",
+    closest_location_group_callback_key: str = "",
+    closest_location_group_custom_code_function_name: str = "",
     closest_location_group_send_timing: str = "",
     closest_location_group_send_after_step: str = "",
     location_invalid_text: str = "",
@@ -4463,18 +4778,28 @@ def _build_command_module_entry(
         inline_run_if_context_keys_text=inline_run_if_context_keys_text,
         inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+        inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
+        location_latitude=location_latitude,
+        location_longitude=location_longitude,
         contact_button_text=contact_button_text,
         mini_app_button_text=mini_app_button_text,
+        custom_code_function_name=custom_code_function_name,
+        bind_code_prefix=bind_code_prefix,
+        bind_code_number_width=bind_code_number_width,
+        bind_code_start_number=bind_code_start_number,
         contact_success_text=contact_success_text,
         contact_invalid_text=contact_invalid_text,
         require_live_location=require_live_location,
         find_closest_saved_location=find_closest_saved_location,
         match_closest_saved_location=match_closest_saved_location,
         closest_location_tolerance_meters=closest_location_tolerance_meters,
+        closest_location_group_action_type=closest_location_group_action_type,
         closest_location_group_text=closest_location_group_text,
+        closest_location_group_callback_key=closest_location_group_callback_key,
+        closest_location_group_custom_code_function_name=closest_location_group_custom_code_function_name,
         closest_location_group_send_timing=closest_location_group_send_timing,
         closest_location_group_send_after_step=closest_location_group_send_after_step,
         location_invalid_text=location_invalid_text,
@@ -4528,6 +4853,7 @@ def _build_callback_module_entry(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -4535,11 +4861,20 @@ def _build_callback_module_entry(
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    custom_code_function_name: str = "",
+    bind_code_prefix: str = "",
+    bind_code_number_width: str = "",
+    bind_code_start_number: str = "",
+    location_latitude: str = "",
+    location_longitude: str = "",
     require_live_location: str = "",
     find_closest_saved_location: str = "",
     match_closest_saved_location: str = "",
     closest_location_tolerance_meters: str = "",
+    closest_location_group_action_type: str = "",
     closest_location_group_text: str = "",
+    closest_location_group_callback_key: str = "",
+    closest_location_group_custom_code_function_name: str = "",
     closest_location_group_send_timing: str = "",
     closest_location_group_send_after_step: str = "",
     location_invalid_text: str = "",
@@ -4592,18 +4927,28 @@ def _build_callback_module_entry(
         inline_run_if_context_keys_text=inline_run_if_context_keys_text,
         inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+        inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
+        location_latitude=location_latitude,
+        location_longitude=location_longitude,
         contact_button_text=contact_button_text,
         mini_app_button_text=mini_app_button_text,
+        custom_code_function_name=custom_code_function_name,
+        bind_code_prefix=bind_code_prefix,
+        bind_code_number_width=bind_code_number_width,
+        bind_code_start_number=bind_code_start_number,
         contact_success_text=contact_success_text,
         contact_invalid_text=contact_invalid_text,
         require_live_location=require_live_location,
         find_closest_saved_location=find_closest_saved_location,
         match_closest_saved_location=match_closest_saved_location,
         closest_location_tolerance_meters=closest_location_tolerance_meters,
+        closest_location_group_action_type=closest_location_group_action_type,
         closest_location_group_text=closest_location_group_text,
+        closest_location_group_callback_key=closest_location_group_callback_key,
+        closest_location_group_custom_code_function_name=closest_location_group_custom_code_function_name,
         closest_location_group_send_timing=closest_location_group_send_timing,
         closest_location_group_send_after_step=closest_location_group_send_after_step,
         location_invalid_text=location_invalid_text,
@@ -4665,18 +5010,28 @@ def _build_module_step(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
+    location_latitude: str,
+    location_longitude: str,
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    custom_code_function_name: str = "",
+    bind_code_prefix: str = "",
+    bind_code_number_width: str = "",
+    bind_code_start_number: str = "",
     require_live_location: str = "",
     find_closest_saved_location: str = "",
     match_closest_saved_location: str = "",
     closest_location_tolerance_meters: str = "",
+    closest_location_group_action_type: str = "",
     closest_location_group_text: str = "",
+    closest_location_group_callback_key: str = "",
+    closest_location_group_custom_code_function_name: str = "",
     closest_location_group_send_timing: str = "",
     closest_location_group_send_after_step: str = "",
     location_invalid_text: str = "",
@@ -4739,16 +5094,13 @@ def _build_module_step(
             "parse_mode": parse_mode_value,
             "buttons": buttons,
         }
-        run_if_context_keys = _parse_context_key_lines(inline_run_if_context_keys_text)
-        skip_if_context_keys = _parse_context_key_lines(inline_skip_if_context_keys_text)
-        save_callback_data_to_key = inline_save_callback_data_to_key_text.strip()
-        if run_if_context_keys:
-            step["run_if_context_keys"] = run_if_context_keys
-        if skip_if_context_keys:
-            step["skip_if_context_keys"] = skip_if_context_keys
-        if save_callback_data_to_key:
-            step["save_callback_data_to_key"] = save_callback_data_to_key
-        return step
+        return _attach_inline_button_context_rules(
+            step,
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
+            save_callback_data_to_key=inline_save_callback_data_to_key_text,
+            remove_inline_buttons_on_click=inline_remove_buttons_on_click_text,
+        )
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -4817,6 +5169,13 @@ def _build_module_step(
             "buttons": buttons,
         }
 
+    if normalized_module_type == "send_location":
+        return _build_send_location_step(
+            context_label=f"command /{command_name}",
+            location_latitude=location_latitude,
+            location_longitude=location_longitude,
+        )
+
     if normalized_module_type == "share_contact":
         return _build_share_contact_step(
             default_text="Please share your contact using the button below.",
@@ -4825,6 +5184,29 @@ def _build_module_step(
             contact_button_text=contact_button_text,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
+        )
+
+    if normalized_module_type == "ask_selfie":
+        return _build_ask_selfie_step(
+            default_text="Please send a selfie photo.",
+            text_template=text_template,
+            parse_mode_value=parse_mode_value,
+            success_text=contact_success_text,
+            invalid_text=contact_invalid_text,
+        )
+
+    if normalized_module_type == "custom_code":
+        return _build_custom_code_step(
+            context_label=f"command /{command_name}",
+            function_name=custom_code_function_name,
+        )
+
+    if normalized_module_type == "bind_code":
+        return _build_bind_code_step(
+            context_label=f"command /{command_name}",
+            prefix=bind_code_prefix,
+            number_width=bind_code_number_width,
+            start_number=bind_code_start_number,
         )
 
     if normalized_module_type == "share_location":
@@ -4839,7 +5221,12 @@ def _build_module_step(
                 find_closest_saved_location=_is_truthy_text(find_closest_saved_location),
                 match_closest_saved_location=_is_truthy_text(match_closest_saved_location),
                 closest_location_tolerance_meters=closest_location_tolerance_meters,
+                closest_location_group_action_type=closest_location_group_action_type,
                 closest_location_group_text_template=closest_location_group_text,
+                closest_location_group_callback_key=closest_location_group_callback_key,
+                closest_location_group_custom_code_function_name=(
+                    closest_location_group_custom_code_function_name
+                ),
                 closest_location_group_send_timing=closest_location_group_send_timing,
                 closest_location_group_send_after_step=closest_location_group_send_after_step,
                 invalid_text_template=location_invalid_text,
@@ -4952,18 +5339,28 @@ def _build_callback_module_step(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
+    location_latitude: str,
+    location_longitude: str,
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    custom_code_function_name: str = "",
+    bind_code_prefix: str = "",
+    bind_code_number_width: str = "",
+    bind_code_start_number: str = "",
     require_live_location: str = "",
     find_closest_saved_location: str = "",
     match_closest_saved_location: str = "",
     closest_location_tolerance_meters: str = "",
+    closest_location_group_action_type: str = "",
     closest_location_group_text: str = "",
+    closest_location_group_callback_key: str = "",
+    closest_location_group_custom_code_function_name: str = "",
     closest_location_group_send_timing: str = "",
     closest_location_group_send_after_step: str = "",
     location_invalid_text: str = "",
@@ -5027,16 +5424,13 @@ def _build_callback_module_step(
             "parse_mode": parse_mode_value,
             "buttons": buttons,
         }
-        run_if_context_keys = _parse_context_key_lines(inline_run_if_context_keys_text)
-        skip_if_context_keys = _parse_context_key_lines(inline_skip_if_context_keys_text)
-        save_callback_data_to_key = inline_save_callback_data_to_key_text.strip()
-        if run_if_context_keys:
-            step["run_if_context_keys"] = run_if_context_keys
-        if skip_if_context_keys:
-            step["skip_if_context_keys"] = skip_if_context_keys
-        if save_callback_data_to_key:
-            step["save_callback_data_to_key"] = save_callback_data_to_key
-        return step
+        return _attach_inline_button_context_rules(
+            step,
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
+            save_callback_data_to_key=inline_save_callback_data_to_key_text,
+            remove_inline_buttons_on_click=inline_remove_buttons_on_click_text,
+        )
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -5105,6 +5499,13 @@ def _build_callback_module_step(
             "buttons": buttons,
         }
 
+    if normalized_module_type == "send_location":
+        return _build_send_location_step(
+            context_label=f"callback '{callback_key}'",
+            location_latitude=location_latitude,
+            location_longitude=location_longitude,
+        )
+
     if normalized_module_type == "share_contact":
         return _build_share_contact_step(
             default_text="Please share your contact using the button below.",
@@ -5113,6 +5514,29 @@ def _build_callback_module_step(
             contact_button_text=contact_button_text,
             contact_success_text=contact_success_text,
             contact_invalid_text=contact_invalid_text,
+        )
+
+    if normalized_module_type == "ask_selfie":
+        return _build_ask_selfie_step(
+            default_text="Please send a selfie photo.",
+            text_template=text_template,
+            parse_mode_value=parse_mode_value,
+            success_text=contact_success_text,
+            invalid_text=contact_invalid_text,
+        )
+
+    if normalized_module_type == "custom_code":
+        return _build_custom_code_step(
+            context_label=f"callback '{callback_key}'",
+            function_name=custom_code_function_name,
+        )
+
+    if normalized_module_type == "bind_code":
+        return _build_bind_code_step(
+            context_label=f"callback '{callback_key}'",
+            prefix=bind_code_prefix,
+            number_width=bind_code_number_width,
+            start_number=bind_code_start_number,
         )
 
     if normalized_module_type == "share_location":
@@ -5127,7 +5551,12 @@ def _build_callback_module_step(
                 find_closest_saved_location=_is_truthy_text(find_closest_saved_location),
                 match_closest_saved_location=_is_truthy_text(match_closest_saved_location),
                 closest_location_tolerance_meters=closest_location_tolerance_meters,
+                closest_location_group_action_type=closest_location_group_action_type,
                 closest_location_group_text_template=closest_location_group_text,
+                closest_location_group_callback_key=closest_location_group_callback_key,
+                closest_location_group_custom_code_function_name=(
+                    closest_location_group_custom_code_function_name
+                ),
                 closest_location_group_send_timing=closest_location_group_send_timing,
                 closest_location_group_send_after_step=closest_location_group_send_after_step,
                 invalid_text_template=location_invalid_text,
@@ -5243,6 +5672,66 @@ def _build_share_contact_step(
     }
 
 
+def _build_ask_selfie_step(
+    *,
+    default_text: str,
+    text_template: str,
+    parse_mode_value: str | None,
+    success_text: str,
+    invalid_text: str,
+) -> dict[str, object]:
+    """Build a normalized ask_selfie step payload."""
+    return {
+        "module_type": "ask_selfie",
+        "text_template": text_template.strip() or default_text,
+        "parse_mode": parse_mode_value,
+        "success_text_template": success_text.strip() or "Thanks, your selfie was received.",
+        "invalid_text_template": invalid_text.strip() or "Please send a selfie photo.",
+    }
+
+
+def _build_custom_code_step(*, context_label: str, function_name: str) -> dict[str, object]:
+    """Build a normalized custom_code step payload."""
+    normalized_function_name = function_name.strip()
+    if not normalized_function_name:
+        raise ValueError(f"{context_label}: custom_code requires function selection")
+    if normalized_function_name not in load_custom_code_function_names():
+        raise ValueError(f"{context_label}: unknown custom_code function '{normalized_function_name}'")
+    return {
+        "module_type": "custom_code",
+        "function_name": normalized_function_name,
+    }
+
+
+def _build_bind_code_step(
+    *,
+    context_label: str,
+    prefix: str,
+    number_width: str,
+    start_number: str,
+) -> dict[str, object]:
+    """Build a normalized bind_code step payload."""
+    normalized_number_width = _parse_cart_int_text(
+        number_width,
+        default=4,
+        minimum=0,
+        field_label=f"{context_label}: bind_code number width",
+    )
+    normalized_start_number = _parse_positive_int_text(
+        start_number,
+        default=1,
+        field_label=f"{context_label}: bind_code start number",
+    )
+    if normalized_start_number is None:
+        normalized_start_number = 1
+    return {
+        "module_type": "bind_code",
+        "prefix": prefix,
+        "number_width": normalized_number_width,
+        "start_number": normalized_start_number,
+    }
+
+
 def _normalize_share_location_live_mode(
     *,
     require_live_location: bool,
@@ -5289,6 +5778,34 @@ def _normalize_closest_location_group_send_config(
     return "end", None
 
 
+def _normalize_closest_location_group_action_type(raw_value: str) -> str:
+    """Normalize closest-location group action type values."""
+    normalized = str(raw_value or "").strip().lower().replace(" ", "_")
+    if normalized in {"callback", "callback_module"}:
+        return "callback_module"
+    if normalized in {"custom", "custom_code"}:
+        return "custom_code"
+    return "message"
+
+
+def _resolve_closest_location_group_action_type(
+    *,
+    raw_action_type: str,
+    group_text: str,
+    group_callback_key: str,
+    group_custom_code_function_name: str,
+) -> str:
+    """Infer the closest-location group action type from explicit mode plus configured fields."""
+    normalized = _normalize_closest_location_group_action_type(raw_action_type)
+    if group_custom_code_function_name.strip():
+        return "custom_code"
+    if group_callback_key.strip():
+        return "callback_module"
+    if group_text.strip():
+        return "message"
+    return normalized
+
+
 def _build_share_location_step(
     *,
     default_text: str,
@@ -5300,7 +5817,10 @@ def _build_share_location_step(
     find_closest_saved_location: bool = False,
     match_closest_saved_location: bool = False,
     closest_location_tolerance_meters: str = "",
+    closest_location_group_action_type: str = "",
     closest_location_group_text_template: str = "",
+    closest_location_group_callback_key: str = "",
+    closest_location_group_custom_code_function_name: str = "",
     closest_location_group_send_timing: str = "",
     closest_location_group_send_after_step: str = "",
     invalid_text_template: str = "",
@@ -5339,8 +5859,33 @@ def _build_share_location_step(
         step["require_live_location"] = True
         if find_closest_saved_location:
             step["find_closest_saved_location"] = True
-            if closest_location_group_text_template.strip():
-                step["closest_location_group_text_template"] = closest_location_group_text_template.strip()
+            group_text = closest_location_group_text_template.strip()
+            group_callback_key = closest_location_group_callback_key.strip()
+            group_custom_code_function_name = closest_location_group_custom_code_function_name.strip()
+            group_action_type = _resolve_closest_location_group_action_type(
+                raw_action_type=closest_location_group_action_type,
+                group_text=group_text,
+                group_callback_key=group_callback_key,
+                group_custom_code_function_name=group_custom_code_function_name,
+            )
+            step["closest_location_group_action_type"] = group_action_type
+            has_group_action = group_action_type != "message"
+            if group_action_type == "callback_module":
+                if group_callback_key:
+                    step["closest_location_group_callback_key"] = group_callback_key
+            elif group_action_type == "custom_code":
+                if group_custom_code_function_name and group_custom_code_function_name not in load_custom_code_function_names():
+                    raise ValueError(
+                        "share_location closest location group custom code function is unknown"
+                    )
+                if group_custom_code_function_name:
+                    step["closest_location_group_custom_code_function_name"] = (
+                        group_custom_code_function_name
+                    )
+            elif group_text:
+                step["closest_location_group_text_template"] = group_text
+                has_group_action = True
+            if has_group_action:
                 group_send_timing, group_send_after_step = _normalize_closest_location_group_send_config(
                     timing=closest_location_group_send_timing,
                     after_step=closest_location_group_send_after_step,
@@ -5547,6 +6092,20 @@ def _build_cart_step(
     }
 
 
+def _build_send_location_step(
+    *,
+    context_label: str,
+    location_latitude: str,
+    location_longitude: str,
+) -> dict[str, object]:
+    """Build a normalized send_location step payload."""
+    return {
+        "module_type": "send_location",
+        "location_latitude": location_latitude.strip(),
+        "location_longitude": location_longitude.strip(),
+    }
+
+
 def _extract_command_module_form_values(
     *,
     command_name: str,
@@ -5561,8 +6120,16 @@ def _extract_command_module_form_values(
     parse_mode_text = str(parse_mode_raw).strip() if parse_mode_raw is not None else ""
     if module_type == "send_photo":
         text_default = ""
+    elif module_type == "send_location":
+        text_default = ""
     elif module_type == "share_contact":
         text_default = "Please share your contact using the button below."
+    elif module_type == "ask_selfie":
+        text_default = "Please send a selfie photo."
+    elif module_type == "custom_code":
+        text_default = ""
+    elif module_type == "bind_code":
+        text_default = ""
     elif module_type == "share_location":
         text_default = "Please share your location using the button below."
     elif module_type == "route":
@@ -5584,10 +6151,12 @@ def _extract_command_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
+    if module_type == "ask_selfie" and not text_template:
+        text_template = "Please send a selfie photo."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
     if module_type == "route" and not text_template:
@@ -5613,11 +6182,18 @@ def _extract_command_module_form_values(
     inline_run_if_context_keys = _context_key_lines_to_text(module.get("run_if_context_keys", []))
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
+    inline_remove_buttons_on_click = "1" if bool(module.get("remove_inline_buttons_on_click", False)) else ""
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
+    location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
+    location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
     contact_button_text = str(module.get("button_text", "")).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
+    custom_code_function_name = str(module.get("function_name", "")).strip()
+    bind_code_prefix = str(module.get("prefix", module.get("bind_code_prefix", ""))).strip()
+    bind_code_number_width = _format_numeric_text(module.get("number_width", module.get("bind_code_number_width", 4)))
+    bind_code_start_number = _format_numeric_text(module.get("start_number", module.get("bind_code_start_number", 1)))
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
@@ -5629,7 +6205,14 @@ def _extract_command_module_form_values(
             100.0 if bool(module.get("match_closest_saved_location", False)) else "",
         )
     )
+    closest_location_group_action_type = _normalize_closest_location_group_action_type(
+        str(module.get("closest_location_group_action_type", "message")).strip()
+    )
     closest_location_group_text = str(module.get("closest_location_group_text_template", "")).strip()
+    closest_location_group_callback_key = str(module.get("closest_location_group_callback_key", "")).strip()
+    closest_location_group_custom_code_function_name = str(
+        module.get("closest_location_group_custom_code_function_name", "")
+    ).strip()
     closest_location_group_send_timing = str(
         module.get("closest_location_group_send_timing", "end" if closest_location_group_text else "")
     ).strip()
@@ -5694,18 +6277,28 @@ def _extract_command_module_form_values(
         "inline_run_if_context_keys": inline_run_if_context_keys,
         "inline_skip_if_context_keys": inline_skip_if_context_keys,
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
+        "inline_remove_buttons_on_click": inline_remove_buttons_on_click,
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
         "photo_url": photo_url,
+        "location_latitude": location_latitude,
+        "location_longitude": location_longitude,
         "contact_button_text": contact_button_text,
         "mini_app_button_text": mini_app_button_text,
+        "custom_code_function_name": custom_code_function_name,
+        "bind_code_prefix": bind_code_prefix,
+        "bind_code_number_width": bind_code_number_width,
+        "bind_code_start_number": bind_code_start_number,
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
         "require_live_location": require_live_location,
         "find_closest_saved_location": find_closest_saved_location,
         "match_closest_saved_location": match_closest_saved_location,
         "closest_location_tolerance_meters": closest_location_tolerance_meters,
+        "closest_location_group_action_type": closest_location_group_action_type,
         "closest_location_group_text": closest_location_group_text,
+        "closest_location_group_callback_key": closest_location_group_callback_key,
+        "closest_location_group_custom_code_function_name": closest_location_group_custom_code_function_name,
         "closest_location_group_send_timing": closest_location_group_send_timing,
         "closest_location_group_send_after_step": closest_location_group_send_after_step,
         "location_invalid_text": location_invalid_text,
@@ -5758,8 +6351,16 @@ def _extract_callback_module_form_values(
     default_menu_title = f"{callback_key} Menu" if callback_key else "Callback Menu"
     if module_type == "send_photo":
         text_default = ""
+    elif module_type == "send_location":
+        text_default = ""
     elif module_type == "share_contact":
         text_default = "Please share your contact using the button below."
+    elif module_type == "ask_selfie":
+        text_default = "Please send a selfie photo."
+    elif module_type == "custom_code":
+        text_default = ""
+    elif module_type == "bind_code":
+        text_default = ""
     elif module_type == "share_location":
         text_default = "Please share your location using the button below."
     elif module_type == "route":
@@ -5781,10 +6382,12 @@ def _extract_callback_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "share_contact", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
+    if module_type == "ask_selfie" and not text_template:
+        text_template = "Please send a selfie photo."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
     if module_type == "route" and not text_template:
@@ -5807,11 +6410,18 @@ def _extract_callback_module_form_values(
     inline_run_if_context_keys = _context_key_lines_to_text(module.get("run_if_context_keys", []))
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
+    inline_remove_buttons_on_click = "1" if bool(module.get("remove_inline_buttons_on_click", False)) else ""
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
+    location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
+    location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
     contact_button_text = str(module.get("button_text", "")).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
+    custom_code_function_name = str(module.get("function_name", "")).strip()
+    bind_code_prefix = str(module.get("prefix", module.get("bind_code_prefix", ""))).strip()
+    bind_code_number_width = _format_numeric_text(module.get("number_width", module.get("bind_code_number_width", 4)))
+    bind_code_start_number = _format_numeric_text(module.get("start_number", module.get("bind_code_start_number", 1)))
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
@@ -5823,7 +6433,14 @@ def _extract_callback_module_form_values(
             100.0 if bool(module.get("match_closest_saved_location", False)) else "",
         )
     )
+    closest_location_group_action_type = _normalize_closest_location_group_action_type(
+        str(module.get("closest_location_group_action_type", "message")).strip()
+    )
     closest_location_group_text = str(module.get("closest_location_group_text_template", "")).strip()
+    closest_location_group_callback_key = str(module.get("closest_location_group_callback_key", "")).strip()
+    closest_location_group_custom_code_function_name = str(
+        module.get("closest_location_group_custom_code_function_name", "")
+    ).strip()
     closest_location_group_send_timing = str(
         module.get("closest_location_group_send_timing", "end" if closest_location_group_text else "")
     ).strip()
@@ -5887,18 +6504,28 @@ def _extract_callback_module_form_values(
         "inline_run_if_context_keys": inline_run_if_context_keys,
         "inline_skip_if_context_keys": inline_skip_if_context_keys,
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
+        "inline_remove_buttons_on_click": inline_remove_buttons_on_click,
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
         "photo_url": photo_url,
+        "location_latitude": location_latitude,
+        "location_longitude": location_longitude,
         "contact_button_text": contact_button_text,
         "mini_app_button_text": mini_app_button_text,
+        "custom_code_function_name": custom_code_function_name,
+        "bind_code_prefix": bind_code_prefix,
+        "bind_code_number_width": bind_code_number_width,
+        "bind_code_start_number": bind_code_start_number,
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
         "require_live_location": require_live_location,
         "find_closest_saved_location": find_closest_saved_location,
         "match_closest_saved_location": match_closest_saved_location,
         "closest_location_tolerance_meters": closest_location_tolerance_meters,
+        "closest_location_group_action_type": closest_location_group_action_type,
         "closest_location_group_text": closest_location_group_text,
+        "closest_location_group_callback_key": closest_location_group_callback_key,
+        "closest_location_group_custom_code_function_name": closest_location_group_custom_code_function_name,
         "closest_location_group_send_timing": closest_location_group_send_timing,
         "closest_location_group_send_after_step": closest_location_group_send_after_step,
         "location_invalid_text": location_invalid_text,
@@ -5976,18 +6603,29 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "inline_run_if_context_keys": module_values["inline_run_if_context_keys"],
                     "inline_skip_if_context_keys": module_values["inline_skip_if_context_keys"],
                     "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
+                    "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
                     "callback_target_key": module_values["callback_target_key"],
                     "command_target_key": module_values["command_target_key"],
                     "photo_url": module_values["photo_url"],
+                    "location_latitude": module_values["location_latitude"],
+                    "location_longitude": module_values["location_longitude"],
                     "contact_button_text": module_values["contact_button_text"],
                     "mini_app_button_text": module_values["mini_app_button_text"],
+                    "bind_code_prefix": module_values["bind_code_prefix"],
+                    "bind_code_number_width": module_values["bind_code_number_width"],
+                    "bind_code_start_number": module_values["bind_code_start_number"],
                     "contact_success_text": module_values["contact_success_text"],
                     "contact_invalid_text": module_values["contact_invalid_text"],
                     "require_live_location": module_values["require_live_location"],
                     "find_closest_saved_location": module_values["find_closest_saved_location"],
                     "match_closest_saved_location": module_values["match_closest_saved_location"],
                     "closest_location_tolerance_meters": module_values["closest_location_tolerance_meters"],
+                    "closest_location_group_action_type": module_values["closest_location_group_action_type"],
                     "closest_location_group_text": module_values["closest_location_group_text"],
+                    "closest_location_group_callback_key": module_values["closest_location_group_callback_key"],
+                    "closest_location_group_custom_code_function_name": module_values[
+                        "closest_location_group_custom_code_function_name"
+                    ],
                     "closest_location_group_send_timing": module_values["closest_location_group_send_timing"],
                     "closest_location_group_send_after_step": module_values["closest_location_group_send_after_step"],
                     "location_invalid_text": module_values["location_invalid_text"],
@@ -6039,18 +6677,27 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                 "inline_run_if_context_keys": "",
                 "inline_skip_if_context_keys": "",
                 "inline_save_callback_data_to_key": "",
+                "inline_remove_buttons_on_click": "",
                 "callback_target_key": "",
                 "command_target_key": "",
                 "photo_url": "",
+                "location_latitude": "",
+                "location_longitude": "",
                 "contact_button_text": "",
                 "mini_app_button_text": "",
+                "bind_code_prefix": "",
+                "bind_code_number_width": "4",
+                "bind_code_start_number": "1",
                 "contact_success_text": "",
                 "contact_invalid_text": "",
                 "require_live_location": "",
                 "find_closest_saved_location": "",
                 "match_closest_saved_location": "",
                 "closest_location_tolerance_meters": "",
+                "closest_location_group_action_type": "message",
                 "closest_location_group_text": "",
+                "closest_location_group_callback_key": "",
+                "closest_location_group_custom_code_function_name": "",
                 "closest_location_group_send_timing": "end",
                 "closest_location_group_send_after_step": "",
                 "location_invalid_text": "",
@@ -6117,18 +6764,29 @@ def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
                 "inline_run_if_context_keys": module_values["inline_run_if_context_keys"],
                 "inline_skip_if_context_keys": module_values["inline_skip_if_context_keys"],
                 "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
+                "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
                 "callback_target_key": module_values["callback_target_key"],
                 "command_target_key": module_values["command_target_key"],
                 "photo_url": module_values["photo_url"],
+                "location_latitude": module_values["location_latitude"],
+                "location_longitude": module_values["location_longitude"],
                 "contact_button_text": module_values["contact_button_text"],
                 "mini_app_button_text": module_values["mini_app_button_text"],
+                "bind_code_prefix": module_values["bind_code_prefix"],
+                "bind_code_number_width": module_values["bind_code_number_width"],
+                "bind_code_start_number": module_values["bind_code_start_number"],
                 "contact_success_text": module_values["contact_success_text"],
                 "contact_invalid_text": module_values["contact_invalid_text"],
                 "require_live_location": module_values["require_live_location"],
                 "find_closest_saved_location": module_values["find_closest_saved_location"],
                 "match_closest_saved_location": module_values["match_closest_saved_location"],
                 "closest_location_tolerance_meters": module_values["closest_location_tolerance_meters"],
+                "closest_location_group_action_type": module_values["closest_location_group_action_type"],
                 "closest_location_group_text": module_values["closest_location_group_text"],
+                "closest_location_group_callback_key": module_values["closest_location_group_callback_key"],
+                "closest_location_group_custom_code_function_name": module_values[
+                    "closest_location_group_custom_code_function_name"
+                ],
                 "closest_location_group_send_timing": module_values["closest_location_group_send_timing"],
                 "closest_location_group_send_after_step": module_values["closest_location_group_send_after_step"],
                 "location_invalid_text": module_values["location_invalid_text"],
@@ -6511,6 +7169,7 @@ def _attach_inline_button_context_rules(
     run_if_context_keys: object,
     skip_if_context_keys: object,
     save_callback_data_to_key: object = "",
+    remove_inline_buttons_on_click: object = "",
 ) -> dict[str, object]:
     """Attach optional inline-button validation rules to a step payload."""
     run_if_values = _parse_context_key_lines(run_if_context_keys)
@@ -6522,6 +7181,8 @@ def _attach_inline_button_context_rules(
         step["skip_if_context_keys"] = skip_if_values
     if save_callback_data_target:
         step["save_callback_data_to_key"] = save_callback_data_target
+    if _is_truthy_text(remove_inline_buttons_on_click):
+        step["remove_inline_buttons_on_click"] = True
     return step
 
 
@@ -6586,6 +7247,7 @@ def _parse_inline_button_chain_step(
     run_if_context_keys: object = (),
     skip_if_context_keys: object = (),
     save_callback_data_to_key: object = "",
+    remove_inline_buttons_on_click: object = "",
 ) -> dict[str, object]:
     """Build a normalized inline_button chain step."""
     buttons = _normalize_inline_buttons(buttons_raw)
@@ -6603,6 +7265,7 @@ def _parse_inline_button_chain_step(
         run_if_context_keys=run_if_context_keys,
         skip_if_context_keys=skip_if_context_keys,
         save_callback_data_to_key=save_callback_data_to_key,
+        remove_inline_buttons_on_click=remove_inline_buttons_on_click,
     )
 
 
@@ -6630,6 +7293,19 @@ def _parse_send_photo_chain_step(
     }
 
 
+def _parse_send_location_chain_step(
+    *,
+    location_latitude: str,
+    location_longitude: str,
+) -> dict[str, object]:
+    """Build a normalized send_location chain step."""
+    return _build_send_location_step(
+        context_label="send_location chain step",
+        location_latitude=location_latitude,
+        location_longitude=location_longitude,
+    )
+
+
 def _parse_share_contact_chain_step(
     *,
     default_text: str,
@@ -6650,6 +7326,49 @@ def _parse_share_contact_chain_step(
     )
 
 
+def _parse_ask_selfie_chain_step(
+    *,
+    default_text: str,
+    text_template: str,
+    parse_mode: str,
+    success_text_template: str,
+    invalid_text_template: str,
+) -> dict[str, object]:
+    """Build a normalized ask_selfie chain step."""
+    return _build_ask_selfie_step(
+        default_text=default_text,
+        text_template=text_template,
+        parse_mode_value=parse_mode or None,
+        success_text=success_text_template,
+        invalid_text=invalid_text_template,
+    )
+
+
+def _parse_custom_code_chain_step(*, route_label: str, step_index: int, function_name: str) -> dict[str, object]:
+    """Build a normalized custom_code chain step."""
+    return _build_custom_code_step(
+        context_label=f"{route_label} chain step {step_index}",
+        function_name=function_name,
+    )
+
+
+def _parse_bind_code_chain_step(
+    *,
+    route_label: str,
+    step_index: int,
+    prefix: str,
+    number_width: object = "",
+    start_number: object = "",
+) -> dict[str, object]:
+    """Build a normalized bind_code chain step."""
+    return _build_bind_code_step(
+        context_label=f"{route_label} chain step {step_index}",
+        prefix=str(prefix or ""),
+        number_width=str(number_width or ""),
+        start_number=str(start_number or ""),
+    )
+
+
 def _parse_share_location_chain_step(
     *,
     default_text: str,
@@ -6662,7 +7381,10 @@ def _parse_share_location_chain_step(
     find_closest_saved_location: object = False,
     match_closest_saved_location: object = False,
     closest_location_tolerance_meters: object = "",
+    closest_location_group_action_type: object = "",
     closest_location_group_text_template: object = "",
+    closest_location_group_callback_key: object = "",
+    closest_location_group_custom_code_function_name: object = "",
     closest_location_group_send_timing: object = "",
     closest_location_group_send_after_step: object = "",
     track_breadcrumb: object = False,
@@ -6689,7 +7411,12 @@ def _parse_share_location_chain_step(
             find_closest_saved_location=_is_truthy_text(find_closest_saved_location),
             match_closest_saved_location=_is_truthy_text(match_closest_saved_location),
             closest_location_tolerance_meters=str(closest_location_tolerance_meters or ""),
+            closest_location_group_action_type=str(closest_location_group_action_type or ""),
             closest_location_group_text_template=str(closest_location_group_text_template or ""),
+            closest_location_group_callback_key=str(closest_location_group_callback_key or ""),
+            closest_location_group_custom_code_function_name=str(
+                closest_location_group_custom_code_function_name or ""
+            ),
             closest_location_group_send_timing=str(closest_location_group_send_timing or ""),
             closest_location_group_send_after_step=str(closest_location_group_send_after_step or ""),
             track_breadcrumb=_is_truthy_text(track_breadcrumb),
@@ -6859,6 +7586,7 @@ def _parse_route_chain_steps(
                         run_if_context_keys=serialized.get("run_if_context_keys", []),
                         skip_if_context_keys=serialized.get("skip_if_context_keys", []),
                         save_callback_data_to_key=serialized.get("save_callback_data_to_key", ""),
+                        remove_inline_buttons_on_click=serialized.get("remove_inline_buttons_on_click", ""),
                     )
                 )
                 continue
@@ -6910,6 +7638,14 @@ def _parse_route_chain_steps(
                     )
                 )
                 continue
+            if module_type == "send_location":
+                steps.append(
+                    _parse_send_location_chain_step(
+                        location_latitude=str(serialized.get("location_latitude", serialized.get("latitude", ""))),
+                        location_longitude=str(serialized.get("location_longitude", serialized.get("longitude", ""))),
+                    )
+                )
+                continue
             if module_type == "share_contact":
                 steps.append(
                     _parse_share_contact_chain_step(
@@ -6919,6 +7655,43 @@ def _parse_route_chain_steps(
                         button_text=str(serialized.get("button_text", "")),
                         success_text_template=str(serialized.get("success_text_template", "")),
                         invalid_text_template=str(serialized.get("invalid_text_template", "")),
+                    )
+                )
+                continue
+            if module_type == "ask_selfie":
+                steps.append(
+                    _parse_ask_selfie_chain_step(
+                        default_text="Please send a selfie photo.",
+                        text_template=str(serialized.get("text_template", "")),
+                        parse_mode=parse_mode,
+                        success_text_template=str(serialized.get("success_text_template", "")),
+                        invalid_text_template=str(serialized.get("invalid_text_template", "")),
+                    )
+                )
+                continue
+            if module_type == "custom_code":
+                steps.append(
+                    _parse_custom_code_chain_step(
+                        route_label=route_label,
+                        step_index=idx,
+                        function_name=str(serialized.get("function_name", "")),
+                    )
+                )
+                continue
+            if module_type == "bind_code":
+                steps.append(
+                    _parse_bind_code_chain_step(
+                        route_label=route_label,
+                        step_index=idx,
+                        prefix=str(serialized.get("prefix", serialized.get("bind_code_prefix", ""))),
+                        number_width=serialized.get(
+                            "number_width",
+                            serialized.get("bind_code_number_width", ""),
+                        ),
+                        start_number=serialized.get(
+                            "start_number",
+                            serialized.get("bind_code_start_number", ""),
+                        ),
                     )
                 )
                 continue
@@ -6935,8 +7708,20 @@ def _parse_route_chain_steps(
                         find_closest_saved_location=serialized.get("find_closest_saved_location"),
                         match_closest_saved_location=serialized.get("match_closest_saved_location"),
                         closest_location_tolerance_meters=serialized.get("closest_location_tolerance_meters", ""),
+                        closest_location_group_action_type=serialized.get(
+                            "closest_location_group_action_type",
+                            "",
+                        ),
                         closest_location_group_text_template=serialized.get(
                             "closest_location_group_text_template",
+                            "",
+                        ),
+                        closest_location_group_callback_key=serialized.get(
+                            "closest_location_group_callback_key",
+                            "",
+                        ),
+                        closest_location_group_custom_code_function_name=serialized.get(
+                            "closest_location_group_custom_code_function_name",
                             "",
                         ),
                         closest_location_group_send_timing=serialized.get(
@@ -7058,7 +7843,7 @@ def _parse_route_chain_steps(
                 steps.append({"module_type": "forget_user_data"})
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -7177,6 +7962,14 @@ def _parse_route_chain_steps(
                 )
             )
             continue
+        if module_type == "send_location":
+            steps.append(
+                _parse_send_location_chain_step(
+                    location_latitude=parts[1] if len(parts) >= 2 else "",
+                    location_longitude=parts[2] if len(parts) >= 3 else "",
+                )
+            )
+            continue
         if module_type == "share_contact":
             parse_mode = parts[5] if len(parts) >= 6 else ""
             steps.append(
@@ -7187,6 +7980,38 @@ def _parse_route_chain_steps(
                     button_text=parts[2] if len(parts) >= 3 else "",
                     success_text_template=parts[3] if len(parts) >= 4 else "",
                     invalid_text_template=parts[4] if len(parts) >= 5 else "",
+                )
+            )
+            continue
+        if module_type == "ask_selfie":
+            parse_mode = parts[4] if len(parts) >= 5 else ""
+            steps.append(
+                _parse_ask_selfie_chain_step(
+                    default_text="Please send a selfie photo.",
+                    text_template=parts[1] if len(parts) >= 2 else "",
+                    parse_mode=parse_mode,
+                    success_text_template=parts[2] if len(parts) >= 3 else "",
+                    invalid_text_template=parts[3] if len(parts) >= 4 else "",
+                )
+            )
+            continue
+        if module_type == "custom_code":
+            steps.append(
+                _parse_custom_code_chain_step(
+                    route_label=route_label,
+                    step_index=idx,
+                    function_name=parts[1] if len(parts) >= 2 else "",
+                )
+            )
+            continue
+        if module_type == "bind_code":
+            steps.append(
+                _parse_bind_code_chain_step(
+                    route_label=route_label,
+                    step_index=idx,
+                    prefix=parts[1] if len(parts) >= 2 else "",
+                    number_width=parts[2] if len(parts) >= 3 else "",
+                    start_number=parts[3] if len(parts) >= 4 else "",
                 )
             )
             continue
@@ -7338,7 +8163,7 @@ def _parse_route_chain_steps(
             steps.append({"module_type": "forget_user_data"})
             continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
         )
     return steps
 
@@ -7398,6 +8223,8 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["skip_if_context_keys"] = skip_if_context_keys
             if save_callback_data_to_key:
                 payload["save_callback_data_to_key"] = save_callback_data_to_key
+            if bool(step.get("remove_inline_buttons_on_click", False)):
+                payload["remove_inline_buttons_on_click"] = True
         elif module_type == "callback_module":
             payload = {
                 "module_type": "callback_module",
@@ -7446,6 +8273,12 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "buttons": _normalize_inline_buttons(step.get("buttons", [])),
                 "hide_caption": bool(step.get("hide_caption", False)),
             }
+        elif module_type == "send_location":
+            payload = {
+                "module_type": "send_location",
+                "location_latitude": str(step.get("location_latitude", step.get("latitude", ""))).strip(),
+                "location_longitude": str(step.get("location_longitude", step.get("longitude", ""))).strip(),
+            }
         elif module_type == "share_contact":
             payload = {
                 "module_type": "share_contact",
@@ -7454,6 +8287,26 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "button_text": str(step.get("button_text", "")).strip(),
                 "success_text_template": str(step.get("success_text_template", "")),
                 "invalid_text_template": str(step.get("invalid_text_template", "")),
+            }
+        elif module_type == "ask_selfie":
+            payload = {
+                "module_type": "ask_selfie",
+                "text_template": str(step.get("text_template", "")),
+                "parse_mode": parse_mode,
+                "success_text_template": str(step.get("success_text_template", "")),
+                "invalid_text_template": str(step.get("invalid_text_template", "")),
+            }
+        elif module_type == "custom_code":
+            payload = {
+                "module_type": "custom_code",
+                "function_name": str(step.get("function_name", "")).strip(),
+            }
+        elif module_type == "bind_code":
+            payload = {
+                "module_type": "bind_code",
+                "prefix": str(step.get("prefix", step.get("bind_code_prefix", ""))).strip(),
+                "number_width": step.get("number_width", step.get("bind_code_number_width", 4)),
+                "start_number": step.get("start_number", step.get("bind_code_start_number", 1)),
             }
         elif module_type == "share_location":
             (
@@ -7478,10 +8331,31 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["invalid_text_template"] = str(step.get("invalid_text_template", ""))
             if find_closest_saved_location:
                 payload["find_closest_saved_location"] = True
-                if str(step.get("closest_location_group_text_template", "")).strip():
-                    payload["closest_location_group_text_template"] = str(
-                        step.get("closest_location_group_text_template", "")
-                    )
+                group_text = str(step.get("closest_location_group_text_template", "")).strip()
+                group_callback_key = str(step.get("closest_location_group_callback_key", "")).strip()
+                group_custom_code_function_name = str(
+                    step.get("closest_location_group_custom_code_function_name", "")
+                ).strip()
+                group_action_type = _resolve_closest_location_group_action_type(
+                    raw_action_type=str(step.get("closest_location_group_action_type", "")),
+                    group_text=group_text,
+                    group_callback_key=group_callback_key,
+                    group_custom_code_function_name=group_custom_code_function_name,
+                )
+                payload["closest_location_group_action_type"] = group_action_type
+                has_group_action = group_action_type != "message"
+                if group_action_type == "callback_module":
+                    if group_callback_key:
+                        payload["closest_location_group_callback_key"] = group_callback_key
+                elif group_action_type == "custom_code":
+                    if group_custom_code_function_name:
+                        payload["closest_location_group_custom_code_function_name"] = (
+                            group_custom_code_function_name
+                        )
+                elif group_text:
+                    payload["closest_location_group_text_template"] = group_text
+                    has_group_action = True
+                if has_group_action:
                     payload["closest_location_group_send_timing"] = str(
                         step.get("closest_location_group_send_timing", "end")
                     ).strip() or "end"

@@ -20,6 +20,7 @@ DEFAULT_FIND_CLOSEST_LOCATION_SUCCESS = "Closest saved location is {closest_loca
 DEFAULT_LOCATION_INVALID = "You are at the wrong location."
 DEFAULT_LIVE_LOCATION_REQUIRED = "Please share a live location from Telegram's location menu."
 DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING = "end"
+DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE = "message"
 DEFAULT_BREADCRUMB_MIN_DISTANCE_METERS = 5.0
 DEFAULT_BREADCRUMB_INTERVAL_MINUTES = 0.0
 DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS = 100.0
@@ -50,6 +51,9 @@ class ShareLocationConfig:
     closest_location_group_text_template: str | None = None
     closest_location_group_send_timing: str = DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING
     closest_location_group_send_after_step: int | None = None
+    closest_location_group_action_type: str = DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE
+    closest_location_group_callback_key: str | None = None
+    closest_location_group_custom_code_function_name: str | None = None
     invalid_text_template: str | None = DEFAULT_LOCATION_INVALID
     require_live_location: bool = False
     find_closest_saved_location: bool = False
@@ -86,6 +90,9 @@ class PendingLocationRequest:
     invalid_text_template: str | None
     closest_location_group_send_timing: str = DEFAULT_CLOSEST_LOCATION_GROUP_SEND_TIMING
     closest_location_group_send_after_step: int | None = None
+    closest_location_group_action_type: str = DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE
+    closest_location_group_callback_key: str | None = None
+    closest_location_group_custom_code_function_name: str | None = None
     require_live_location: bool = False
     find_closest_saved_location: bool = False
     match_closest_saved_location: bool = False
@@ -251,6 +258,19 @@ class ShareLocationModule:
                     if self._config.closest_location_group_send_after_step not in {None, ""}
                     else None
                 ),
+                closest_location_group_action_type=str(
+                    self._config.closest_location_group_action_type
+                    or DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE
+                ).strip()
+                or DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE,
+                closest_location_group_callback_key=str(
+                    self._config.closest_location_group_callback_key or ""
+                ).strip()
+                or None,
+                closest_location_group_custom_code_function_name=str(
+                    self._config.closest_location_group_custom_code_function_name or ""
+                ).strip()
+                or None,
                 invalid_text_template=self._config.invalid_text_template,
                 require_live_location=self._config.require_live_location,
                 find_closest_saved_location=bool(self._config.find_closest_saved_location),

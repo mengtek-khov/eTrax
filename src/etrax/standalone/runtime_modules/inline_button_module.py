@@ -30,6 +30,7 @@ def resolve_inline_button_step_config(
         buttons=step.get("buttons"),
         run_if_context_keys=_normalize_context_key_rules(step.get("run_if_context_keys")),
         skip_if_context_keys=_normalize_context_key_rules(step.get("skip_if_context_keys")),
+        remove_inline_buttons_on_click=bool(step.get("remove_inline_buttons_on_click")),
     )
 
 

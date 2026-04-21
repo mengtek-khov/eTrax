@@ -34,6 +34,7 @@
         run_if_context_keys: "",
         skip_if_context_keys: "",
         save_callback_data_to_key: "",
+        remove_inline_buttons_on_click: false,
       };
     },
     parsePrimary(source, helpers) {
@@ -50,6 +51,7 @@
         run_if_context_keys: formatContextKeyLines(source.run_if_context_keys),
         skip_if_context_keys: formatContextKeyLines(source.skip_if_context_keys),
         save_callback_data_to_key: source.save_callback_data_to_key ? String(source.save_callback_data_to_key) : "",
+        remove_inline_buttons_on_click: Boolean(source.remove_inline_buttons_on_click),
       };
     },
     parseChain(parts, helpers) {
@@ -72,6 +74,7 @@
         run_if_context_keys: formatContextKeyLines(parts[4] || ""),
         skip_if_context_keys: formatContextKeyLines(parts[5] || ""),
         save_callback_data_to_key: parts[6] ? String(parts[6]) : "",
+        remove_inline_buttons_on_click: false,
       };
     },
     formatChain(step, helpers) {
@@ -91,6 +94,9 @@
       }
       if (String(step.save_callback_data_to_key || "").trim()) {
         payload.save_callback_data_to_key = String(step.save_callback_data_to_key).trim();
+      }
+      if (step.remove_inline_buttons_on_click) {
+        payload.remove_inline_buttons_on_click = true;
       }
       return JSON.stringify(payload);
     },
@@ -159,6 +165,8 @@
         `<label v-if="isStepType(${ctx}, 'inline_button')">Save Clicked Value To</label>` +
         `<input v-if="isStepType(${ctx}, 'inline_button')" placeholder="selected_option" :value="currentStepField(${ctx}, 'save_callback_data_to_key')" @input="updateCurrentStepField(${ctx}, 'save_callback_data_to_key', $event.target.value)">` +
         `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">When a callback button in this module is clicked, the button actual_value is saved here if set; otherwise callback_data is used.</p>` +
+        `<label v-if="isStepType(${ctx}, 'inline_button')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'remove_inline_buttons_on_click')" @change="updateCurrentStepToggle(${ctx}, 'remove_inline_buttons_on_click', $event.target.checked)"><span>Remove buttons after a handled click</span></label>` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">If enabled, this inline keyboard is removed from the source message after one of its callback actions runs.</p>` +
         `<div class="module-list-tools" v-if="isStepType(${ctx}, 'inline_button')">` +
         `<input class="inline-button-input" placeholder="Button Text" ` +
         `:value="inlineButtonDraft(${ctx}).text" ` +
