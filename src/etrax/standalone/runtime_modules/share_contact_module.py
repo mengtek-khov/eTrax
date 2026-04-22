@@ -34,6 +34,8 @@ def resolve_share_contact_step_config(
         button_text=str(step.get("button_text", "")).strip() or None,
         success_text_template=str(step.get("success_text_template", "")).strip() or None,
         invalid_text_template=str(step.get("invalid_text_template", "")).strip() or None,
+        require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()
+        in {"1", "true", "yes", "on"},
     )
 
 

@@ -16,6 +16,8 @@ from etrax.core.telegram import (
     LocationRequestStore,
     SelfieRequestStore,
     SendTelegramInlineButtonModule,
+    build_breadcrumb_session_entry,
+    build_location_breadcrumb_context,
 )
 
 from .runtime_module_registry import (
@@ -27,6 +29,7 @@ from .runtime_contracts import TemporaryCommandMenuStateStore, UserProfileLogSto
 from .runtime_support import print_runtime_step
 
 CALLBACK_QUERY_DEDUPE_TTL_SECONDS = 120.0
+DEFAULT_FINISH_CURRENT_COMMAND_TEXT = "Please finish the current command before starting a new one."
 
 
 def handle_update(
@@ -141,6 +144,9 @@ def handle_update(
         inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         gateway=gateway,
         bot_token=bot_token,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
         profile_log_store=profile_log_store,
     )
 
@@ -229,6 +235,9 @@ def handle_message_update(
     inline_button_cleanup_by_message: dict[str, bool] | None = None,
     gateway: TelegramBotApiGateway | None = None,
     bot_token: str = "",
+    contact_request_store: ContactRequestStore | None = None,
+    selfie_request_store: SelfieRequestStore | None = None,
+    location_request_store: LocationRequestStore | None = None,
     profile_log_store: UserProfileLogStore | None = None,
 ) -> int:
     """Dispatch a plain message update into the configured command pipeline."""
@@ -273,6 +282,20 @@ def handle_message_update(
         pipeline = command_modules.get(command_name, [])
     if not pipeline:
         return 0
+    user_id = str(sender.get("id", "")).strip()
+    command_transition_sent = _prepare_command_transition(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        gateway=gateway,
+        bot_token=bot_token,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
+        profile_log_store=profile_log_store,
+    )
+    if command_transition_sent is not None:
+        return command_transition_sent
 
     context: dict[str, Any] = {
         "bot_id": bot_id,
@@ -664,6 +687,141 @@ def _temporary_command_restores_original_menu(
             "on",
         }
     return True
+
+
+def _prepare_command_transition(
+    *,
+    bot_id: str,
+    chat_id: str,
+    user_id: str,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+    contact_request_store: ContactRequestStore | None,
+    selfie_request_store: SelfieRequestStore | None,
+    location_request_store: LocationRequestStore | None,
+    profile_log_store: UserProfileLogStore | None,
+) -> int | None:
+    """Block or clear pending continuation flows before starting a new command."""
+    if not user_id:
+        return None
+    blocking_request = _find_blocking_pending_request(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
+    )
+    if blocking_request is not None:
+        if gateway is not None and bot_token:
+            gateway.send_message(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                text=DEFAULT_FINISH_CURRENT_COMMAND_TEXT,
+                parse_mode=getattr(blocking_request, "parse_mode", None),
+            )
+            return 1
+        return 0
+    _clear_replaceable_pending_requests(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
+        profile_log_store=profile_log_store,
+    )
+    return None
+
+
+def _find_blocking_pending_request(
+    *,
+    bot_id: str,
+    chat_id: str,
+    user_id: str,
+    contact_request_store: ContactRequestStore | None,
+    selfie_request_store: SelfieRequestStore | None,
+    location_request_store: LocationRequestStore | None,
+) -> object | None:
+    """Return the first pending request that must be completed before a new command can start."""
+    for store in (contact_request_store, location_request_store, selfie_request_store):
+        if store is None:
+            continue
+        pending_request = store.get_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
+        if pending_request is None:
+            continue
+        if bool(getattr(pending_request, "require_finish_current_command", False)):
+            return pending_request
+    return None
+
+
+def _clear_replaceable_pending_requests(
+    *,
+    bot_id: str,
+    chat_id: str,
+    user_id: str,
+    contact_request_store: ContactRequestStore | None,
+    selfie_request_store: SelfieRequestStore | None,
+    location_request_store: LocationRequestStore | None,
+    profile_log_store: UserProfileLogStore | None,
+) -> None:
+    """Cancel old pending command continuations so the new command becomes the active flow."""
+    if contact_request_store is not None:
+        contact_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
+    if selfie_request_store is not None:
+        selfie_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
+    if location_request_store is None:
+        return
+    pending_location_request = location_request_store.pop_pending(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        user_id=user_id,
+    )
+    if pending_location_request is None:
+        return
+    _clear_replaced_location_request(
+        pending_request=pending_location_request,
+        bot_id=bot_id,
+        user_id=user_id,
+        profile_log_store=profile_log_store,
+    )
+
+
+def _clear_replaced_location_request(
+    *,
+    pending_request: object,
+    bot_id: str,
+    user_id: str,
+    profile_log_store: UserProfileLogStore | None,
+) -> None:
+    """Persist breadcrumb shutdown when a new command replaces an active location flow."""
+    if profile_log_store is None or not bool(getattr(pending_request, "track_breadcrumb", False)):
+        return
+    existing_profile = profile_log_store.get_profile(bot_id=bot_id, user_id=user_id)
+    existing_sessions_raw = existing_profile.get("location_breadcrumb_sessions") if isinstance(existing_profile, dict) else []
+    existing_sessions = [dict(item) for item in existing_sessions_raw if isinstance(item, dict)] if isinstance(existing_sessions_raw, list) else []
+    breadcrumb_points = getattr(pending_request, "breadcrumb_points", ())
+    if breadcrumb_points:
+        existing_sessions.append(
+            build_breadcrumb_session_entry(
+                pending_request,
+                ended_at=time.time(),
+                ended_reason="replaced_by_new_command",
+            )
+        )
+    profile_log_store.upsert_profile(
+        bot_id=bot_id,
+        user_id=user_id,
+        profile_updates={
+            **build_location_breadcrumb_context((), entries=(), total_distance_meters=0.0, active=False),
+            "location_breadcrumb_points": [],
+            "location_breadcrumb_entries": [],
+            "location_breadcrumb_count": 0,
+            "location_breadcrumb_total_distance_meters": 0.0,
+            "location_breadcrumb_active": False,
+            "location_breadcrumb_sessions": existing_sessions,
+        },
+    )
 
 
 def _restore_active_temporary_command_menu(
@@ -1675,6 +1833,7 @@ def _apply_profile_log_context(
         "location_heading": profile.get("location_heading"),
         "location_proximity_alert_radius": profile.get("location_proximity_alert_radius"),
         "location_breadcrumb_points": profile.get("location_breadcrumb_points"),
+        "location_breadcrumb_entries": profile.get("location_breadcrumb_entries"),
         "location_breadcrumb_count": profile.get("location_breadcrumb_count"),
         "location_breadcrumb_total_distance_meters": profile.get("location_breadcrumb_total_distance_meters"),
         "location_breadcrumb_active": profile.get("location_breadcrumb_active"),
@@ -1740,6 +1899,7 @@ def _apply_profile_log_context(
         "location_heading",
         "location_proximity_alert_radius",
         "location_breadcrumb_points",
+        "location_breadcrumb_entries",
         "location_breadcrumb_count",
         "location_breadcrumb_total_distance_meters",
         "location_breadcrumb_active",

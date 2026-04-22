@@ -78,6 +78,8 @@ def resolve_share_location_step_config(
         ).strip()
         or None,
         invalid_text_template=str(step.get("invalid_text_template", "")).strip() or None,
+        require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()
+        in {"1", "true", "yes", "on"},
         require_live_location=str(step.get("require_live_location", "")).strip().lower() in {"1", "true", "yes", "on"},
         find_closest_saved_location=str(step.get("find_closest_saved_location", "")).strip().lower() in {"1", "true", "yes", "on"},
         match_closest_saved_location=str(step.get("match_closest_saved_location", "")).strip().lower() in {"1", "true", "yes", "on"},
@@ -499,6 +501,7 @@ def handle_breadcrumb_end_callback_query_update(
             profile_updates={
                 **inactive_context,
                 "location_breadcrumb_points": [],
+                "location_breadcrumb_entries": [],
                 "location_breadcrumb_count": 0,
                 "location_breadcrumb_total_distance_meters": 0.0,
                 "location_breadcrumb_active": False,
@@ -517,6 +520,7 @@ def handle_breadcrumb_end_callback_query_update(
             "user_username": str(sender.get("username", "")).strip(),
             **inactive_context,
             "location_breadcrumb_points": [],
+            "location_breadcrumb_entries": [],
             "location_breadcrumb_count": 0,
             "location_breadcrumb_total_distance_meters": 0.0,
             "location_breadcrumb_active": False,
@@ -663,6 +667,7 @@ def _persist_profile_history_by_day(
 def _build_inactive_breadcrumb_context(pending_request: object) -> dict[str, Any]:
     return build_location_breadcrumb_context(
         getattr(pending_request, "breadcrumb_points", []),
+        entries=getattr(pending_request, "breadcrumb_entries", []),
         total_distance_meters=float(getattr(pending_request, "breadcrumb_total_distance_meters", 0.0) or 0.0),
         active=False,
     )

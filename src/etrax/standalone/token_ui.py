@@ -204,6 +204,9 @@ def _build_handler(
                     _print_terminal_error("location-search", str(exc))
                     self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": str(exc)})
                 return
+            if parsed.path == "/runtime-status":
+                self._handle_runtime_status(parsed)
+                return
             if parsed.path == "/config":
                 self._handle_config_page(parsed)
                 return
@@ -387,6 +390,21 @@ def _build_handler(
             except (ValueError, RuntimeError) as exc:
                 _print_terminal_error("duplicate-config", str(exc))
                 self._redirect(f"/?level=error&message={quote_plus(str(exc))}")
+
+        def _handle_runtime_status(self, parsed) -> None:
+            """Return JSON runtime status for one bot config page."""
+            params = parse_qs(parsed.query)
+            bot_id = params.get("bot_id", [""])[0].strip()
+            if not bot_id:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "bot_id is required"})
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "runtime_status": runtime_manager.status_by_bot_id(bot_id),
+                },
+            )
 
         def _handle_working_hours_save(self, form: dict[str, list[str]]) -> None:
             """Create or update one working-hours row in the standalone demo page."""
@@ -3065,19 +3083,15 @@ def _render_config_page(
     ).replace("</", "<\\/")
     is_running = bool(runtime_status.get("running"))
     runtime_text = str(runtime_status.get("status", "stopped"))
-    runtime_last_error_raw = runtime_status.get("last_error")
-    runtime_last_error = str(runtime_last_error_raw).strip() if runtime_last_error_raw is not None else ""
-    runtime_error_panel_html = (
-        f"<pre class='runtime-error-text'>{html.escape(runtime_last_error)}</pre>"
-        if runtime_last_error
-        else "<p class='runtime-error-empty'>No runtime error.</p>"
-    )
-    runtime_error_toggle_show_label = "Show Runtime Error"
-    runtime_error_toggle_hide_label = "Hide Runtime Error"
+    runtime_panel_html = _render_runtime_panel_html(runtime_status)
+    runtime_status_json = json.dumps(runtime_status).replace("</", "<\\/")
+    runtime_error_toggle_show_label = "Show Runtime"
+    runtime_error_toggle_hide_label = "Hide Runtime"
     toggle_action = "/stop" if is_running else "/run"
     toggle_label = "Stop" if is_running else "Run"
     toggle_class = "toggle-stop" if is_running else "toggle-run"
     next_url = f"/config?bot_id={quote_plus(bot_id)}"
+    runtime_status_url = f"/runtime-status?bot_id={quote_plus(bot_id)}"
     asset_version = html.escape(_config_editor_asset_version())
 
     status_html = _render_status_html(message=message, level=level)
@@ -3159,6 +3173,35 @@ def _render_config_page(
     .runtime-error-body[hidden] {{
       display: none;
     }}
+    .runtime-section + .runtime-section {{
+      margin-top: 16px;
+    }}
+    .runtime-section h2 {{
+      margin: 0 0 8px;
+      font-size: 0.96rem;
+      color: #22314a;
+    }}
+    .runtime-summary-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }}
+    .runtime-summary-card {{
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: #f8fbff;
+    }}
+    .runtime-summary-label {{
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }}
     .runtime-error-text {{
       margin: 0;
       border: 1px solid var(--line);
@@ -3178,6 +3221,71 @@ def _render_config_page(
       margin: 0;
       color: var(--muted);
       font-size: 0.9rem;
+    }}
+    .runtime-breadcrumb-active {{
+      margin-bottom: 10px;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }}
+    .runtime-breadcrumb-stream {{
+      margin: 0;
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }}
+    .runtime-breadcrumb-item {{
+      margin: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fbff;
+    }}
+    .runtime-breadcrumb-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: baseline;
+      font-size: 0.88rem;
+    }}
+    .runtime-breadcrumb-title {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }}
+    .runtime-breadcrumb-point {{
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #dbeafe;
+      color: #1d4ed8;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }}
+    .runtime-breadcrumb-newest {{
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #166534;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }}
+    .runtime-breadcrumb-head span {{
+      color: var(--muted);
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }}
+    .runtime-breadcrumb-meta {{
+      margin-top: 6px;
+      color: #344054;
+      font-size: 0.86rem;
+      word-break: break-word;
     }}
     h1 {{
       margin: 0 0 6px;
@@ -3515,8 +3623,10 @@ def _render_config_page(
       .row {{ grid-template-columns: 1fr; }}
       .command-row {{ grid-template-columns: 1fr; }}
       .module-grid {{ grid-template-columns: 1fr; }}
-      .share-location-mode-grid {{ grid-template-columns: 1fr; }}
-    }}
+	      .share-location-mode-grid {{ grid-template-columns: 1fr; }}
+        .runtime-summary-grid {{ grid-template-columns: 1fr; }}
+        .runtime-breadcrumb-head {{ flex-direction: column; align-items: flex-start; }}
+	    }}
   </style>
 </head>
 <body>
@@ -3525,7 +3635,7 @@ def _render_config_page(
       <h1>Bot Config: {html.escape(bot_id)}</h1>
       <p>Configure default command menu for this bot. Runtime remains active until you press Stop.</p>
       <div class="meta">Config file: {html.escape(str(config_path))}</div>
-      <div class="meta">Runtime: {html.escape(runtime_text)}</div>
+      <div id="runtime-status-meta" class="meta">Runtime: {html.escape(runtime_text)}</div>
       <div class="actions">
         <form method="post" action="{toggle_action}">
           <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
@@ -3573,15 +3683,16 @@ def _render_config_page(
       </div>
       <aside id="runtime-error-panel" class="panel runtime-error-panel" hidden>
         <div class="runtime-error-header">
-          <h1>Runtime Error</h1>
+          <h1>Runtime</h1>
         </div>
-        <div id="runtime-error-body" class="runtime-error-body" hidden>
-          {runtime_error_panel_html}
+        <div id="runtime-error-body" class="runtime-error-body" hidden data-runtime-status-url="{html.escape(runtime_status_url)}">
+          {runtime_panel_html}
         </div>
       </aside>
     </div>
   </div>
   <script id="command-config-state" type="application/json">{config_state_json}</script>
+  <script id="runtime-status-state" type="application/json">{runtime_status_json}</script>
   <script src="/vue-runtime.js?v={asset_version}"></script>
   <script src="/module-system.js?v={asset_version}"></script>
   <script src="/module-send-message.js?v={asset_version}"></script>
@@ -3606,13 +3717,162 @@ def _render_config_page(
   <script src="/config-vue.js?v={asset_version}"></script>
     <script>
       (function() {{
-      const configLayout = document.getElementById("config-layout");
-      const runtimeErrorPanel = document.getElementById("runtime-error-panel");
-      const runtimeErrorToggle = document.querySelector("[data-runtime-error-toggle]");
-      const runtimeErrorBody = document.getElementById("runtime-error-body");
-      if (configLayout && runtimeErrorPanel && runtimeErrorToggle && runtimeErrorBody) {{
-        const showLabel = runtimeErrorToggle.getAttribute("data-show-label") || "Show Runtime Error";
-        const hideLabel = runtimeErrorToggle.getAttribute("data-hide-label") || "Hide Runtime Error";
+	      const configLayout = document.getElementById("config-layout");
+	      const runtimeErrorPanel = document.getElementById("runtime-error-panel");
+	      const runtimeErrorToggle = document.querySelector("[data-runtime-error-toggle]");
+	      const runtimeErrorBody = document.getElementById("runtime-error-body");
+        const runtimeStatusMeta = document.getElementById("runtime-status-meta");
+        const runtimeStatusState = document.getElementById("runtime-status-state");
+        const parseRuntimeStatus = function() {{
+          if (!runtimeStatusState) {{
+            return {{}};
+          }}
+          try {{
+            return JSON.parse(runtimeStatusState.textContent || "{{}}");
+          }} catch (_error) {{
+            return {{}};
+          }}
+        }};
+        const escapeHtml = function(value) {{
+          return String(value == null ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }};
+        const formatRuntimeTimestamp = function(value) {{
+          const text = String(value == null ? "" : value).trim();
+          if (!text) {{
+            return "No timestamp";
+          }}
+          const parsed = new Date(text);
+          if (Number.isNaN(parsed.getTime())) {{
+            return text;
+          }}
+          return parsed.toLocaleString();
+        }};
+        const formatRuntimeDistance = function(value) {{
+          const distance = Number(value);
+          if (!Number.isFinite(distance) || distance <= 0) {{
+            return "";
+          }}
+          if (distance >= 1000) {{
+            return (distance / 1000).toFixed(2) + " km";
+          }}
+          return Math.round(distance) + " m";
+        }};
+        const renderRuntimePanel = function(status) {{
+          if (!runtimeErrorBody) {{
+            return;
+          }}
+          const runtimeStatus = status && typeof status === "object" ? status : {{}};
+          const runtimeText = String(runtimeStatus.status || "stopped").trim() || "stopped";
+          if (runtimeStatusMeta) {{
+            runtimeStatusMeta.textContent = "Runtime: " + runtimeText;
+          }}
+          const updatesSeen = Number(runtimeStatus.updates_seen || 0);
+          const messagesSent = Number(runtimeStatus.messages_sent || 0);
+          const activeBreadcrumbCount = Number(runtimeStatus.active_breadcrumb_count || 0);
+          const summaryHtml =
+            '<div class="runtime-summary-grid">' +
+              '<div class="runtime-summary-card"><span class="runtime-summary-label">Status</span><strong>' + escapeHtml(runtimeText) + '</strong></div>' +
+              '<div class="runtime-summary-card"><span class="runtime-summary-label">Updates</span><strong>' + escapeHtml(updatesSeen) + '</strong></div>' +
+              '<div class="runtime-summary-card"><span class="runtime-summary-label">Messages</span><strong>' + escapeHtml(messagesSent) + '</strong></div>' +
+              '<div class="runtime-summary-card"><span class="runtime-summary-label">Breadcrumbs</span><strong>' + escapeHtml(activeBreadcrumbCount) + '</strong></div>' +
+            '</div>';
+          const lastError = String(runtimeStatus.last_error || "").trim();
+          const errorHtml = lastError
+            ? '<pre class="runtime-error-text">' + escapeHtml(lastError) + '</pre>'
+            : '<p class="runtime-error-empty">No runtime details.</p>';
+          const activeBreadcrumbs = Array.isArray(runtimeStatus.active_breadcrumbs) ? runtimeStatus.active_breadcrumbs : [];
+          const activeLabels = activeBreadcrumbs
+            .map(function(item) {{
+              return item && typeof item === "object" ? String(item.label || "").trim() : "";
+            }})
+            .filter(Boolean);
+          const activeHtml = activeLabels.length
+            ? '<p class="runtime-breadcrumb-active">Active: ' + escapeHtml(activeLabels.slice(0, 6).join(", ")) + '</p>'
+            : '';
+          const breadcrumbStream = Array.isArray(runtimeStatus.breadcrumb_stream) ? runtimeStatus.breadcrumb_stream : [];
+          const breadcrumbItemsHtml = breadcrumbStream.map(function(item) {{
+            if (!item || typeof item !== "object") {{
+              return "";
+            }}
+            const label = String(item.label || "Unknown User").trim() || "Unknown User";
+            const latitude = Number(item.latitude);
+            const longitude = Number(item.longitude);
+            const coordinateText = Number.isFinite(latitude) && Number.isFinite(longitude)
+              ? latitude.toFixed(6) + ', ' + longitude.toFixed(6)
+              : 'Unknown point';
+            const pointIndex = Number(item.point_index || 0);
+            const breadcrumbCount = Math.max(Number(item.breadcrumb_count || 0), pointIndex);
+            const newestHtml = pointIndex >= breadcrumbCount
+              ? '<span class="runtime-breadcrumb-newest">Newest</span>'
+              : '';
+            const metaParts = [
+              coordinateText,
+              item.active ? 'Active' : 'Ended'
+            ];
+            const distanceText = formatRuntimeDistance(item.total_distance_meters);
+            if (distanceText) {{
+              metaParts.push(distanceText);
+            }}
+            return (
+              '<li class="runtime-breadcrumb-item">' +
+                '<div class="runtime-breadcrumb-head">' +
+                  '<div class="runtime-breadcrumb-title">' +
+                    '<strong>' + escapeHtml(label) + '</strong>' +
+                    '<span class="runtime-breadcrumb-point">Point #' + escapeHtml(pointIndex) + '</span>' +
+                    newestHtml +
+                  '</div>' +
+                  '<span>' + escapeHtml(formatRuntimeTimestamp(item.recorded_at)) + '</span>' +
+                '</div>' +
+                '<div class="runtime-breadcrumb-meta">' + escapeHtml(metaParts.join(' | ')) + '</div>' +
+              '</li>'
+            );
+          }}).join('');
+          const breadcrumbHtml = breadcrumbItemsHtml
+            ? '<ol class="runtime-breadcrumb-stream">' + breadcrumbItemsHtml + '</ol>'
+            : '<p class="runtime-error-empty">No breadcrumb points yet.</p>';
+          runtimeErrorBody.innerHTML =
+            summaryHtml +
+            '<section class="runtime-section"><h2>Last Error</h2>' + errorHtml + '</section>' +
+            '<section class="runtime-section"><h2>Breadcrumb Stream (Latest 5 Points)</h2>' + activeHtml + breadcrumbHtml + '</section>';
+        }};
+        const refreshRuntimeStatus = function() {{
+          if (!runtimeErrorBody) {{
+            return;
+          }}
+          const url = runtimeErrorBody.getAttribute("data-runtime-status-url");
+          if (!url) {{
+            return;
+          }}
+          fetch(url, {{
+            headers: {{
+              "Accept": "application/json"
+            }}
+          }})
+            .then(function(response) {{
+              if (!response.ok) {{
+                throw new Error("runtime status request failed");
+              }}
+              return response.json();
+            }})
+            .then(function(payload) {{
+              if (!payload || typeof payload !== "object" || !payload.runtime_status) {{
+                return;
+              }}
+              renderRuntimePanel(payload.runtime_status);
+            }})
+            .catch(function() {{
+              return;
+            }});
+        }};
+        renderRuntimePanel(parseRuntimeStatus());
+	      if (configLayout && runtimeErrorPanel && runtimeErrorToggle && runtimeErrorBody) {{
+	        const showLabel = runtimeErrorToggle.getAttribute("data-show-label") || "Show Runtime";
+	        const hideLabel = runtimeErrorToggle.getAttribute("data-hide-label") || "Hide Runtime";
         const syncRuntimeErrorVisibility = function(expanded) {{
           runtimeErrorPanel.hidden = !expanded;
           runtimeErrorBody.hidden = !expanded;
@@ -3621,13 +3881,14 @@ def _render_config_page(
           runtimeErrorToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
         }};
         syncRuntimeErrorVisibility(false);
-        runtimeErrorToggle.addEventListener("click", function() {{
-          syncRuntimeErrorVisibility(runtimeErrorBody.hidden);
-        }});
-      }}
-      if (window.EtraxConfigVue && typeof window.EtraxConfigVue.mount === "function") {{
-        window.EtraxConfigVue.mount("#command-config-app", "#command-config-state");
-      }}
+	        runtimeErrorToggle.addEventListener("click", function() {{
+	          syncRuntimeErrorVisibility(runtimeErrorBody.hidden);
+	        }});
+	      }}
+        window.setInterval(refreshRuntimeStatus, 5000);
+	      if (window.EtraxConfigVue && typeof window.EtraxConfigVue.mount === "function") {{
+	        window.EtraxConfigVue.mount("#command-config-app", "#command-config-state");
+	      }}
     }})();
   </script>
 </body>
@@ -3658,6 +3919,125 @@ def _render_status_html(*, message: str, level: str) -> str:
         f"<strong>{label}:</strong> {html.escape(message)}"
         "</div>"
     )
+
+
+def _render_runtime_panel_html(runtime_status: dict[str, object]) -> str:
+    """Render the runtime side panel body shown on the config page."""
+    runtime_text = str(runtime_status.get("status", "stopped")).strip() or "stopped"
+    updates_seen = int(runtime_status.get("updates_seen", 0) or 0)
+    messages_sent = int(runtime_status.get("messages_sent", 0) or 0)
+    last_error_raw = runtime_status.get("last_error")
+    last_error = str(last_error_raw).strip() if last_error_raw is not None else ""
+    active_breadcrumbs = runtime_status.get("active_breadcrumbs")
+    breadcrumb_stream = runtime_status.get("breadcrumb_stream")
+    active_items = active_breadcrumbs if isinstance(active_breadcrumbs, list) else []
+    stream_items = breadcrumb_stream if isinstance(breadcrumb_stream, list) else []
+    active_count = int(runtime_status.get("active_breadcrumb_count", len(active_items)) or 0)
+
+    summary_html = (
+        "<div class='runtime-summary-grid'>"
+        f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Status</span><strong>{html.escape(runtime_text)}</strong></div>"
+        f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Updates</span><strong>{updates_seen}</strong></div>"
+        f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Messages</span><strong>{messages_sent}</strong></div>"
+        f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Breadcrumbs</span><strong>{active_count}</strong></div>"
+        "</div>"
+    )
+    error_html = (
+        f"<pre class='runtime-error-text'>{html.escape(last_error)}</pre>"
+        if last_error
+        else "<p class='runtime-error-empty'>No runtime details.</p>"
+    )
+
+    breadcrumb_items_html = "".join(
+        _render_runtime_breadcrumb_stream_item(item)
+        for item in stream_items
+        if isinstance(item, dict)
+    )
+    if breadcrumb_items_html:
+        breadcrumb_html = f"<ol class='runtime-breadcrumb-stream'>{breadcrumb_items_html}</ol>"
+    else:
+        breadcrumb_html = "<p class='runtime-error-empty'>No breadcrumb points yet.</p>"
+
+    active_labels = [
+        html.escape(str(item.get("label", "")).strip())
+        for item in active_items
+        if isinstance(item, dict) and str(item.get("label", "")).strip()
+    ]
+    active_labels_html = ""
+    if active_labels:
+        active_labels_html = (
+            "<p class='runtime-breadcrumb-active'>"
+            f"Active: {', '.join(active_labels[:6])}"
+            "</p>"
+        )
+
+    return (
+        summary_html
+        + "<section class='runtime-section'><h2>Last Error</h2>"
+        + error_html
+        + "</section>"
+        + "<section class='runtime-section'><h2>Breadcrumb Stream (Latest 5 Points)</h2>"
+        + active_labels_html
+        + breadcrumb_html
+        + "</section>"
+    )
+
+
+def _render_runtime_breadcrumb_stream_item(item: dict[str, object]) -> str:
+    label = str(item.get("label", "")).strip() or "Unknown User"
+    recorded_at = _format_runtime_timestamp_for_ui(item.get("recorded_at"))
+    latitude = item.get("latitude")
+    longitude = item.get("longitude")
+    point_index = int(item.get("point_index", 0) or 0)
+    breadcrumb_count = int(item.get("breadcrumb_count", 0) or 0)
+    is_newest_point = point_index >= max(breadcrumb_count, point_index)
+    active_text = "Active" if bool(item.get("active")) else "Ended"
+    distance_text = _format_runtime_distance_text(item.get("total_distance_meters"))
+    coordinate_text = "Unknown point"
+    try:
+        coordinate_text = f"{float(latitude):.6f}, {float(longitude):.6f}"
+    except (TypeError, ValueError):
+        pass
+    meta_parts = [coordinate_text, active_text]
+    if distance_text:
+        meta_parts.append(distance_text)
+    newest_html = "<span class='runtime-breadcrumb-newest'>Newest</span>" if is_newest_point else ""
+    return (
+        "<li class='runtime-breadcrumb-item'>"
+        "<div class='runtime-breadcrumb-head'>"
+        "<div class='runtime-breadcrumb-title'>"
+        f"<strong>{html.escape(label)}</strong>"
+        f"<span class='runtime-breadcrumb-point'>Point #{point_index}</span>"
+        f"{newest_html}"
+        "</div>"
+        f"<span>{html.escape(recorded_at)}</span>"
+        "</div>"
+        f"<div class='runtime-breadcrumb-meta'>{html.escape(' | '.join(meta_parts))}</div>"
+        "</li>"
+    )
+
+
+def _format_runtime_distance_text(value: object) -> str:
+    try:
+        distance = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if distance <= 0:
+        return ""
+    if distance >= 1000.0:
+        return f"{distance / 1000.0:.2f} km"
+    return f"{distance:.0f} m"
+
+
+def _format_runtime_timestamp_for_ui(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "No timestamp"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    return parsed.strftime("%Y-%m-%d %H:%M:%S %z")
 
 
 def _sync_command_menu_now(

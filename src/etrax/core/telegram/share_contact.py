@@ -24,6 +24,7 @@ class ShareContactConfig:
     button_text: str | None = None
     success_text_template: str | None = DEFAULT_CONTACT_SUCCESS
     invalid_text_template: str | None = DEFAULT_CONTACT_INVALID
+    require_finish_current_command: bool = False
     context_bot_id_key: str = "bot_id"
     context_chat_id_key: str = "chat_id"
     context_user_id_key: str = "user_id"
@@ -42,6 +43,7 @@ class PendingContactRequest:
     prompt_text_template: str | None
     success_text_template: str | None
     invalid_text_template: str | None
+    require_finish_current_command: bool = False
     context_snapshot: dict[str, Any] = field(default_factory=dict)
     continuation_modules: tuple[FlowModule, ...] = ()
 
@@ -140,6 +142,7 @@ class ShareContactModule:
                 prompt_text_template=self._config.text_template,
                 success_text_template=self._config.success_text_template,
                 invalid_text_template=self._config.invalid_text_template,
+                require_finish_current_command=bool(self._config.require_finish_current_command),
                 context_snapshot={**render_context, **result_context},
                 continuation_modules=self._continuation_modules,
             )

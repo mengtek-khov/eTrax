@@ -61,6 +61,18 @@ class JsonUserProfileLogStore:
                 return None
             return dict(profile)
 
+    def list_profiles(self, *, bot_id: str) -> list[dict[str, Any]]:
+        normalized_bot_id = str(bot_id).strip()
+        if not normalized_bot_id:
+            return []
+
+        with self._lock:
+            payload = self._load()
+            bot_bucket = payload.get(normalized_bot_id, {})
+            if not isinstance(bot_bucket, dict):
+                return []
+            return [dict(profile) for profile in bot_bucket.values() if isinstance(profile, dict)]
+
     def delete_profile(self, *, bot_id: str, user_id: str) -> None:
         normalized_bot_id = str(bot_id).strip()
         normalized_user_id = str(user_id).strip()

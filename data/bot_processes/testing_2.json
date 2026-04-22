@@ -37,10 +37,12 @@
             ],
             "module_type": "inline_button",
             "parse_mode": null,
+            "remove_inline_buttons_on_click": true,
             "save_callback_data_to_key": "i_am_18",
             "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
           }
         ],
+        "remove_inline_buttons_on_click": true,
         "save_callback_data_to_key": "i_am_18",
         "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
       },
@@ -144,6 +146,30 @@
           }
         ],
         "temporary_command_modules": {
+          "breadcrumb": {
+            "breadcrumb_interval_minutes": 1.0,
+            "breadcrumb_min_distance_meters": 5.0,
+            "button_text": "Share My Location",
+            "module_type": "share_location",
+            "parse_mode": null,
+            "pipeline": [
+              {
+                "breadcrumb_interval_minutes": 1.0,
+                "breadcrumb_min_distance_meters": 5.0,
+                "button_text": "Share My Location",
+                "module_type": "share_location",
+                "parse_mode": null,
+                "require_live_location": true,
+                "success_text_template": "Thanks, your location was received.",
+                "text_template": "Please share your location using the button below.",
+                "track_breadcrumb": true
+              }
+            ],
+            "require_live_location": true,
+            "success_text_template": "Thanks, your location was received.",
+            "text_template": "Please share your location using the button below.",
+            "track_breadcrumb": true
+          },
           "end": {
             "module_type": "send_message",
             "parse_mode": null,
@@ -155,6 +181,28 @@
               }
             ],
             "text_template": "Now etrax is end"
+          },
+          "report_to_group": {
+            "button_text": "Share My Location",
+            "closest_location_group_action_type": "message",
+            "find_closest_saved_location": true,
+            "module_type": "share_location",
+            "parse_mode": null,
+            "pipeline": [
+              {
+                "button_text": "Share My Location",
+                "closest_location_group_action_type": "message",
+                "find_closest_saved_location": true,
+                "module_type": "share_location",
+                "parse_mode": null,
+                "require_live_location": true,
+                "success_text_template": "Closest saved location is {closest_location_name}.",
+                "text_template": "Please share your location using the button below."
+              }
+            ],
+            "require_live_location": true,
+            "success_text_template": "Closest saved location is {closest_location_name}.",
+            "text_template": "Please share your location using the button below."
           },
           "route": {
             "empty_text_template": "No breadcrumb route available yet.",
@@ -183,6 +231,16 @@
             "command": "end",
             "description": "Command",
             "restore_original_menu": true
+          },
+          {
+            "command": "breadcrumb",
+            "description": "Command",
+            "restore_original_menu": false
+          },
+          {
+            "command": "report_to_group",
+            "description": "Command",
+            "restore_original_menu": false
           }
         ],
         "text_template": "Callback tracking location received."
@@ -261,6 +319,7 @@
             ],
             "module_type": "inline_button",
             "parse_mode": "None",
+            "remove_inline_buttons_on_click": true,
             "skip_if_context_keys": [
               "profile.phone_number"
             ],
@@ -365,6 +424,6 @@
   "token_ref": {
     "bot_id": "Testing 2"
   },
-  "updated_at": "2026-04-20T03:28:40.104097+00:00",
+  "updated_at": "2026-04-22T03:14:02.349839+00:00",
   "version": 1
 }

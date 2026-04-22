@@ -73,6 +73,21 @@ class FrappeUserProfileLogStore:
             return None
         return _row_to_profile(rows[0])
 
+    def list_profiles(self, *, bot_id: str) -> list[dict[str, Any]]:
+        """Return every stored user profile for one bot."""
+        normalized_bot_id = str(bot_id).strip()
+        if not normalized_bot_id:
+            return []
+
+        frappe = _import_frappe()
+        rows: list[dict[str, Any]] = frappe.get_all(
+            self._doctype,
+            filters={"bot_id": normalized_bot_id},
+            fields=["bot_id", "telegram_user_id", "profile_json"],
+            limit_page_length=0,
+        )
+        return [_row_to_profile(row) for row in rows]
+
     def delete_profile(self, *, bot_id: str, user_id: str) -> None:
         """Delete the stored user profile for one bot/user pair, if present."""
         normalized_bot_id = str(bot_id).strip()

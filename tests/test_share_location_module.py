@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from etrax.core.flow import ModuleOutcome
-from etrax.core.telegram import ShareLocationConfig, ShareLocationModule
+from etrax.core.telegram import (
+    PendingLocationRequest,
+    ShareLocationConfig,
+    ShareLocationModule,
+    append_location_breadcrumb_point,
+)
 
 
 class FakeTokenResolver:
@@ -157,6 +162,63 @@ def test_share_location_module_does_not_skip_existing_location_without_explicit_
     ]
     assert store.get_pending(bot_id="support-bot", chat_id="998877", user_id="42") is not None
     assert outcome.reason == "awaiting_location"
+
+
+def test_append_location_breadcrumb_point_preserves_existing_entries_when_threshold_not_met() -> None:
+    request = PendingLocationRequest(
+        bot_id="support-bot",
+        chat_id="998877",
+        user_id="42",
+        button_text="Send Location",
+        parse_mode=None,
+        prompt_text_template=None,
+        success_text_template=None,
+        closest_location_group_text_template=None,
+        invalid_text_template=None,
+        breadcrumb_last_point_at=1704067200.0,
+        breadcrumb_points=[(11.5564, 104.9282)],
+        breadcrumb_entries=[
+            {
+                "latitude": 11.5564,
+                "longitude": 104.9282,
+                "recorded_at": "2024-01-01T00:00:00+00:00",
+                "live_period": 60,
+            }
+        ],
+    )
+
+    context = append_location_breadcrumb_point(
+        request,
+        {
+            "latitude": 11.5564001,
+            "longitude": 104.9282001,
+            "live_period": 60,
+        },
+        point_timestamp=1704067210.0,
+        min_interval_seconds=60.0,
+        min_distance_meters=50.0,
+    )
+
+    assert request.breadcrumb_points == [(11.5564, 104.9282)]
+    assert request.breadcrumb_entries == [
+        {
+            "latitude": 11.5564,
+            "longitude": 104.9282,
+            "recorded_at": "2024-01-01T00:00:00+00:00",
+            "live_period": 60,
+        }
+    ]
+    assert context["location_breadcrumb_points"] == [
+        {"latitude": 11.5564, "longitude": 104.9282},
+    ]
+    assert context["location_breadcrumb_entries"] == [
+        {
+            "latitude": 11.5564,
+            "longitude": 104.9282,
+            "recorded_at": "2024-01-01T00:00:00+00:00",
+            "live_period": 60,
+        }
+    ]
 
 
 def test_share_location_module_skips_when_skip_if_context_matches() -> None:

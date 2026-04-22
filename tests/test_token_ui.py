@@ -355,32 +355,48 @@ def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
             "running": True,
             "status": "error",
             "last_error": "sample runtime failure",
+            "active_breadcrumb_count": 1,
+            "active_breadcrumbs": [
+                {
+                    "label": "Alice (@alice_user)",
+                    "active": True,
+                    "breadcrumb_count": 2,
+                    "last_recorded_at": "2026-04-22T02:20:06+00:00",
+                }
+            ],
+            "breadcrumb_stream": [
+                {
+                    "label": "Alice (@alice_user)",
+                    "active": True,
+                    "point_index": 2,
+                    "breadcrumb_count": 2,
+                    "latitude": 11.5568,
+                    "longitude": 104.9286,
+                    "recorded_at": "2026-04-22T02:20:06+00:00",
+                }
+            ],
         },
         message="",
         level="info",
     )
 
-    top_actions_snippet = (
-        '<div class="actions">\n'
-        '        <form method="post" action="/stop">\n'
-        '          <input type="hidden" name="bot_id" value="support-bot">\n'
-        '          <input type="hidden" name="next" value="/config?bot_id=support-bot">\n'
-        '          <button class="toggle-stop" type="submit">Stop Runtime</button>\n'
-        '        </form>\n'
-        '        <button\n'
-        '          type="button"\n'
-        '          class="runtime-error-toggle"'
-    )
-
-    assert top_actions_snippet in html
+    assert '<button class="toggle-stop" type="submit">Stop Runtime</button>' in html
+    assert 'class="runtime-error-toggle"' in html
     assert 'id="config-layout" class="config-layout runtime-error-hidden"' in html
     assert "data-runtime-error-toggle" in html
     assert 'id="runtime-error-panel" class="panel runtime-error-panel" hidden' in html
     assert 'id="runtime-error-body" class="runtime-error-body" hidden' in html
-    assert "Show Runtime Error" in html
-    assert "Hide Runtime Error" in html
+    assert "Show Runtime" in html
+    assert "Hide Runtime" in html
+    assert "<h1>Runtime</h1>" in html
     assert 'aria-expanded="false"' in html
     assert "sample runtime failure" in html
+    assert "Breadcrumb Stream" in html
+    assert "Latest 5 Points" in html
+    assert "Alice (@alice_user)" in html
+    assert "Point #2" in html
+    assert "Newest" in html
+    assert "/runtime-status?bot_id=support-bot" in html
 
 
 def test_render_config_page_includes_share_location_mode_cards() -> None:

@@ -72,6 +72,7 @@ def test_forget_user_data_module_clears_profile_cart_and_context() -> None:
             "location_longitude": 104.9282,
             "location_history_by_day": {"2024-01-01": [{"latitude": 11.5564, "longitude": 104.9282}]},
             "location_breadcrumb_points": [{"latitude": 11.5564, "longitude": 104.9282}],
+            "location_breadcrumb_entries": [{"latitude": 11.5564, "longitude": 104.9282, "recorded_at": "2024-01-01T00:00:00+00:00"}],
             "location_breadcrumb_by_day": {"2024-01-01": [{"latitude": 11.5564, "longitude": 104.9282}]},
             "location_breadcrumb_count": 1,
             "location_breadcrumb_total_distance_meters": 0.0,
@@ -92,6 +93,7 @@ def test_forget_user_data_module_clears_profile_cart_and_context() -> None:
     assert outcome.context_updates["location_longitude"] is None
     assert outcome.context_updates["location_history_by_day"] is None
     assert outcome.context_updates["location_breadcrumb_points"] is None
+    assert outcome.context_updates["location_breadcrumb_entries"] is None
     assert outcome.context_updates["location_breadcrumb_by_day"] is None
     assert outcome.context_updates["location_breadcrumb_count"] is None
     assert outcome.context_updates["location_breadcrumb_total_distance_meters"] is None
@@ -106,6 +108,7 @@ def test_forget_user_data_module_clears_profile_cart_and_context() -> None:
         "cleared_profile": True,
         "cleared_cart": True,
         "cleared_pending_contact_request": True,
+        "cleared_pending_selfie_request": False,
         "cleared_pending_location_request": True,
     }
 

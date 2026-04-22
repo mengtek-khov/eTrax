@@ -8,6 +8,8 @@ from etrax.core.telegram import (
     LoadCallbackModule,
     LoadCommandConfig,
     LoadCommandModule,
+    PendingContactRequest,
+    PendingLocationRequest,
     LoadInlineButtonConfig,
     LoadInlineButtonModule,
     SendInlineButtonConfig,
@@ -180,6 +182,21 @@ class FakeLocationRequestStore:
         return self.pending.pop((bot_id, chat_id, user_id), None)
 
 
+class FakeSelfieRequestStore:
+    def __init__(self) -> None:
+        self.pending: dict[tuple[str, str, str], object] = {}
+
+    def set_pending(self, request: object) -> None:
+        key = (request.bot_id, request.chat_id, request.user_id)
+        self.pending[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.get((bot_id, chat_id, user_id))
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.pop((bot_id, chat_id, user_id), None)
+
+
 def test_handle_message_update_adds_rich_sender_context() -> None:
     module = CaptureModule()
 
@@ -221,6 +238,135 @@ def test_handle_message_update_adds_rich_sender_context() -> None:
         "is_premium": True,
         "full_name": "Alice Example",
     }
+
+
+def test_handle_message_update_replaces_old_pending_location_request_when_new_command_starts() -> None:
+    module = CaptureModule()
+    location_request_store = FakeLocationRequestStore()
+    location_request_store.set_pending(
+        PendingLocationRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            button_text="Share My Location",
+            parse_mode=None,
+            prompt_text_template="Please share your location",
+            success_text_template="Thanks",
+            closest_location_group_text_template=None,
+            invalid_text_template=None,
+        )
+    )
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [module]},
+        start_returning_user=False,
+        location_request_store=location_request_store,
+    )
+
+    assert sent == 1
+    assert module.contexts
+    assert location_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
+
+
+def test_handle_message_update_blocks_new_command_when_pending_request_requires_finish() -> None:
+    module = CaptureModule()
+    gateway = FakeGateway()
+    contact_request_store = FakeContactRequestStore()
+    contact_request_store.set_pending(
+        PendingContactRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            button_text="Share My Contact",
+            parse_mode=None,
+            prompt_text_template="Please share your contact",
+            success_text_template="Thanks",
+            invalid_text_template="Please share your own contact",
+            require_finish_current_command=True,
+        )
+    )
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [module]},
+        start_returning_user=False,
+        gateway=gateway,
+        bot_token="token-1234",
+        contact_request_store=contact_request_store,
+    )
+
+    assert sent == 1
+    assert not module.contexts
+    assert gateway.message_calls[-1]["text"] == "Please finish the current command before starting a new one."
+    assert contact_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
+
+
+def test_handle_message_update_replacing_breadcrumb_request_closes_active_profile_session() -> None:
+    module = CaptureModule()
+    location_request_store = FakeLocationRequestStore()
+    profile_log_store = FakeProfileLogStore(
+        {("support-bot", "77"): {"location_breadcrumb_sessions": []}}
+    )
+    location_request_store.set_pending(
+        PendingLocationRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            button_text="Share My Location",
+            parse_mode=None,
+            prompt_text_template="Please share your live location",
+            success_text_template="Thanks",
+            closest_location_group_text_template=None,
+            invalid_text_template=None,
+            require_live_location=True,
+            track_breadcrumb=True,
+            breadcrumb_points=[(11.55, 104.92), (11.56, 104.93)],
+            breadcrumb_entries=[
+                {"point_number": 1, "recorded_at": "2026-04-22T10:00:00Z"},
+                {"point_number": 2, "recorded_at": "2026-04-22T10:01:00Z"},
+            ],
+            breadcrumb_total_distance_meters=145.0,
+            breadcrumb_session_started_at=1713779940.0,
+        )
+    )
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [module]},
+        start_returning_user=False,
+        location_request_store=location_request_store,
+        profile_log_store=profile_log_store,
+    )
+
+    assert sent == 1
+    updated_profile = profile_log_store.get_profile(bot_id="support-bot", user_id="77")
+    assert updated_profile is not None
+    assert updated_profile["location_breadcrumb_active"] is False
+    assert updated_profile["location_breadcrumb_count"] == 0
+    assert len(updated_profile["location_breadcrumb_sessions"]) == 1
+    assert updated_profile["location_breadcrumb_sessions"][0]["ended_reason"] == "replaced_by_new_command"
 
 
 def test_handle_callback_query_update_adds_rich_sender_context() -> None:

@@ -32,6 +32,8 @@ def resolve_ask_selfie_step_config(
         parse_mode=normalize_parse_mode(step.get("parse_mode")),
         success_text_template=str(step.get("success_text_template", "")).strip() or None,
         invalid_text_template=str(step.get("invalid_text_template", "")).strip() or None,
+        require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()
+        in {"1", "true", "yes", "on"},
     )
 
 

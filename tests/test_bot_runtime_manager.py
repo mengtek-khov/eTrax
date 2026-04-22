@@ -454,6 +454,83 @@ def test_start_returns_stopping_while_previous_poll_thread_is_still_alive() -> N
     assert message == "stopping"
 
 
+def test_status_by_bot_id_includes_runtime_breadcrumb_stream(tmp_path) -> None:
+    profile_store = JsonUserProfileLogStore(tmp_path / "profile_log.json")
+    profile_store.upsert_profile(
+        bot_id="support-bot",
+        user_id="77",
+        profile_updates={
+            "full_name": "Alice Example",
+            "username": "alice_user",
+            "last_chat_id": "12345",
+            "location_shared_at": "2026-04-22T02:20:06+00:00",
+            "location_breadcrumb_active": True,
+            "location_breadcrumb_count": 2,
+            "location_breadcrumb_total_distance_meters": 145.0,
+            "location_breadcrumb_entries": [
+                {
+                    "latitude": 11.5564,
+                    "longitude": 104.9282,
+                    "recorded_at": "2026-04-22T02:19:06+00:00",
+                },
+                {
+                    "latitude": 11.5568,
+                    "longitude": 104.9286,
+                    "recorded_at": "2026-04-22T02:20:06+00:00",
+                },
+            ],
+        },
+    )
+    manager = BotRuntimeManager(
+        token_service=FakeTokenResolver({}),
+        bot_config_dir=tmp_path / "bot_processes",
+        state_file=tmp_path / "update_offsets.json",
+        profile_log_store=profile_store,
+    )
+
+    status = manager.status_by_bot_id("support-bot")
+
+    assert status["status"] == "stopped"
+    assert status["active_breadcrumb_count"] == 1
+    assert status["active_breadcrumbs"] == [
+        {
+            "user_id": "77",
+            "chat_id": "12345",
+            "label": "Alice Example (@alice_user)",
+            "active": True,
+            "breadcrumb_count": 2,
+            "total_distance_meters": 145.0,
+            "last_recorded_at": "2026-04-22T02:20:06+00:00",
+        }
+    ]
+    assert status["breadcrumb_stream"] == [
+        {
+            "user_id": "77",
+            "chat_id": "12345",
+            "label": "Alice Example (@alice_user)",
+            "active": True,
+            "point_index": 2,
+            "breadcrumb_count": 2,
+            "total_distance_meters": 145.0,
+            "latitude": 11.5568,
+            "longitude": 104.9286,
+            "recorded_at": "2026-04-22T02:20:06+00:00",
+        },
+        {
+            "user_id": "77",
+            "chat_id": "12345",
+            "label": "Alice Example (@alice_user)",
+            "active": True,
+            "point_index": 1,
+            "breadcrumb_count": 2,
+            "total_distance_meters": 145.0,
+            "latitude": 11.5564,
+            "longitude": 104.9282,
+            "recorded_at": "2026-04-22T02:19:06+00:00",
+        },
+    ]
+
+
 def test_resolve_start_send_config_returns_none_when_disabled() -> None:
     payload = {
         "scenarios": {
@@ -3714,12 +3791,21 @@ def test_handle_update_tracks_live_location_as_breadcrumb(tmp_path) -> None:
     assert first_context["location_breadcrumb_points"] == [
         {"latitude": 11.5564, "longitude": 104.9282},
     ]
+    assert first_context["location_breadcrumb_entries"] == [
+        {
+            "latitude": 11.5564,
+            "longitude": 104.9282,
+            "recorded_at": "2024-01-01T00:00:00+00:00",
+            "live_period": 60,
+        }
+    ]
     assert store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
 
     followup_count = _handle_update(
         {
             "edited_message": {
                 "message_id": 901,
+                "edit_date": 1704067260,
                 "chat": {"id": 12345},
                 "from": {
                     "id": 77,
@@ -3755,6 +3841,20 @@ def test_handle_update_tracks_live_location_as_breadcrumb(tmp_path) -> None:
     assert profile["location_breadcrumb_points"] == [
         {"latitude": 11.5564, "longitude": 104.9282},
         {"latitude": 11.5568, "longitude": 104.9286},
+    ]
+    assert profile["location_breadcrumb_entries"] == [
+        {
+            "latitude": 11.5564,
+            "longitude": 104.9282,
+            "recorded_at": "2024-01-01T00:00:00+00:00",
+            "live_period": 60,
+        },
+        {
+            "latitude": 11.5568,
+            "longitude": 104.9286,
+            "recorded_at": "2024-01-01T00:01:00+00:00",
+            "live_period": 60,
+        },
     ]
     assert profile["location_breadcrumb_total_distance_meters"] > 0
 
@@ -3953,10 +4053,25 @@ def test_handle_update_notifies_when_live_breadcrumb_interrupts_and_ends_session
     assert profile["location_breadcrumb_active"] is False
     assert profile["location_breadcrumb_count"] == 0
     assert profile["location_breadcrumb_points"] == []
+    assert profile["location_breadcrumb_entries"] == []
     assert len(profile["location_breadcrumb_sessions"]) == 1
     session = profile["location_breadcrumb_sessions"][0]
     assert session["ended_reason"] == "ended_by_user"
     assert session["points"] == [{"latitude": 11.5564, "longitude": 104.9282}]
+    assert session["entries"] == [
+        {
+            "latitude": 11.5564,
+            "longitude": 104.9282,
+            "recorded_at": "2024-01-01T00:00:00+00:00",
+            "live_period": 60,
+        },
+        {
+            "latitude": 11.5569,
+            "longitude": 104.9286,
+            "recorded_at": "2024-01-01T00:03:00+00:00",
+            "live_period": 60,
+        },
+    ]
 
 
 def test_handle_update_tracks_breadcrumb_when_time_or_distance_threshold_is_met(tmp_path) -> None:

@@ -7,6 +7,7 @@ import os
 import traceback
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any, Callable
@@ -258,6 +259,7 @@ class BotRuntimeManager:
 
     ERROR_LOG_COOLDOWN_SECONDS = 30.0
     STOP_JOIN_BUFFER_SECONDS = 2.0
+    MAX_RUNTIME_BREADCRUMB_POINTS = 5
 
     def __init__(
         self,
@@ -382,7 +384,7 @@ class BotRuntimeManager:
         with self._lock:
             controller = self._controllers.get(normalized_bot_id)
             if controller is None:
-                return {
+                status: dict[str, object] = {
                     "bot_id": normalized_bot_id,
                     "running": False,
                     "status": "stopped",
@@ -390,7 +392,10 @@ class BotRuntimeManager:
                     "messages_sent": 0,
                     "last_error": None,
                 }
-            return _controller_to_status(controller)
+            else:
+                status = _controller_to_status(controller)
+        status.update(self._build_breadcrumb_runtime_status(normalized_bot_id))
+        return status
 
     def statuses(self, bot_ids: list[str]) -> dict[str, dict[str, object]]:
         """Return runtime status for a list of bot ids."""
@@ -743,6 +748,158 @@ class BotRuntimeManager:
     def _stop_join_timeout_seconds(self) -> float:
         """Return the maximum time stop() should wait for the polling thread to release resources."""
         return max(self.STOP_JOIN_BUFFER_SECONDS, float(self._poll_timeout_seconds) + self.STOP_JOIN_BUFFER_SECONDS)
+
+    def _build_breadcrumb_runtime_status(self, bot_id: str) -> dict[str, object]:
+        """Return UI-ready breadcrumb activity for one bot from persisted profile snapshots."""
+        list_profiles = getattr(self._profile_log_store, "list_profiles", None)
+        if not callable(list_profiles):
+            return {
+                "active_breadcrumbs": [],
+                "active_breadcrumb_count": 0,
+                "breadcrumb_stream": [],
+            }
+
+        raw_profiles = list_profiles(bot_id=bot_id)
+        profiles = raw_profiles if isinstance(raw_profiles, list) else []
+        active_breadcrumbs: list[dict[str, object]] = []
+        breadcrumb_stream: list[dict[str, object]] = []
+
+        for raw_profile in profiles:
+            if not isinstance(raw_profile, dict):
+                continue
+            entries = _normalize_runtime_breadcrumb_entries(raw_profile.get("location_breadcrumb_entries"))
+            if not entries:
+                entries = _build_fallback_runtime_breadcrumb_entries(raw_profile)
+            if not entries:
+                continue
+
+            user_id = str(raw_profile.get("telegram_user_id", "")).strip()
+            chat_id = str(raw_profile.get("last_chat_id", "")).strip()
+            label = _runtime_breadcrumb_label(raw_profile, fallback_user_id=user_id)
+            breadcrumb_count = int(raw_profile.get("location_breadcrumb_count", 0) or 0)
+            total_distance = float(raw_profile.get("location_breadcrumb_total_distance_meters", 0.0) or 0.0)
+            active = bool(raw_profile.get("location_breadcrumb_active"))
+            last_recorded_at = str(entries[-1].get("recorded_at", "")).strip()
+
+            active_breadcrumbs.append(
+                {
+                    "user_id": user_id,
+                    "chat_id": chat_id,
+                    "label": label,
+                    "active": active,
+                    "breadcrumb_count": breadcrumb_count,
+                    "total_distance_meters": total_distance,
+                    "last_recorded_at": last_recorded_at,
+                }
+            )
+            for index, entry in enumerate(entries, start=1):
+                breadcrumb_stream.append(
+                    {
+                        "user_id": user_id,
+                        "chat_id": chat_id,
+                        "label": label,
+                        "active": active,
+                        "point_index": index,
+                        "breadcrumb_count": breadcrumb_count,
+                        "total_distance_meters": total_distance,
+                        **entry,
+                    }
+                )
+
+        active_breadcrumbs.sort(
+            key=lambda item: (
+                bool(item.get("active")),
+                _parse_runtime_timestamp(item.get("last_recorded_at")),
+                str(item.get("label", "")).lower(),
+            ),
+            reverse=True,
+        )
+        breadcrumb_stream.sort(
+            key=lambda item: (
+                _parse_runtime_timestamp(item.get("recorded_at")),
+                bool(item.get("active")),
+                str(item.get("label", "")).lower(),
+                int(item.get("point_index", 0) or 0),
+            ),
+            reverse=True,
+        )
+        if len(breadcrumb_stream) > self.MAX_RUNTIME_BREADCRUMB_POINTS:
+            breadcrumb_stream = breadcrumb_stream[: self.MAX_RUNTIME_BREADCRUMB_POINTS]
+
+        return {
+            "active_breadcrumbs": active_breadcrumbs,
+            "active_breadcrumb_count": len(active_breadcrumbs),
+            "breadcrumb_stream": breadcrumb_stream,
+        }
+
+
+def _normalize_runtime_breadcrumb_entries(raw_entries: object) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    if not isinstance(raw_entries, list):
+        return entries
+    for raw_entry in raw_entries:
+        if not isinstance(raw_entry, dict):
+            continue
+        try:
+            latitude = float(raw_entry.get("latitude"))
+            longitude = float(raw_entry.get("longitude"))
+        except (TypeError, ValueError):
+            continue
+        recorded_at = str(raw_entry.get("recorded_at", "")).strip()
+        normalized: dict[str, object] = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "recorded_at": recorded_at,
+        }
+        for key in ("horizontal_accuracy", "live_period", "heading", "proximity_alert_radius", "message_id"):
+            value = raw_entry.get(key)
+            if value not in {None, ""}:
+                normalized[key] = value
+        entries.append(normalized)
+    return entries
+
+
+def _build_fallback_runtime_breadcrumb_entries(profile: dict[str, object]) -> list[dict[str, object]]:
+    points = profile.get("location_breadcrumb_points")
+    if not isinstance(points, list) or not points:
+        return []
+    last_point = points[-1]
+    if not isinstance(last_point, dict):
+        return []
+    try:
+        latitude = float(last_point.get("latitude"))
+        longitude = float(last_point.get("longitude"))
+    except (TypeError, ValueError):
+        return []
+    return [
+        {
+            "latitude": latitude,
+            "longitude": longitude,
+            "recorded_at": str(profile.get("location_shared_at", "")).strip(),
+        }
+    ]
+
+
+def _runtime_breadcrumb_label(profile: dict[str, object], *, fallback_user_id: str) -> str:
+    full_name = str(profile.get("full_name", "")).strip()
+    username = str(profile.get("username", "")).strip()
+    if full_name and username:
+        return f"{full_name} (@{username.lstrip('@')})"
+    if full_name:
+        return full_name
+    if username:
+        return f"@{username.lstrip('@')}"
+    return fallback_user_id or "Unknown User"
+
+
+def _parse_runtime_timestamp(value: object) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def _build_callback_continuation_modules(

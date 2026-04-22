@@ -55,6 +55,7 @@ class ShareLocationConfig:
     closest_location_group_callback_key: str | None = None
     closest_location_group_custom_code_function_name: str | None = None
     invalid_text_template: str | None = DEFAULT_LOCATION_INVALID
+    require_finish_current_command: bool = False
     require_live_location: bool = False
     find_closest_saved_location: bool = False
     match_closest_saved_location: bool = False
@@ -93,6 +94,7 @@ class PendingLocationRequest:
     closest_location_group_action_type: str = DEFAULT_CLOSEST_LOCATION_GROUP_ACTION_TYPE
     closest_location_group_callback_key: str | None = None
     closest_location_group_custom_code_function_name: str | None = None
+    require_finish_current_command: bool = False
     require_live_location: bool = False
     find_closest_saved_location: bool = False
     match_closest_saved_location: bool = False
@@ -108,6 +110,7 @@ class PendingLocationRequest:
     breadcrumb_interruption_notified: bool = False
     closest_location_mismatch_notified: bool = False
     breadcrumb_points: list[tuple[float, float]] = field(default_factory=list)
+    breadcrumb_entries: list[dict[str, Any]] = field(default_factory=list)
     breadcrumb_total_distance_meters: float = 0.0
     breadcrumb_started_text_template: str | None = None
     breadcrumb_interrupted_text_template: str | None = None
@@ -272,6 +275,7 @@ class ShareLocationModule:
                 ).strip()
                 or None,
                 invalid_text_template=self._config.invalid_text_template,
+                require_finish_current_command=bool(self._config.require_finish_current_command),
                 require_live_location=self._config.require_live_location,
                 find_closest_saved_location=bool(self._config.find_closest_saved_location),
                 match_closest_saved_location=bool(self._config.match_closest_saved_location),
@@ -407,6 +411,7 @@ def append_location_breadcrumb_point(
     if not isinstance(latitude, float) or not isinstance(longitude, float):
         return build_location_breadcrumb_context(
             request.breadcrumb_points,
+            entries=request.breadcrumb_entries,
             total_distance_meters=request.breadcrumb_total_distance_meters,
         )
 
@@ -425,6 +430,7 @@ def append_location_breadcrumb_point(
         if (min_distance > 0.0 or min_interval > 0.0) and not (distance_met or interval_met):
             return build_location_breadcrumb_context(
                 request.breadcrumb_points,
+                entries=request.breadcrumb_entries,
                 total_distance_meters=request.breadcrumb_total_distance_meters,
             )
         request.breadcrumb_total_distance_meters += segment_distance
@@ -432,10 +438,16 @@ def append_location_breadcrumb_point(
         request.breadcrumb_session_started_at = candidate_timestamp
 
     request.breadcrumb_points.append(candidate_point)
+    request.breadcrumb_entries.append(build_location_history_entry(location, recorded_at=candidate_timestamp) or {
+        "latitude": latitude,
+        "longitude": longitude,
+        "recorded_at": _timestamp_to_iso(candidate_timestamp),
+    })
     request.breadcrumb_last_point_at = candidate_timestamp
     request.breadcrumb_interruption_notified = False
     return build_location_breadcrumb_context(
         request.breadcrumb_points,
+        entries=request.breadcrumb_entries,
         total_distance_meters=request.breadcrumb_total_distance_meters,
     )
 
@@ -443,6 +455,7 @@ def append_location_breadcrumb_point(
 def build_location_breadcrumb_context(
     points: Sequence[tuple[float, float]],
     *,
+    entries: Sequence[dict[str, Any]] | None = None,
     total_distance_meters: float,
     active: bool | None = None,
 ) -> dict[str, Any]:
@@ -450,6 +463,11 @@ def build_location_breadcrumb_context(
         "location_breadcrumb_points": [
             {"latitude": float(latitude), "longitude": float(longitude)}
             for latitude, longitude in points
+        ],
+        "location_breadcrumb_entries": [
+            dict(entry)
+            for entry in (entries or ())
+            if isinstance(entry, dict)
         ],
         "location_breadcrumb_count": len(points),
         "location_breadcrumb_total_distance_meters": float(total_distance_meters),
@@ -523,6 +541,11 @@ def build_breadcrumb_session_entry(
         "points": [
             {"latitude": float(latitude), "longitude": float(longitude)}
             for latitude, longitude in request.breadcrumb_points
+        ],
+        "entries": [
+            dict(entry)
+            for entry in request.breadcrumb_entries
+            if isinstance(entry, dict)
         ],
     }
 
