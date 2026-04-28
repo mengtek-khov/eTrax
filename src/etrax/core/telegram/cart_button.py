@@ -61,6 +61,10 @@ class CartButtonModule:
     def continuation_modules(self) -> tuple[FlowModule, ...]:
         return self._continuation_modules
 
+    @property
+    def continue_immediately(self) -> bool:
+        return True
+
     def execute(self, context: dict[str, Any]) -> ModuleOutcome:
         bot_id = self._resolve_bot_id(context)
         chat_id = self._resolve_chat_id(context)

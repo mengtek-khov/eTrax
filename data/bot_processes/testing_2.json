@@ -247,6 +247,30 @@
       }
     },
     "command_modules": {
+      "clock": {
+        "buttons": [
+          {
+            "row": 1,
+            "text": "Clock In"
+          }
+        ],
+        "module_type": "keyboard_button",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "buttons": [
+              {
+                "row": 1,
+                "text": "Clock In"
+              }
+            ],
+            "module_type": "keyboard_button",
+            "parse_mode": null,
+            "text_template": "Choose an option."
+          }
+        ],
+        "text_template": "Choose an option."
+      },
       "etrex": {
         "module_type": "callback_module",
         "pipeline": [
@@ -383,6 +407,10 @@
       {
         "command": "test",
         "description": "Test"
+      },
+      {
+        "command": "clock",
+        "description": "Clock"
       }
     ]
   },
@@ -424,6 +452,6 @@
   "token_ref": {
     "bot_id": "Testing 2"
   },
-  "updated_at": "2026-04-22T03:14:02.349839+00:00",
+  "updated_at": "2026-04-23T08:58:10.899076+00:00",
   "version": 1
 }

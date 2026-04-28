@@ -22,6 +22,7 @@ from etrax.core.telegram import (
     SendPhotoConfig,
     ShareContactConfig,
     ShareLocationConfig,
+    UserInfoConfig,
     UserProfileStore,
 )
 
@@ -42,6 +43,7 @@ RuntimeStepConfig = (
     | SendInlineButtonConfig
     | OpenMiniAppConfig
     | ForgetUserDataConfig
+    | UserInfoConfig
 )
 
 

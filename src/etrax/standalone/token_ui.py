@@ -231,6 +231,9 @@ def _build_handler(
             if parsed.path == "/module-inline-button.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("inline_button_module.js"))
                 return
+            if parsed.path == "/module-keyboard-button.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("keyboard_button_module.js"))
+                return
             if parsed.path == "/module-share-contact.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_contact_module.js"))
                 return
@@ -263,6 +266,9 @@ def _build_handler(
                 return
             if parsed.path == "/module-forget-user-data.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("forget_user_data_module.js"))
+                return
+            if parsed.path == "/module-userinfo.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("userinfo_module.js"))
                 return
             if parsed.path == "/module-callback-module.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("callback_module_module.js"))
@@ -3700,6 +3706,7 @@ def _render_config_page(
   <script src="/module-send-location.js?v={asset_version}"></script>
   <script src="/module-menu.js?v={asset_version}"></script>
   <script src="/module-inline-button.js?v={asset_version}"></script>
+  <script src="/module-keyboard-button.js?v={asset_version}"></script>
   <script src="/module-share-contact.js?v={asset_version}"></script>
   <script src="/module-ask-selfie.js?v={asset_version}"></script>
   <script src="/module-custom-code.js?v={asset_version}"></script>
@@ -3711,6 +3718,7 @@ def _render_config_page(
   <script src="/module-cart-button.js?v={asset_version}"></script>
   <script src="/module-open-mini-app.js?v={asset_version}"></script>
   <script src="/module-forget-user-data.js?v={asset_version}"></script>
+  <script src="/module-userinfo.js?v={asset_version}"></script>
   <script src="/module-callback-module.js?v={asset_version}"></script>
   <script src="/module-command-module.js?v={asset_version}"></script>
   <script src="/module-inline-button-module.js?v={asset_version}"></script>
@@ -5482,6 +5490,20 @@ def _build_module_step(
             remove_inline_buttons_on_click=inline_remove_buttons_on_click_text,
         )
 
+    if normalized_module_type == "keyboard_button":
+        buttons = _parse_keyboard_buttons_text(
+            raw=inline_buttons_text,
+            context_label=f"command /{command_name}",
+        )
+        if not buttons:
+            raise ValueError(f"command /{command_name}: keyboard_button requires at least one button")
+        return {
+            "module_type": "keyboard_button",
+            "text_template": text_template.strip() or "Choose an option.",
+            "parse_mode": parse_mode_value,
+            "buttons": buttons,
+        }
+
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
         if not target_callback_key:
@@ -5695,6 +5717,14 @@ def _build_module_step(
             "module_type": "forget_user_data",
         }
 
+    if normalized_module_type in {"userinfo", "user_info"}:
+        return {
+            "module_type": "userinfo",
+            "title": menu_title.strip() or "Current User Information",
+            "empty_text_template": route_empty_text.strip() or "No user information has been gathered yet.",
+            "parse_mode": parse_mode_value,
+        }
+
     step = {
         "module_type": "send_message",
         "text_template": text_template.strip() or f"Command /{command_name} received.",
@@ -5811,6 +5841,20 @@ def _build_callback_module_step(
             save_callback_data_to_key=inline_save_callback_data_to_key_text,
             remove_inline_buttons_on_click=inline_remove_buttons_on_click_text,
         )
+
+    if normalized_module_type == "keyboard_button":
+        buttons = _parse_keyboard_buttons_text(
+            raw=inline_buttons_text,
+            context_label=f"callback '{callback_key}'",
+        )
+        if not buttons:
+            raise ValueError(f"callback '{callback_key}': keyboard_button requires at least one button")
+        return {
+            "module_type": "keyboard_button",
+            "text_template": text_template.strip() or default_text,
+            "parse_mode": parse_mode_value,
+            "buttons": buttons,
+        }
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -6023,6 +6067,14 @@ def _build_callback_module_step(
     if normalized_module_type == "forget_user_data":
         return {
             "module_type": "forget_user_data",
+        }
+
+    if normalized_module_type in {"userinfo", "user_info"}:
+        return {
+            "module_type": "userinfo",
+            "title": menu_title.strip() or "Current User Information",
+            "empty_text_template": route_empty_text.strip() or "No user information has been gathered yet.",
+            "parse_mode": parse_mode_value,
         }
 
     return {
@@ -6526,12 +6578,16 @@ def _extract_command_module_form_values(
         text_default = ""
     elif module_type == "inline_button_module":
         text_default = ""
+    elif module_type == "keyboard_button":
+        text_default = "Choose an option."
     elif module_type == "forget_user_data":
+        text_default = ""
+    elif module_type in {"userinfo", "user_info"}:
         text_default = ""
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -6558,7 +6614,10 @@ def _extract_command_module_form_values(
         module.get("start_returning_text_template", module.get("welcome_back_template", ""))
     ).strip()
     chain_steps = _pipeline_to_chain_steps(module.get("pipeline", []))
-    inline_buttons = _inline_buttons_to_text(module.get("buttons", []))
+    if module_type == "keyboard_button":
+        inline_buttons = _keyboard_buttons_to_text(module.get("buttons", []))
+    else:
+        inline_buttons = _inline_buttons_to_text(module.get("buttons", []))
     inline_run_if_context_keys = _context_key_lines_to_text(module.get("run_if_context_keys", []))
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
@@ -6757,12 +6816,16 @@ def _extract_callback_module_form_values(
         text_default = ""
     elif module_type == "inline_button_module":
         text_default = ""
+    elif module_type == "keyboard_button":
+        text_default = "Choose an option."
     elif module_type == "forget_user_data":
+        text_default = ""
+    elif module_type in {"userinfo", "user_info"}:
         text_default = ""
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -6786,7 +6849,10 @@ def _extract_callback_module_form_values(
     elif isinstance(items_raw, str):
         menu_items = items_raw.strip()
     chain_steps = _pipeline_to_chain_steps(module.get("pipeline", []))
-    inline_buttons = _inline_buttons_to_text(module.get("buttons", []))
+    if module_type == "keyboard_button":
+        inline_buttons = _keyboard_buttons_to_text(module.get("buttons", []))
+    else:
+        inline_buttons = _inline_buttons_to_text(module.get("buttons", []))
     inline_run_if_context_keys = _context_key_lines_to_text(module.get("run_if_context_keys", []))
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
@@ -7447,6 +7513,64 @@ def _normalize_inline_buttons(raw_buttons: object) -> list[dict[str, object]]:
     return normalized
 
 
+def _parse_keyboard_buttons_text(*, raw: str, context_label: str) -> list[dict[str, object]]:
+    """Parse keyboard-button editor text into normalized button payloads."""
+    buttons: list[dict[str, object]] = []
+    if not raw.strip():
+        return buttons
+
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    for idx, line in enumerate(lines, start=1):
+        parts = [part.strip() for part in line.split("|")]
+        text = parts[0] if parts else ""
+        if not text:
+            raise ValueError(f"{context_label} keyboard_button line {idx}: button text is required")
+        row = _parse_keyboard_button_optional_parts(parts[1:], default_row=idx)
+        buttons.append({"text": text, "row": row})
+    return buttons
+
+
+def _normalize_keyboard_buttons(raw_buttons: object) -> list[dict[str, object]]:
+    """Normalize keyboard-button payloads to text plus row fields."""
+    if not isinstance(raw_buttons, list):
+        return []
+
+    normalized: list[dict[str, object]] = []
+    for raw_index, raw_button in enumerate(raw_buttons, start=1):
+        candidates: list[object]
+        if isinstance(raw_button, list):
+            candidates = list(raw_button)
+            fallback_row = raw_index
+        else:
+            candidates = [raw_button]
+            fallback_row = len(normalized) + 1
+
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            text = str(candidate.get("text", "")).strip()
+            row_raw = candidate.get("row")
+            row_text = str(row_raw).strip() if row_raw is not None else ""
+            row = int(row_text) if row_text.isdigit() and int(row_text) > 0 else fallback_row
+            if not text:
+                continue
+            normalized.append({"text": text, "row": row})
+    return normalized
+
+
+def _keyboard_buttons_to_text(raw_buttons: object) -> str:
+    """Serialize keyboard-button payloads for the textarea-based form representation."""
+    normalized = _normalize_keyboard_buttons(raw_buttons)
+    lines: list[str] = []
+    for button in normalized:
+        text = button["text"]
+        row_raw = button.get("row")
+        row_text = str(row_raw).strip() if row_raw is not None else ""
+        row = int(row_text) if row_text.isdigit() and int(row_text) > 0 else len(lines) + 1
+        lines.append(f"{text} | {row}")
+    return "\n".join(lines)
+
+
 def _inline_buttons_to_text(raw_buttons: object) -> str:
     """Serialize button payloads for the textarea-based form representation."""
     normalized = _normalize_inline_buttons(raw_buttons)
@@ -7490,6 +7614,31 @@ def _parse_inline_button_optional_parts(parts: list[str], *, default_row: int) -
         return last_row, "|".join(parts[:-1]).strip()
 
     return row, "|".join(parts).strip()
+
+
+def _parse_keyboard_button_optional_parts(parts: list[str], *, default_row: int) -> int:
+    """Parse optional keyboard-button row metadata."""
+    row = max(default_row, 1)
+    if not parts:
+        return row
+
+    def parse_row(raw_value: str) -> int | None:
+        value = raw_value.strip()
+        if value.isdigit():
+            return max(int(value), 1)
+        if value.lower().startswith("row:") and value[4:].strip().isdigit():
+            return max(int(value[4:].strip()), 1)
+        return None
+
+    first_row = parse_row(parts[0])
+    if first_row is not None:
+        return first_row
+
+    last_row = parse_row(parts[-1])
+    if last_row is not None:
+        return last_row
+
+    return row
 
 
 def _parse_context_key_lines(raw: object) -> list[str]:
@@ -7647,6 +7796,28 @@ def _parse_inline_button_chain_step(
         save_callback_data_to_key=save_callback_data_to_key,
         remove_inline_buttons_on_click=remove_inline_buttons_on_click,
     )
+
+
+def _parse_keyboard_button_chain_step(
+    *,
+    route_label: str,
+    step_index: int,
+    text_template: str,
+    parse_mode: str,
+    buttons_raw: object,
+) -> dict[str, object]:
+    """Build a normalized keyboard_button chain step."""
+    buttons = _normalize_keyboard_buttons(buttons_raw)
+    if not buttons:
+        raise ValueError(
+            f"{route_label} chain step {step_index}: keyboard_button requires at least one valid button"
+        )
+    return {
+        "module_type": "keyboard_button",
+        "text_template": text_template or "Choose an option.",
+        "parse_mode": parse_mode or None,
+        "buttons": buttons,
+    }
 
 
 def _parse_send_photo_chain_step(
@@ -7970,6 +8141,17 @@ def _parse_route_chain_steps(
                     )
                 )
                 continue
+            if module_type == "keyboard_button":
+                steps.append(
+                    _parse_keyboard_button_chain_step(
+                        route_label=route_label,
+                        step_index=idx,
+                        text_template=str(serialized.get("text_template", "")),
+                        parse_mode=parse_mode,
+                        buttons_raw=serialized.get("buttons", []),
+                    )
+                )
+                continue
             if module_type == "callback_module":
                 steps.append(
                     _parse_callback_module_chain_step(
@@ -8222,8 +8404,19 @@ def _parse_route_chain_steps(
             if module_type == "forget_user_data":
                 steps.append({"module_type": "forget_user_data"})
                 continue
+            if module_type in {"userinfo", "user_info"}:
+                steps.append(
+                    {
+                        "module_type": "userinfo",
+                        "title": str(serialized.get("title", "")).strip() or "Current User Information",
+                        "empty_text_template": str(serialized.get("empty_text_template", "")).strip()
+                        or "No user information has been gathered yet.",
+                        "parse_mode": parse_mode or None,
+                    }
+                )
+                continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -8282,6 +8475,10 @@ def _parse_route_chain_steps(
                 )
             )
             continue
+        if module_type == "keyboard_button":
+            raise ValueError(
+                f"{route_label} chain step {idx}: keyboard_button must be provided in JSON chain-step format"
+            )
         if module_type == "callback_module":
             steps.append(
                 _parse_callback_module_chain_step(
@@ -8542,8 +8739,20 @@ def _parse_route_chain_steps(
         if module_type == "forget_user_data":
             steps.append({"module_type": "forget_user_data"})
             continue
+        if module_type in {"userinfo", "user_info"}:
+            steps.append(
+                {
+                    "module_type": "userinfo",
+                    "title": parts[1] if len(parts) >= 2 and parts[1] else "Current User Information",
+                    "empty_text_template": parts[2]
+                    if len(parts) >= 3 and parts[2]
+                    else "No user information has been gathered yet.",
+                    "parse_mode": parts[3] if len(parts) >= 4 and parts[3] else None,
+                }
+            )
+            continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., or forget_user_data|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
         )
     return steps
 
@@ -8605,6 +8814,13 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["save_callback_data_to_key"] = save_callback_data_to_key
             if bool(step.get("remove_inline_buttons_on_click", False)):
                 payload["remove_inline_buttons_on_click"] = True
+        elif module_type == "keyboard_button":
+            payload = {
+                "module_type": "keyboard_button",
+                "text_template": str(step.get("text_template", "Choose an option.")),
+                "parse_mode": parse_mode,
+                "buttons": _normalize_keyboard_buttons(step.get("buttons", [])),
+            }
         elif module_type == "callback_module":
             payload = {
                 "module_type": "callback_module",
@@ -8829,6 +9045,14 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
         elif module_type == "forget_user_data":
             payload = {
                 "module_type": "forget_user_data",
+            }
+        elif module_type in {"userinfo", "user_info"}:
+            payload = {
+                "module_type": "userinfo",
+                "title": str(step.get("title", "")).strip() or "Current User Information",
+                "empty_text_template": str(step.get("empty_text_template", "")).strip()
+                or "No user information has been gathered yet.",
+                "parse_mode": parse_mode,
             }
         else:
             payload = {

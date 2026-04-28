@@ -55,6 +55,31 @@
     return normalized;
   }
 
+  function normalizeKeyboardButtons(rawButtons) {
+    if (!Array.isArray(rawButtons)) {
+      return [];
+    }
+
+    const normalized = [];
+    for (let rawIndex = 0; rawIndex < rawButtons.length; rawIndex += 1) {
+      const rawButton = Array.isArray(rawButtons[rawIndex]) ? rawButtons[rawIndex] : [rawButtons[rawIndex]];
+      const fallbackRow = Array.isArray(rawButtons[rawIndex]) ? rawIndex + 1 : normalized.length + 1;
+      for (const candidate of rawButton) {
+        if (!candidate || typeof candidate !== "object") {
+          continue;
+        }
+        const text = String(candidate.text || "").trim();
+        const rowRaw = Number.parseInt(candidate.row, 10);
+        const row = Number.isInteger(rowRaw) && rowRaw > 0 ? rowRaw : fallbackRow;
+        if (!text) {
+          continue;
+        }
+        normalized.push({ text, row });
+      }
+    }
+    return normalized;
+  }
+
   function parseOptionalInlineButtonMetadata(rawParts, fallbackRow) {
     let row = fallbackRow;
     let actualValue = "";
@@ -143,12 +168,69 @@
     return lines.join("\n");
   }
 
+  function parseOptionalKeyboardButtonRow(rawParts, fallbackRow) {
+    let row = fallbackRow;
+    const extras = Array.isArray(rawParts) ? rawParts.map((part) => String(part || "").trim()) : [];
+    if (extras.length === 0) {
+      return row;
+    }
+
+    const parseRow = (value) => {
+      const match = /^row:(\d+)$/i.exec(value) || /^(\d+)$/.exec(value);
+      return match ? Number.parseInt(match[1], 10) : null;
+    };
+
+    const firstRow = parseRow(extras[0]);
+    if (firstRow && firstRow > 0) {
+      return firstRow;
+    }
+
+    const lastRow = parseRow(extras[extras.length - 1]);
+    if (lastRow && lastRow > 0) {
+      return lastRow;
+    }
+
+    return row;
+  }
+
+  function parseKeyboardButtons(raw) {
+    const buttons = [];
+    const lines = splitLines(raw);
+    for (let index = 0; index < lines.length; index += 1) {
+      const parts = lines[index].split("|").map((part) => part.trim());
+      const text = String(parts[0] || "").trim();
+      if (!text) {
+        continue;
+      }
+      buttons.push({ text, row: parseOptionalKeyboardButtonRow(parts.slice(1), index + 1) });
+    }
+    return buttons;
+  }
+
+  function formatKeyboardButtons(buttons) {
+    const normalized = normalizeKeyboardButtons(buttons);
+    const lines = [];
+    for (const button of normalized) {
+      const text = String(button.text || "").trim();
+      if (!text) {
+        continue;
+      }
+      const rowRaw = Number.parseInt(button.row, 10);
+      const row = Number.isInteger(rowRaw) && rowRaw > 0 ? rowRaw : lines.length + 1;
+      lines.push(`${text} | ${row}`);
+    }
+    return lines.join("\n");
+  }
+
   const helpers = {
     splitLines,
     parseMenuItems,
     parseInlineButtons,
     formatInlineButtons,
     normalizeInlineButtons,
+    parseKeyboardButtons,
+    formatKeyboardButtons,
+    normalizeKeyboardButtons,
   };
 
   function registeredType(raw) {

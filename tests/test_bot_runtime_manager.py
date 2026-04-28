@@ -866,6 +866,46 @@ def test_resolve_command_send_configs_supports_inline_button_steps() -> None:
     }
 
 
+def test_resolve_command_send_configs_supports_keyboard_button_steps() -> None:
+    payload = {
+        "command_menu": {
+            "commands": [
+                {"command": "menu", "description": "Show menu"},
+            ],
+            "command_modules": {
+                "menu": {
+                    "module_type": "keyboard_button",
+                    "text_template": "Choose a command",
+                    "buttons": [
+                        {"text": "/help", "row": 1},
+                        {"text": "/contact", "row": 1},
+                        {"text": "/restart", "row": 2},
+                    ],
+                }
+            },
+        }
+    }
+
+    command_defs = resolve_command_menu(payload)
+    command_configs = resolve_command_send_configs(payload, "support-bot", commands=command_defs)
+
+    menu_pipeline = command_configs["menu"]
+    assert len(menu_pipeline) == 1
+    assert menu_pipeline[0].text_template == "Choose a command"
+    assert menu_pipeline[0].static_reply_markup == {
+        "keyboard": [
+            [
+                {"text": "/help"},
+                {"text": "/contact"},
+            ],
+            [
+                {"text": "/restart"},
+            ],
+        ],
+        "resize_keyboard": True,
+    }
+
+
 def test_resolve_command_send_configs_supports_send_photo_steps() -> None:
     payload = {
         "command_menu": {

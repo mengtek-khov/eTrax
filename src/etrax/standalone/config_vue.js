@@ -427,7 +427,7 @@
   <input type="hidden" name="start_hide_caption" :value="startPrimary.hide_caption ? '1' : ''">
   <input type="hidden" name="start_menu_title" :value="startPrimary.title">
   <input type="hidden" name="start_menu_items" :value="formatMenuItems(startPrimary.items)">
-  <input type="hidden" name="start_inline_buttons" :value="formatInlineButtons(startPrimary.buttons)">
+  <input type="hidden" name="start_inline_buttons" :value="formatPrimaryButtons(startPrimary)">
   <input type="hidden" name="start_inline_run_if_context_keys" :value="startPrimary.run_if_context_keys">
   <input type="hidden" name="start_inline_skip_if_context_keys" :value="startPrimary.skip_if_context_keys">
   <input type="hidden" name="start_inline_save_callback_data_to_key" :value="startPrimary.save_callback_data_to_key">
@@ -541,7 +541,7 @@
 	      <input type="hidden" name="command_parse_mode" :value="primaryStep(entry.editor).parse_mode">
 	      <input type="hidden" name="command_menu_title" :value="primaryStep(entry.editor).title">
 	      <input type="hidden" name="command_menu_items" :value="formatMenuItems(primaryStep(entry.editor).items)">
-	      <input type="hidden" name="command_inline_buttons" :value="formatInlineButtons(primaryStep(entry.editor).buttons)">
+	      <input type="hidden" name="command_inline_buttons" :value="formatPrimaryButtons(primaryStep(entry.editor))">
 	      <input type="hidden" name="command_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
 	      <input type="hidden" name="command_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
 	      <input type="hidden" name="command_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
@@ -733,7 +733,7 @@
       <input type="hidden" name="callback_parse_mode" :value="primaryStep(entry.editor).parse_mode">
       <input type="hidden" name="callback_menu_title" :value="primaryStep(entry.editor).title">
       <input type="hidden" name="callback_menu_items" :value="formatMenuItems(primaryStep(entry.editor).items)">
-      <input type="hidden" name="callback_inline_buttons" :value="formatInlineButtons(primaryStep(entry.editor).buttons)">
+      <input type="hidden" name="callback_inline_buttons" :value="formatPrimaryButtons(primaryStep(entry.editor))">
       <input type="hidden" name="callback_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
       <input type="hidden" name="callback_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
       <input type="hidden" name="callback_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
@@ -980,6 +980,10 @@
         },
         ensureStepButtons(editor) {
           const step = this.currentStep(editor);
+          if (this.currentStepType(editor) === "keyboard_button") {
+            step.buttons = helpers.normalizeKeyboardButtons(step.buttons || []);
+            return step.buttons;
+          }
           step.buttons = helpers.normalizeInlineButtons(step.buttons || []);
           return step.buttons;
         },
@@ -1077,7 +1081,7 @@
 	          draft.action = "callback_data";
 	          draft.value = String(value || "");
 	        },
-        inlineButtonLabel(button, index) {
+	        inlineButtonLabel(button, index) {
           const text = String(button && button.text ? button.text : "").trim();
           const hasUrl = Boolean(button && button.url);
           const action = hasUrl ? "url" : "callback_data";
@@ -1089,9 +1093,15 @@
 	          const trimmedValue = value.length > 40 ? `${value.slice(0, 40)}...` : value;
 	          const actualValue = String(button && button.actual_value ? button.actual_value : "").trim();
 	          const actualSuffix = actualValue ? ` | actual: ${actualValue.length > 30 ? `${actualValue.slice(0, 30)}...` : actualValue}` : "";
-	          return `#${index + 1} Row ${row} ${text || "(empty text)"} | ${action}: ${trimmedValue || "(empty value)"}${actualSuffix}`;
-	        },
-	        saveInlineButton(editor) {
+		          return `#${index + 1} Row ${row} ${text || "(empty text)"} | ${action}: ${trimmedValue || "(empty value)"}${actualSuffix}`;
+		        },
+        keyboardButtonLabel(button, index) {
+          const text = String(button && button.text ? button.text : "").trim();
+          const rowRaw = Number.parseInt(button && button.row, 10);
+          const row = Number.isInteger(rowRaw) && rowRaw > 0 ? rowRaw : index + 1;
+          return `#${index + 1} Row ${row} ${text || "(empty text)"}`;
+        },
+		        saveInlineButton(editor) {
 	          const buttons = this.ensureStepButtons(editor);
 	          const draft = this.ensureInlineButtonDraft(editor);
 	          const text = String(draft.text || "").trim();
@@ -1182,6 +1192,70 @@
           }
           if (draft.edit_index === index) {
             this.cancelInlineButtonEdit(editor);
+            return;
+          }
+	          if (draft.edit_index > index) {
+	            draft.edit_index -= 1;
+	          }
+	        },
+        saveKeyboardButton(editor) {
+          const buttons = this.ensureStepButtons(editor);
+          const draft = this.ensureInlineButtonDraft(editor);
+          const text = String(draft.text || "").trim();
+          const row = Number.isInteger(draft.row) && draft.row > 0 ? draft.row : 1;
+          if (!text) {
+            return;
+          }
+          const nextButton = { text, row };
+          if (Number.isInteger(draft.edit_index) && draft.edit_index >= 0 && draft.edit_index < buttons.length) {
+            buttons.splice(draft.edit_index, 1, nextButton);
+          } else {
+            buttons.push(nextButton);
+          }
+          this.cancelKeyboardButtonEdit(editor);
+        },
+        cancelKeyboardButtonEdit(editor) {
+          const draft = this.ensureInlineButtonDraft(editor);
+          draft.text = "";
+          draft.action = "callback_data";
+          draft.value = "";
+          draft.actual_value = "";
+          draft.row = 1;
+          draft.edit_index = null;
+        },
+        editKeyboardButton(editor, index) {
+          const buttons = this.ensureStepButtons(editor);
+          if (index < 0 || index >= buttons.length) {
+            return;
+          }
+          const button = buttons[index] || {};
+          const draft = this.ensureInlineButtonDraft(editor);
+          draft.text = String(button.text || "");
+          draft.action = "callback_data";
+          draft.value = "";
+          draft.actual_value = "";
+          const rowRaw = Number.parseInt(button.row, 10);
+          draft.row = Number.isInteger(rowRaw) && rowRaw > 0 ? rowRaw : index + 1;
+          draft.edit_index = index;
+        },
+        moveKeyboardButtonUp(editor, index) {
+          this.moveInlineButtonUp(editor, index);
+        },
+        moveKeyboardButtonDown(editor, index) {
+          this.moveInlineButtonDown(editor, index);
+        },
+        removeKeyboardButton(editor, index) {
+          const buttons = this.ensureStepButtons(editor);
+          if (index < 0 || index >= buttons.length) {
+            return;
+          }
+          buttons.splice(index, 1);
+          const draft = this.ensureInlineButtonDraft(editor);
+          if (draft.edit_index == null) {
+            return;
+          }
+          if (draft.edit_index === index) {
+            this.cancelKeyboardButtonEdit(editor);
             return;
           }
           if (draft.edit_index > index) {
@@ -1437,6 +1511,13 @@
         formatInlineButtons(buttons) {
           return helpers.formatInlineButtons(buttons || []);
         },
+        formatPrimaryButtons(step) {
+          const source = step && typeof step === "object" ? step : {};
+          if (String(source.module_type || "").trim() === "keyboard_button") {
+            return helpers.formatKeyboardButtons(source.buttons || []);
+          }
+          return helpers.formatInlineButtons(source.buttons || []);
+        },
         formatChainSteps(steps) {
           if (!Array.isArray(steps)) {
             return "";
@@ -1467,7 +1548,7 @@
             parse_mode: primary.parse_mode,
             menu_title: primary.title,
             menu_items: this.formatMenuItems(primary.items),
-            inline_buttons: this.formatInlineButtons(primary.buttons),
+            inline_buttons: this.formatPrimaryButtons(primary),
             inline_run_if_context_keys: primary.run_if_context_keys,
             inline_skip_if_context_keys: primary.skip_if_context_keys,
             inline_save_callback_data_to_key: primary.save_callback_data_to_key,

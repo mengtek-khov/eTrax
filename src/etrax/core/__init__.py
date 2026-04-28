@@ -20,6 +20,7 @@ from .telegram import (
     SendTelegramMessageModule,
     TelegramMessageGateway,
     build_inline_keyboard_reply_markup,
+    build_reply_keyboard_reply_markup,
 )
 from .telegram_start import StartWelcomeConfig, StartWelcomeHandler
 from .token import BotTokenRecord, BotTokenService, BotTokenStore, TokenCipher
@@ -42,6 +43,7 @@ __all__ = [
     "SendInlineButtonConfig",
     "SendTelegramInlineButtonModule",
     "build_inline_keyboard_reply_markup",
+    "build_reply_keyboard_reply_markup",
     "StartWelcomeConfig",
     "StartWelcomeHandler",
     "BotTokenRecord",

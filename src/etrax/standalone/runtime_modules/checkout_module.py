@@ -116,7 +116,7 @@ def handle_checkout_callback_query_update(
 
 def _execute_continuation_modules(module: CheckoutCartModule, context: dict[str, Any]) -> int:
     sent_count = 0
-    for continuation_module in module.continuation_modules:
+    for continuation_module in getattr(module, "continuation_modules", ()):
         outcome = continuation_module.execute(context)
         sent_count += 1
         if outcome and outcome.context_updates:

@@ -134,7 +134,7 @@ def _parse_cart_int(raw: object, *, default: int, minimum: int, field_label: str
 
 def _execute_continuation_modules(module: CartButtonModule, context: dict[str, Any]) -> int:
     sent_count = 0
-    for continuation_module in module.continuation_modules:
+    for continuation_module in getattr(module, "continuation_modules", ()):
         outcome = continuation_module.execute(context)
         sent_count += 1
         if outcome and outcome.context_updates:

@@ -29,6 +29,7 @@ from etrax.core.telegram import (
     SendPhotoConfig,
     ShareContactConfig,
     ShareLocationConfig,
+    UserInfoConfig,
 )
 
 from .runtime_contracts import RuntimeStepConfig
@@ -241,6 +242,7 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
         LoadInlineButtonConfig,
         OpenMiniAppConfig,
         ForgetUserDataConfig,
+        UserInfoConfig,
     )
 
 

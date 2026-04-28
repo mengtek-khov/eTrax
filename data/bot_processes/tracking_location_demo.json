@@ -1,0 +1,167 @@
+{
+  "bot_id": "Tracking location demo",
+  "command_menu": {
+    "command_modules": {
+      "check": {
+        "button_text": "Share My Location",
+        "closest_location_tolerance_meters": 50.0,
+        "invalid_text_template": "You are at the wrong location.",
+        "match_closest_saved_location": true,
+        "module_type": "share_location",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "button_text": "Share My Location",
+            "closest_location_tolerance_meters": 50.0,
+            "invalid_text_template": "You are at the wrong location.",
+            "match_closest_saved_location": true,
+            "module_type": "share_location",
+            "parse_mode": null,
+            "require_live_location": true,
+            "success_text_template": "Thanks, your location was received.",
+            "text_template": "Please share your location using the button below."
+          }
+        ],
+        "require_live_location": true,
+        "success_text_template": "Thanks, your location was received.",
+        "text_template": "Please share your location using the button below."
+      },
+      "find_closest": {
+        "button_text": "Share My Location",
+        "closest_location_group_action_type": "message",
+        "find_closest_saved_location": true,
+        "module_type": "share_location",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "button_text": "Share My Location",
+            "closest_location_group_action_type": "message",
+            "find_closest_saved_location": true,
+            "module_type": "share_location",
+            "parse_mode": null,
+            "require_live_location": true,
+            "success_text_template": "Closest saved location is {closest_location_name}.",
+            "text_template": "Please share your location using the button below."
+          }
+        ],
+        "require_live_location": true,
+        "success_text_template": "Closest saved location is {closest_location_name}.",
+        "text_template": "Please share your location using the button below."
+      },
+      "rout": {
+        "empty_text_template": "No breadcrumb route available yet.",
+        "max_link_points": 300,
+        "module_type": "route",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "empty_text_template": "No breadcrumb route available yet.",
+            "max_link_points": 300,
+            "module_type": "route",
+            "parse_mode": null,
+            "text_template": "Breadcrumb Route\r\nDistance: {route_total_distance_text}\r\nMap: {route_link}"
+          }
+        ],
+        "text_template": "Breadcrumb Route\r\nDistance: {route_total_distance_text}\r\nMap: {route_link}"
+      },
+      "start": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "start_returning_text_template": "Welcome back, {user_first_name}.",
+            "text_template": "Welcome to our bot, {user_first_name}.",
+            "welcome_back_template": "Welcome back, {user_first_name}."
+          }
+        ],
+        "start_returning_text_template": "Welcome back, {user_first_name}.",
+        "text_template": "Welcome to our bot, {user_first_name}.",
+        "welcome_back_template": "Welcome back, {user_first_name}."
+      },
+      "tracking": {
+        "breadcrumb_interval_minutes": 1.0,
+        "breadcrumb_min_distance_meters": 5.0,
+        "button_text": "Share My Location",
+        "module_type": "share_location",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "breadcrumb_interval_minutes": 1.0,
+            "breadcrumb_min_distance_meters": 5.0,
+            "button_text": "Share My Location",
+            "module_type": "share_location",
+            "parse_mode": null,
+            "require_live_location": true,
+            "success_text_template": "Thanks, your location was received.",
+            "text_template": "Please share your location using the button below.",
+            "track_breadcrumb": true
+          }
+        ],
+        "require_live_location": true,
+        "success_text_template": "Thanks, your location was received.",
+        "text_template": "Please share your location using the button below.",
+        "track_breadcrumb": true
+      }
+    },
+    "commands": [
+      {
+        "command": "check",
+        "description": "Check"
+      },
+      {
+        "command": "find_closest",
+        "description": "Find closest"
+      },
+      {
+        "command": "tracking",
+        "description": "Tracking"
+      },
+      {
+        "command": "rout",
+        "description": "Rout"
+      }
+    ]
+  },
+  "created_at": "2026-04-27T02:39:04.754818+00:00",
+  "flows": {
+    "main": {
+      "start_module": null,
+      "transitions": {}
+    }
+  },
+  "module_registry": {
+    "menu_main": {
+      "items": [
+        "Get Help",
+        "Contact Support"
+      ],
+      "parse_mode": null,
+      "title": "Main Menu",
+      "type": "menu"
+    },
+    "send_welcome": {
+      "parse_mode": null,
+      "text_template": "Welcome to our bot, {user_first_name}.",
+      "type": "send_message"
+    }
+  },
+  "scenarios": {
+    "on_menu": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "menu_main"
+    },
+    "on_start": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "send_welcome"
+    }
+  },
+  "token_ref": {
+    "bot_id": "Tracking location demo"
+  },
+  "updated_at": "2026-04-27T03:11:29.161791+00:00",
+  "version": 1
+}

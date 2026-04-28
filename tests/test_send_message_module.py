@@ -11,6 +11,7 @@ from etrax.core.telegram import (
     SendTelegramInlineButtonModule,
     SendTelegramMessageModule,
     build_inline_keyboard_reply_markup,
+    build_reply_keyboard_reply_markup,
 )
 
 
@@ -247,6 +248,30 @@ def test_build_inline_keyboard_reply_markup_groups_flat_buttons_by_row() -> None
                 {"text": "Later", "callback_data": "later"},
             ],
         ]
+    }
+
+
+def test_build_reply_keyboard_reply_markup_groups_flat_buttons_by_row() -> None:
+    reply_markup = build_reply_keyboard_reply_markup(
+        [
+            {"text": "/help", "row": 1},
+            {"text": "/contact", "row": 1},
+            {"text": "/restart", "row": 2},
+        ],
+        context_label="test",
+    )
+
+    assert reply_markup == {
+        "keyboard": [
+            [
+                {"text": "/help"},
+                {"text": "/contact"},
+            ],
+            [
+                {"text": "/restart"},
+            ],
+        ],
+        "resize_keyboard": True,
     }
 
 

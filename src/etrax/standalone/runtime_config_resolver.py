@@ -8,6 +8,7 @@ from etrax.core.telegram import (
     CartButtonConfig,
     SendMessageConfig,
     build_inline_keyboard_reply_markup,
+    build_reply_keyboard_reply_markup,
 )
 
 from .runtime_module_registry import resolve_runtime_step_config
@@ -492,6 +493,9 @@ def resolve_scenario_send_config(
     elif module_type == "inline_button":
         text_template = str(module_config.get("text_template", default_template))
         reply_markup = build_inline_keyboard_reply_markup(module_config.get("buttons"), context_label=scenario_key)
+    elif module_type == "keyboard_button":
+        text_template = str(module_config.get("text_template", default_template))
+        reply_markup = build_reply_keyboard_reply_markup(module_config.get("buttons"), context_label=scenario_key)
     else:
         raise ValueError(f"unsupported {scenario_key} module type: {module_type}")
 

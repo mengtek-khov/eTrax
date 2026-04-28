@@ -4,6 +4,8 @@ from typing import Any
 
 from etrax.core.flow import ModuleOutcome
 from etrax.core.telegram import CartButtonConfig, CartButtonModule
+from etrax.standalone.runtime_module_factory import build_runtime_modules
+from etrax.standalone.runtime_update_router import execute_pipeline
 
 
 class FakeTokenResolver:
@@ -33,6 +35,15 @@ class FakeCartStateStore:
 
     def remove_product(self, *, bot_id: str, chat_id: str, product_key: str) -> None:
         self._values.pop((bot_id, chat_id, product_key), None)
+
+    def clear_chat(self, *, bot_id: str, chat_id: str) -> None:
+        keys = [
+            key
+            for key in self._values
+            if key[0] == bot_id and key[1] == chat_id
+        ]
+        for key in keys:
+            self._values.pop(key, None)
 
 
 class FakeGateway:
@@ -307,3 +318,45 @@ def test_cart_button_module_updates_existing_photo_caption_instead_of_sending_ne
         }
     ]
     assert outcome.context_updates["cart_button_result"]["cart_quantity"] == 2
+
+
+def test_cart_button_pipeline_sends_chained_products_immediately() -> None:
+    gateway = FakeGateway()
+    modules = build_runtime_modules(
+        step_configs=[
+            CartButtonConfig(
+                bot_id="shop-bot",
+                product_name="Coffee",
+                product_key="coffee",
+                price="2.50",
+                quantity=1,
+                text_template="Buy {product_name} x {cart_quantity}",
+            ),
+            CartButtonConfig(
+                bot_id="shop-bot",
+                product_name="Tea",
+                product_key="tea",
+                price="1.50",
+                quantity=1,
+                text_template="Buy {product_name} x {cart_quantity}",
+            ),
+        ],
+        token_service=FakeTokenResolver({"shop-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        cart_state_store=FakeCartStateStore(),
+        bound_code_store=None,
+        profile_log_store=None,
+        contact_request_store=None,
+        selfie_request_store=None,
+        location_request_store=None,
+        cart_configs={},
+        checkout_modules={},
+    )
+
+    sent_count = execute_pipeline(modules, {"bot_id": "shop-bot", "chat_id": "77"})
+
+    assert sent_count == 2
+    assert [call["text"] for call in gateway.message_calls] == [
+        "Buy Coffee x 1",
+        "Buy Tea x 1",
+    ]

@@ -55,6 +55,37 @@ def test_parse_chain_steps_supports_json_inline_button_with_multiline_text() -> 
     ]
 
 
+def test_parse_chain_steps_supports_json_keyboard_button_with_rows() -> None:
+    raw = json.dumps(
+        {
+            "module_type": "keyboard_button",
+            "text_template": "Choose a command",
+            "parse_mode": "HTML",
+            "buttons": [
+                {"text": "/help", "row": 1},
+                {"text": "/contact", "row": 1},
+                {"text": "/restart", "row": 2},
+            ],
+        },
+        separators=(",", ":"),
+    )
+
+    steps = _parse_chain_steps(command_name="start", raw=raw)
+
+    assert steps == [
+        {
+            "module_type": "keyboard_button",
+            "text_template": "Choose a command",
+            "parse_mode": "HTML",
+            "buttons": [
+                {"text": "/help", "row": 1},
+                {"text": "/contact", "row": 1},
+                {"text": "/restart", "row": 2},
+            ],
+        }
+    ]
+
+
 def test_parse_chain_steps_preserves_share_location_group_callback_action() -> None:
     raw = json.dumps(
         {
@@ -108,6 +139,29 @@ def test_parse_chain_steps_supports_bind_code_json() -> None:
             "prefix": "ETX-",
             "number_width": 4,
             "start_number": 1,
+        }
+    ]
+
+
+def test_parse_chain_steps_supports_userinfo_json() -> None:
+    raw = json.dumps(
+        {
+            "module_type": "userinfo",
+            "title": "My Profile",
+            "empty_text_template": "Nothing saved.",
+            "parse_mode": "HTML",
+        },
+        separators=(",", ":"),
+    )
+
+    steps = _parse_chain_steps(command_name="profile", raw=raw)
+
+    assert steps == [
+        {
+            "module_type": "userinfo",
+            "title": "My Profile",
+            "empty_text_template": "Nothing saved.",
+            "parse_mode": "HTML",
         }
     ]
 
@@ -713,6 +767,72 @@ def test_pipeline_to_chain_steps_round_trips_multiline_inline_button_step() -> N
                 {"text": "Open", "url": "https://example.com", "row": 1},
                 {"text": "Help", "callback_data": "help", "row": 2},
             ],
+        }
+    ]
+
+
+def test_pipeline_to_chain_steps_round_trips_keyboard_button_step() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "keyboard_button",
+            "text_template": "Choose a command",
+            "parse_mode": "HTML",
+            "buttons": [
+                {"text": "/help", "row": 1},
+                {"text": "/contact", "row": 1},
+                {"text": "/restart", "row": 2},
+            ],
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="start", raw=serialized)
+
+    assert serialized.startswith('{"module_type":"keyboard_button"')
+    assert steps == [
+        {
+            "module_type": "keyboard_button",
+            "text_template": "Choose a command",
+            "parse_mode": "HTML",
+            "buttons": [
+                {"text": "/help", "row": 1},
+                {"text": "/contact", "row": 1},
+                {"text": "/restart", "row": 2},
+            ],
+        }
+    ]
+
+
+def test_pipeline_to_chain_steps_round_trips_userinfo_step() -> None:
+    pipeline = [
+        {
+            "module_type": "send_message",
+            "text_template": "Primary",
+            "parse_mode": None,
+        },
+        {
+            "module_type": "userinfo",
+            "title": "My Profile",
+            "empty_text_template": "Nothing saved.",
+            "parse_mode": "HTML",
+        },
+    ]
+
+    serialized = _pipeline_to_chain_steps(pipeline)
+    steps = _parse_chain_steps(command_name="profile", raw=serialized)
+
+    assert serialized.startswith('{"module_type":"userinfo"')
+    assert steps == [
+        {
+            "module_type": "userinfo",
+            "title": "My Profile",
+            "empty_text_template": "Nothing saved.",
+            "parse_mode": "HTML",
         }
     ]
 
@@ -1438,6 +1558,59 @@ def test_build_command_module_entry_persists_inline_button_module_target() -> No
     assert entry["pipeline"][0]["target_callback_key"] == "shared_menu"
 
 
+def test_build_command_module_entry_persists_keyboard_button_buttons() -> None:
+    entry = _build_command_module_entry(
+        command_name="menu",
+        module_type="keyboard_button",
+        text_template="Choose a command",
+        hide_caption="",
+        parse_mode="HTML",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="/help | 1\n/contact | 1\n/restart | 2",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "keyboard_button"
+    assert entry["text_template"] == "Choose a command"
+    assert entry["parse_mode"] == "HTML"
+    assert entry["buttons"] == [
+        {"text": "/help", "row": 1},
+        {"text": "/contact", "row": 1},
+        {"text": "/restart", "row": 2},
+    ]
+
+
 def test_build_command_module_entry_persists_share_location_live_flags() -> None:
     entry = _build_command_module_entry(
         command_name="verify_location",
@@ -1667,6 +1840,41 @@ def test_extract_command_module_form_values_keeps_open_mini_app_url_and_button_t
     assert values["mini_app_url"] == "https://example.com/mini-app"
     assert values["contact_button_text"] == "Open Shop"
     assert values["payment_return_url"] == "https://example.com/mini-app"
+
+
+def test_extract_command_module_form_values_keeps_keyboard_button_buttons() -> None:
+    values = _extract_command_module_form_values(
+        command_name="menu",
+        raw_module={
+            "module_type": "keyboard_button",
+            "text_template": "Choose a command",
+            "parse_mode": "HTML",
+            "buttons": [
+                {"text": "/help", "row": 1},
+                {"text": "/contact", "row": 1},
+                {"text": "/restart", "row": 2},
+            ],
+            "pipeline": [
+                {
+                    "module_type": "keyboard_button",
+                    "text_template": "Choose a command",
+                    "parse_mode": "HTML",
+                    "buttons": [
+                        {"text": "/help", "row": 1},
+                        {"text": "/contact", "row": 1},
+                        {"text": "/restart", "row": 2},
+                    ],
+                }
+            ],
+        },
+        default_text_template="Command /menu received.",
+        default_menu_title="Menu",
+    )
+
+    assert values["module_type"] == "keyboard_button"
+    assert values["text_template"] == "Choose a command"
+    assert values["parse_mode"] == "HTML"
+    assert values["inline_buttons"] == "/help | 1\n/contact | 1\n/restart | 2"
 
 
 def test_extract_command_module_form_values_keeps_callback_module_target() -> None:

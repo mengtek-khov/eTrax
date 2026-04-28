@@ -29,11 +29,12 @@ from .bind_code import (
     BoundCodeStore,
 )
 from .forget_user_data import ForgetUserDataConfig, ForgetUserDataModule
+from .user_info import UserInfoConfig, UserInfoModule, render_user_info_text
 from .inline_button import SendInlineButtonConfig, SendTelegramInlineButtonModule
 from .load_inline_button import LoadInlineButtonConfig, LoadInlineButtonModule
 from .open_mini_app import OpenMiniAppConfig, OpenMiniAppModule
 from .payway_payment import PaywayPaymentConfig, PaywayPaymentModule
-from .reply_markup import build_inline_keyboard_reply_markup
+from .reply_markup import build_inline_keyboard_reply_markup, build_reply_keyboard_reply_markup
 from .route import (
     DEFAULT_ROUTE_EMPTY_TEXT,
     DEFAULT_ROUTE_MAX_LINK_POINTS,
@@ -159,6 +160,9 @@ __all__ = [
     "RouteModule",
     "ForgetUserDataConfig",
     "ForgetUserDataModule",
+    "UserInfoConfig",
+    "UserInfoModule",
+    "render_user_info_text",
     "PaywayPaymentConfig",
     "PaywayPaymentModule",
     "CartButtonConfig",
@@ -173,6 +177,7 @@ __all__ = [
     "build_checkout_callback_data",
     "parse_checkout_callback_data",
     "build_inline_keyboard_reply_markup",
+    "build_reply_keyboard_reply_markup",
     "DEFAULT_ROUTE_TEXT",
     "DEFAULT_ROUTE_EMPTY_TEXT",
     "DEFAULT_ROUTE_MAX_LINK_POINTS",
