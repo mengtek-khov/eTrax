@@ -112,6 +112,15 @@ class TelegramMessageGateway(Protocol):
     ) -> dict[str, Any]:
         """Edit reply markup for an existing message and return normalized transport payload."""
 
+    def delete_message(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        message_id: str,
+    ) -> dict[str, Any]:
+        """Delete an existing message and return normalized transport payload."""
+
     def answer_callback_query(
         self,
         *,

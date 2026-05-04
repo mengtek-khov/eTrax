@@ -4,7 +4,9 @@ import base64
 import hashlib
 import hmac
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urljoin
 
 import requests
 
@@ -51,18 +53,22 @@ def create_payment_link(
     checkout_url: str = DEFAULT_CHECKOUT_URL,
     timeout_seconds: int = 20,
     request_time: str | None = None,
+    now: datetime | None = None,
 ) -> str:
-    request_time_value = request_time or datetime.now().strftime("%Y%m%d%H%M%S")
+    now_value = now or datetime.now(timezone.utc)
+    request_time_value = request_time or now_value.strftime("%Y%m%d%H%M%S")
+    normalized_amount = normalize_amount(amount)
     merchant_auth = get_merchant_auth(
         merchant_ref_no=merchant_ref_no,
         title=title,
-        amount=amount,
+        amount=normalized_amount,
         currency=currency,
         description=description,
         payment_limit=payment_limit,
         return_url=return_url,
         merchant_id=merchant_id,
         public_key_pem=public_key_pem,
+        expired_date=build_expired_date(now=now_value, payment_limit=payment_limit),
     )
 
     payload = {
@@ -78,13 +84,16 @@ def create_payment_link(
     }
 
     response = requests.post(checkout_url, data=payload, timeout=timeout_seconds)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        raise RuntimeError(_format_payway_error(response)) from exc
     body = response.json()
     data = body.get("data", {}) if isinstance(body, dict) else {}
     payment_link = str(data.get("payment_link", "")).strip()
     if not payment_link:
         raise RuntimeError("PayWay response did not include payment_link")
-    return payment_link
+    return normalize_payment_link(payment_link, checkout_url=checkout_url)
 
 
 def build_aba_mobile_deep_link(payment_link: str, *, prefix: str = "abamobilebank://") -> str:
@@ -93,6 +102,15 @@ def build_aba_mobile_deep_link(payment_link: str, *, prefix: str = "abamobileban
     if not normalized_link:
         raise ValueError("payment_link is required to build ABA Mobile deep link")
     return f"{normalized_prefix}{normalized_link}"
+
+
+def normalize_payment_link(payment_link: str, *, checkout_url: str = DEFAULT_CHECKOUT_URL) -> str:
+    normalized_link = str(payment_link or "").strip()
+    if not normalized_link:
+        raise ValueError("payment_link is required")
+    if normalized_link.startswith(("http://", "https://")):
+        return normalized_link
+    return urljoin(checkout_url, normalized_link)
 
 
 def get_merchant_auth(
@@ -106,6 +124,7 @@ def get_merchant_auth(
     return_url: str,
     merchant_id: str,
     public_key_pem: bytes,
+    expired_date: int | str,
 ) -> str:
     payload = json.dumps(
         {
@@ -115,12 +134,32 @@ def get_merchant_auth(
             "currency": currency,
             "description": description,
             "payment_limit": int(payment_limit),
-            "expired_date": "",
+            "expired_date": int(expired_date),
             "return_url": base64.b64encode(str(return_url).encode("utf-8")).decode("utf-8"),
             "merchant_ref_no": merchant_ref_no,
         }
     ).encode("utf-8")
     return encrypt_source(payload, public_key_pem)
+
+
+def normalize_amount(amount: str | float | Decimal) -> str:
+    """Return PayWay amount text with two decimal places."""
+    try:
+        value = Decimal(str(amount).strip())
+    except (InvalidOperation, AttributeError) as exc:
+        raise ValueError("PayWay amount must be a valid decimal number") from exc
+    if value <= 0:
+        raise ValueError("PayWay amount must be greater than zero")
+    return format(value.quantize(Decimal("0.01")), "f")
+
+
+def build_expired_date(*, now: datetime | None = None, payment_limit: int = 5) -> int:
+    """Return a Unix timestamp for PayWay expired_date."""
+    now_value = now or datetime.now(timezone.utc)
+    if now_value.tzinfo is None:
+        now_value = now_value.replace(tzinfo=timezone.utc)
+    limit_minutes = max(int(payment_limit), 1)
+    return int(now_value.timestamp()) + (limit_minutes * 60)
 
 
 def get_hash(
@@ -159,3 +198,21 @@ def encrypt_source(source: bytes, public_key_pem: bytes, maxlength: int = 117) -
         source_bytes = source_bytes[maxlength:]
 
     return base64.b64encode(output).decode("utf-8")
+
+
+def _format_payway_error(response: requests.Response) -> str:
+    status = f"{response.status_code} {response.reason}".strip()
+    body_text = _response_body_text(response)
+    if body_text:
+        return f"PayWay purchase failed ({status}): {body_text}"
+    return f"PayWay purchase failed ({status})"
+
+
+def _response_body_text(response: requests.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        return str(response.text or "").strip()
+    if isinstance(body, dict):
+        return json.dumps(body, ensure_ascii=False, sort_keys=True)
+    return str(body).strip()

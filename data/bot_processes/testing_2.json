@@ -97,6 +97,18 @@
         ],
         "text_template": "\ud83d\udeab Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding."
       },
+      "removed_btn": {
+        "message_id_context_key": "message_id",
+        "module_type": "delete_message",
+        "pipeline": [
+          {
+            "message_id_context_key": "message_id",
+            "module_type": "delete_message",
+            "source_result_key": "send_message_result"
+          }
+        ],
+        "source_result_key": "send_message_result"
+      },
       "share_contact": {
         "button_text": "Share My Contact",
         "invalid_text_template": "Please share your own contact using the button below.",
@@ -393,6 +405,44 @@
         ],
         "prefix": "EMC",
         "start_number": 1
+      },
+      "testdeletemessage": {
+        "buttons": [
+          {
+            "callback_data": "removed_btn",
+            "row": 1,
+            "text": "btn 1"
+          },
+          {
+            "callback_data": "removed_btn",
+            "row": 1,
+            "text": "btn 2"
+          }
+        ],
+        "module_type": "inline_button",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "buttons": [
+              {
+                "callback_data": "removed_btn",
+                "row": 1,
+                "text": "btn 1"
+              },
+              {
+                "callback_data": "removed_btn",
+                "row": 1,
+                "text": "btn 2"
+              }
+            ],
+            "module_type": "inline_button",
+            "parse_mode": null,
+            "remove_inline_buttons_on_click": true,
+            "text_template": "Command /testdeletemessage received."
+          }
+        ],
+        "remove_inline_buttons_on_click": true,
+        "text_template": "Command /testdeletemessage received."
       }
     },
     "commands": [
@@ -411,6 +461,10 @@
       {
         "command": "clock",
         "description": "Clock"
+      },
+      {
+        "command": "testdeletemessage",
+        "description": "Testdeletemessage"
       }
     ]
   },
@@ -452,6 +506,6 @@
   "token_ref": {
     "bot_id": "Testing 2"
   },
-  "updated_at": "2026-04-23T08:58:10.899076+00:00",
+  "updated_at": "2026-05-04T03:02:44.151903+00:00",
   "version": 1
 }

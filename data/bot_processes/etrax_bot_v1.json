@@ -1,0 +1,252 @@
+{
+  "bot_id": "eTrax Bot V1",
+  "command_menu": {
+    "callback_modules": {
+      "age verify": {
+        "buttons": [
+          {
+            "actual_value": "true",
+            "callback_data": "i_am_18",
+            "row": 1,
+            "text": "\u2705 I am 18+"
+          },
+          {
+            "actual_value": "false",
+            "callback_data": "i_am_not_18",
+            "row": 1,
+            "text": "\u274c I am under 18"
+          }
+        ],
+        "module_type": "inline_button",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "buttons": [
+              {
+                "actual_value": "true",
+                "callback_data": "i_am_18",
+                "row": 1,
+                "text": "\u2705 I am 18+"
+              },
+              {
+                "actual_value": "false",
+                "callback_data": "i_am_not_18",
+                "row": 1,
+                "text": "\u274c I am under 18"
+              }
+            ],
+            "module_type": "inline_button",
+            "parse_mode": null,
+            "remove_inline_buttons_on_click": true,
+            "save_callback_data_to_key": "i_am_18",
+            "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
+          }
+        ],
+        "remove_inline_buttons_on_click": true,
+        "save_callback_data_to_key": "i_am_18",
+        "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
+      },
+      "i_am_18": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Thank you!"
+          }
+        ],
+        "text_template": "Thank you!"
+      },
+      "i_am_not_18": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "\ud83d\udeab Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding."
+          }
+        ],
+        "text_template": "\ud83d\udeab Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding."
+      },
+      "share_contact": {
+        "button_text": "Share My Contact",
+        "invalid_text_template": "Please share your own contact using the button below.",
+        "module_type": "share_contact",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "button_text": "Share My Contact",
+            "invalid_text_template": "Please share your own contact using the button below.",
+            "module_type": "share_contact",
+            "parse_mode": null,
+            "success_text_template": "Thanks {contact_first_name}, your contact was verified.",
+            "text_template": "\u179f\u17bc\u1798\u1785\u17c2\u1780\u179a\u17c6\u179b\u17c2\u1780\u1791\u17c6\u1793\u17b6\u1780\u17cb\u1791\u17c6\u1793\u1784\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\u178a\u17c4\u1799\u1794\u17d2\u179a\u17be\u1794\u17ca\u17bc\u178f\u17bb\u1784\u1781\u17b6\u1784\u1780\u17d2\u179a\u17c4\u1798\u17d4\r\nPlease share your contact using the button below."
+          },
+          {
+            "module_type": "inline_button_module",
+            "save_callback_data_to_key": "i_am_18",
+            "target_callback_key": "age verify"
+          }
+        ],
+        "success_text_template": "Thanks {contact_first_name}, your contact was verified.",
+        "text_template": "\u179f\u17bc\u1798\u1785\u17c2\u1780\u179a\u17c6\u179b\u17c2\u1780\u1791\u17c6\u1793\u17b6\u1780\u17cb\u1791\u17c6\u1793\u1784\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\u178a\u17c4\u1799\u1794\u17d2\u179a\u17be\u1794\u17ca\u17bc\u178f\u17bb\u1784\u1781\u17b6\u1784\u1780\u17d2\u179a\u17c4\u1798\u17d4\r\nPlease share your contact using the button below."
+      }
+    },
+    "command_modules": {
+      "getinfo": {
+        "empty_text_template": "No user information has been gathered yet.",
+        "module_type": "userinfo",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "empty_text_template": "No user information has been gathered yet.",
+            "module_type": "userinfo",
+            "parse_mode": null,
+            "title": "Current User Information"
+          }
+        ],
+        "title": "Current User Information"
+      },
+      "reset": {
+        "module_type": "forget_user_data",
+        "pipeline": [
+          {
+            "module_type": "forget_user_data"
+          },
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Your Data has been removed please click /start to use this system again"
+          }
+        ]
+      },
+      "start": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "start_returning_text_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
+            "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}",
+            "welcome_back_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}"
+          },
+          {
+            "buttons": [
+              {
+                "callback_data": "share_contact",
+                "row": 1,
+                "text": "Yes, Sure."
+              },
+              {
+                "callback_data": "no",
+                "row": 1,
+                "text": "Remind me later"
+              }
+            ],
+            "module_type": "inline_button",
+            "parse_mode": "None",
+            "remove_inline_buttons_on_click": true,
+            "skip_if_context_keys": [
+              "profile.phone_number"
+            ],
+            "text_template": "\u178f\u17be\u17a2\u17d2\u1793\u1780\u1785\u1784\u17cb\u1785\u17c2\u1780\u179a\u17c6\u179b\u17c2\u1780\u179b\u17c1\u1781\u1791\u17bc\u179a\u179f\u17d0\u1796\u17d2\u1791\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\u1791\u17c1?\nPlease share your telegram contact profile"
+          },
+          {
+            "buttons": [
+              {
+                "actual_value": "true",
+                "callback_data": "i_am_18",
+                "row": 1,
+                "text": "\u2705 I am 18+"
+              },
+              {
+                "actual_value": "false",
+                "callback_data": "i_am_not_18",
+                "row": 1,
+                "text": "\u274c I am under 18"
+              }
+            ],
+            "module_type": "inline_button",
+            "parse_mode": "None",
+            "remove_inline_buttons_on_click": true,
+            "save_callback_data_to_key": "i_am_18",
+            "skip_if_context_keys": [
+              "profile.i_am_18"
+            ],
+            "text_template": "\ud83d\udd1e Age Verification Required\n\nBefore continuing, please confirm that you are 18+.\n\nThis helps us ensure a safe and appropriate experience for all users.\n\n\ud83d\udc47 Tap the button below to proceed:"
+          },
+          {
+            "module_type": "callback_module",
+            "run_if_context_keys": [
+              "profile.i_am_18=false"
+            ],
+            "target_callback_key": "i_am_not_18"
+          },
+          {
+            "module_type": "callback_module",
+            "run_if_context_keys": [
+              "profile.i_am_18=true"
+            ],
+            "target_callback_key": "i_am_18"
+          }
+        ],
+        "start_returning_text_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
+        "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}",
+        "welcome_back_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}"
+      }
+    },
+    "commands": [
+      {
+        "command": "reset",
+        "description": "forgot user"
+      },
+      {
+        "command": "getinfo",
+        "description": "Getinfo"
+      }
+    ]
+  },
+  "created_at": "2026-05-04T07:41:39.160338+00:00",
+  "flows": {
+    "main": {
+      "start_module": null,
+      "transitions": {}
+    }
+  },
+  "module_registry": {
+    "menu_main": {
+      "items": [
+        "Get Help",
+        "Contact Support"
+      ],
+      "parse_mode": null,
+      "title": "Main Menu",
+      "type": "menu"
+    },
+    "send_welcome": {
+      "parse_mode": null,
+      "text_template": "Welcome to our bot, {user_first_name}.",
+      "type": "send_message"
+    }
+  },
+  "scenarios": {
+    "on_menu": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "menu_main"
+    },
+    "on_start": {
+      "enabled": true,
+      "flow_id": "main",
+      "module_id": "send_welcome"
+    }
+  },
+  "token_ref": {
+    "bot_id": "eTrax Bot V1"
+  },
+  "updated_at": "2026-05-04T07:51:57.007704+00:00",
+  "version": 1
+}

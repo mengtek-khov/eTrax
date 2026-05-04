@@ -165,8 +165,8 @@
         `<label v-if="isStepType(${ctx}, 'inline_button')">Save Clicked Value To</label>` +
         `<input v-if="isStepType(${ctx}, 'inline_button')" placeholder="selected_option" :value="currentStepField(${ctx}, 'save_callback_data_to_key')" @input="updateCurrentStepField(${ctx}, 'save_callback_data_to_key', $event.target.value)">` +
         `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">When a callback button in this module is clicked, the button actual_value is saved here if set; otherwise callback_data is used.</p>` +
-        `<label v-if="isStepType(${ctx}, 'inline_button')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'remove_inline_buttons_on_click')" @change="updateCurrentStepToggle(${ctx}, 'remove_inline_buttons_on_click', $event.target.checked)"><span>Remove buttons after a handled click</span></label>` +
-        `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">If enabled, this inline keyboard is removed from the source message after one of its callback actions runs.</p>` +
+        `<label v-if="isStepType(${ctx}, 'inline_button')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'remove_inline_buttons_on_click')" @change="updateCurrentStepToggle(${ctx}, 'remove_inline_buttons_on_click', $event.target.checked)"><span>Remove message after a handled click</span></label>` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">If enabled, the source message is deleted after one of its callback actions runs.</p>` +
         `<div class="module-list-tools" v-if="isStepType(${ctx}, 'inline_button')">` +
         `<input class="inline-button-input" placeholder="Button Text" ` +
         `:value="inlineButtonDraft(${ctx}).text" ` +

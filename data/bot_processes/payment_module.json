@@ -33,6 +33,22 @@
         "text_template": "<b>Ready To Pay</b>\r\nAmount: ${cart_total_price}\r\nTap below to open ABA Mobile or continue in the browser.",
         "title_template": "Stationery cart for {user_first_name}",
         "web_button_text": "Open Web Checkout"
+      },
+      "paynow_api": {
+        "button_text": "Open Mini App",
+        "module_type": "open_mini_app",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "button_text": "Open Mini App",
+            "module_type": "open_mini_app",
+            "parse_mode": null,
+            "text_template": "Tap the button below to open the mini app.",
+            "url": "https://payway-poc.vlim.xyz/"
+          }
+        ],
+        "text_template": "Tap the button below to open the mini app.",
+        "url": "https://payway-poc.vlim.xyz/"
       }
     },
     "command_modules": {
@@ -61,10 +77,14 @@
           {
             "module_type": "send_message",
             "parse_mode": null,
-            "text_template": "Welcome to our bot, {user_first_name}."
+            "start_returning_text_template": "Welcome back, {user_first_name}.",
+            "text_template": "Welcome to our bot, {user_first_name}.",
+            "welcome_back_template": "Welcome back, {user_first_name}."
           }
         ],
-        "text_template": "Welcome to our bot, {user_first_name}."
+        "start_returning_text_template": "Welcome back, {user_first_name}.",
+        "text_template": "Welcome to our bot, {user_first_name}.",
+        "welcome_back_template": "Welcome back, {user_first_name}."
       },
       "stationery": {
         "module_type": "send_message",
@@ -184,6 +204,6 @@
   "token_ref": {
     "bot_id": "Payment Module"
   },
-  "updated_at": "2026-03-11T08:17:41.416827+00:00",
+  "updated_at": "2026-04-29T03:19:59.041864+00:00",
   "version": 1
 }

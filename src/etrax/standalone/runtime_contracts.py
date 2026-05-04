@@ -10,6 +10,7 @@ from etrax.core.telegram import (
     AskSelfieConfig,
     CartButtonConfig,
     CheckoutCartConfig,
+    DeleteMessageConfig,
     ForgetUserDataConfig,
     LoadCallbackConfig,
     LoadCommandConfig,
@@ -18,6 +19,7 @@ from etrax.core.telegram import (
     PaywayPaymentConfig,
     RouteConfig,
     SendInlineButtonConfig,
+    SendKeyboardButtonConfig,
     SendMessageConfig,
     SendPhotoConfig,
     ShareContactConfig,
@@ -31,6 +33,7 @@ RuntimeStepConfig = (
     | SendPhotoConfig
     | CartButtonConfig
     | CheckoutCartConfig
+    | DeleteMessageConfig
     | PaywayPaymentConfig
     | RouteConfig
     | LoadCallbackConfig
@@ -41,6 +44,7 @@ RuntimeStepConfig = (
     | ShareContactConfig
     | ShareLocationConfig
     | SendInlineButtonConfig
+    | SendKeyboardButtonConfig
     | OpenMiniAppConfig
     | ForgetUserDataConfig
     | UserInfoConfig

@@ -66,6 +66,8 @@ def test_parse_chain_steps_supports_json_keyboard_button_with_rows() -> None:
                 {"text": "/contact", "row": 1},
                 {"text": "/restart", "row": 2},
             ],
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["profile.block_menu=true"],
         },
         separators=(",", ":"),
     )
@@ -82,6 +84,8 @@ def test_parse_chain_steps_supports_json_keyboard_button_with_rows() -> None:
                 {"text": "/contact", "row": 1},
                 {"text": "/restart", "row": 2},
             ],
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["profile.block_menu=true"],
         }
     ]
 
@@ -787,6 +791,8 @@ def test_pipeline_to_chain_steps_round_trips_keyboard_button_step() -> None:
                 {"text": "/contact", "row": 1},
                 {"text": "/restart", "row": 2},
             ],
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["profile.block_menu=true"],
         },
     ]
 
@@ -804,6 +810,8 @@ def test_pipeline_to_chain_steps_round_trips_keyboard_button_step() -> None:
                 {"text": "/contact", "row": 1},
                 {"text": "/restart", "row": 2},
             ],
+            "run_if_context_keys": ["profile.phone_number"],
+            "skip_if_context_keys": ["profile.block_menu=true"],
         }
     ]
 
@@ -1568,8 +1576,8 @@ def test_build_command_module_entry_persists_keyboard_button_buttons() -> None:
         menu_title="",
         menu_items_text="",
         inline_buttons_text="/help | 1\n/contact | 1\n/restart | 2",
-        inline_run_if_context_keys_text="",
-        inline_skip_if_context_keys_text="",
+        inline_run_if_context_keys_text="profile.phone_number",
+        inline_skip_if_context_keys_text="profile.block_menu=true",
         inline_save_callback_data_to_key_text="",
         callback_target_key="",
         command_target_key="",
@@ -1609,6 +1617,8 @@ def test_build_command_module_entry_persists_keyboard_button_buttons() -> None:
         {"text": "/contact", "row": 1},
         {"text": "/restart", "row": 2},
     ]
+    assert entry["run_if_context_keys"] == ["profile.phone_number"]
+    assert entry["skip_if_context_keys"] == ["profile.block_menu=true"]
 
 
 def test_build_command_module_entry_persists_share_location_live_flags() -> None:

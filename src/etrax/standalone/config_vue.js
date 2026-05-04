@@ -123,6 +123,15 @@
     if (!("target_command_key" in normalized) && "command_target_key" in source) {
       normalized.target_command_key = source.command_target_key;
     }
+    if (!("source_result_key" in normalized) && "delete_source_result_key" in source) {
+      normalized.source_result_key = source.delete_source_result_key;
+    }
+    if (!("message_id_context_key" in normalized) && "delete_message_id_context_key" in source) {
+      normalized.message_id_context_key = source.delete_message_id_context_key;
+    }
+    if (!("message_id" in normalized) && "delete_message_id" in source) {
+      normalized.message_id = source.delete_message_id;
+    }
     if (!("button_text" in normalized)) {
       if ("contact_button_text" in source && String(source.contact_button_text || "").trim()) {
         normalized.button_text = source.contact_button_text;
@@ -222,6 +231,9 @@
         target_callback_key: "",
         target_command_key: "",
         photo_url: "",
+        source_result_key: "send_message_result",
+        message_id_context_key: "message_id",
+        message_id: "",
       button_text: "",
       function_name: "",
       success_text_template: "",
@@ -435,6 +447,9 @@
   <input type="hidden" name="start_callback_target_key" :value="startPrimary.target_callback_key">
   <input type="hidden" name="start_command_target_key" :value="startPrimary.target_command_key">
   <input type="hidden" name="start_photo_url" :value="startPrimary.photo_url">
+  <input type="hidden" name="start_delete_source_result_key" :value="startPrimary.source_result_key">
+  <input type="hidden" name="start_delete_message_id_context_key" :value="startPrimary.message_id_context_key">
+  <input type="hidden" name="start_delete_message_id" :value="startPrimary.message_id">
   <input type="hidden" name="start_location_latitude" :value="startPrimary.location_latitude">
   <input type="hidden" name="start_location_longitude" :value="startPrimary.location_longitude">
   <input type="hidden" name="start_contact_button_text" :value="startPrimary.button_text">
@@ -547,9 +562,12 @@
 	      <input type="hidden" name="command_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
 	      <input type="hidden" name="command_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
 	      <input type="hidden" name="command_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
-	      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
-	      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
-	      <input type="hidden" name="command_location_latitude" :value="primaryStep(entry.editor).location_latitude">
+		      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
+		      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
+		      <input type="hidden" name="command_delete_source_result_key" :value="primaryStep(entry.editor).source_result_key">
+		      <input type="hidden" name="command_delete_message_id_context_key" :value="primaryStep(entry.editor).message_id_context_key">
+		      <input type="hidden" name="command_delete_message_id" :value="primaryStep(entry.editor).message_id">
+		      <input type="hidden" name="command_location_latitude" :value="primaryStep(entry.editor).location_latitude">
 	      <input type="hidden" name="command_location_longitude" :value="primaryStep(entry.editor).location_longitude">
 	      <input type="hidden" name="command_contact_button_text" :value="primaryStep(entry.editor).button_text">
 	      <input type="hidden" name="command_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
@@ -739,9 +757,12 @@
       <input type="hidden" name="callback_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
       <input type="hidden" name="callback_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
       <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
-	      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
-	      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
-	      <input type="hidden" name="callback_location_latitude" :value="primaryStep(entry.editor).location_latitude">
+		      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
+		      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
+		      <input type="hidden" name="callback_delete_source_result_key" :value="primaryStep(entry.editor).source_result_key">
+		      <input type="hidden" name="callback_delete_message_id_context_key" :value="primaryStep(entry.editor).message_id_context_key">
+		      <input type="hidden" name="callback_delete_message_id" :value="primaryStep(entry.editor).message_id">
+		      <input type="hidden" name="callback_location_latitude" :value="primaryStep(entry.editor).location_latitude">
 	      <input type="hidden" name="callback_location_longitude" :value="primaryStep(entry.editor).location_longitude">
 	      <input type="hidden" name="callback_contact_button_text" :value="primaryStep(entry.editor).button_text">
 	      <input type="hidden" name="callback_mini_app_button_text" :value="primaryStep(entry.editor).button_text">
@@ -1556,6 +1577,9 @@
             callback_target_key: primary.target_callback_key,
             command_target_key: primary.target_command_key,
             photo_url: primary.photo_url,
+            delete_source_result_key: primary.source_result_key,
+            delete_message_id_context_key: primary.message_id_context_key,
+            delete_message_id: primary.message_id,
             contact_button_text: primary.button_text,
             mini_app_button_text: primary.button_text,
             custom_code_function_name: primary.function_name,

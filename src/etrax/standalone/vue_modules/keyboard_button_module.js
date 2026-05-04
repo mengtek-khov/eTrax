@@ -6,6 +6,20 @@
     return;
   }
 
+  function splitContextKeyLines(raw) {
+    return String(raw || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
+  function formatContextKeyLines(raw) {
+    if (Array.isArray(raw)) {
+      return splitContextKeyLines(raw.join("\n")).join("\n");
+    }
+    return splitContextKeyLines(raw).join("\n");
+  }
+
   moduleSystem.register({
     type: "keyboard_button",
     label: "keyboard_button",
@@ -17,6 +31,8 @@
         title: "Main Menu",
         items: [],
         buttons: [],
+        run_if_context_keys: "",
+        skip_if_context_keys: "",
       };
     },
     parsePrimary(source, helpers) {
@@ -30,6 +46,8 @@
         title: "Main Menu",
         items: [],
         buttons,
+        run_if_context_keys: formatContextKeyLines(source.run_if_context_keys),
+        skip_if_context_keys: formatContextKeyLines(source.skip_if_context_keys),
       };
     },
     parseChain(parts, helpers) {
@@ -49,15 +67,26 @@
         title: "Main Menu",
         items: [],
         buttons: helpers.normalizeKeyboardButtons(buttonsRaw),
+        run_if_context_keys: formatContextKeyLines(parts[4] || ""),
+        skip_if_context_keys: formatContextKeyLines(parts[5] || ""),
       };
     },
     formatChain(step, helpers) {
-      return JSON.stringify({
+      const payload = {
         module_type: "keyboard_button",
         text_template: String(step.text_template || "Choose an option."),
         parse_mode: String(step.parse_mode || "").trim(),
         buttons: helpers.normalizeKeyboardButtons(step.buttons || []),
-      });
+      };
+      const runIfContextKeys = splitContextKeyLines(step.run_if_context_keys || "");
+      const skipIfContextKeys = splitContextKeyLines(step.skip_if_context_keys || "");
+      if (runIfContextKeys.length > 0) {
+        payload.run_if_context_keys = runIfContextKeys;
+      }
+      if (skipIfContextKeys.length > 0) {
+        payload.skip_if_context_keys = skipIfContextKeys;
+      }
+      return JSON.stringify(payload);
     },
     rowLabel(step, index) {
       const stepNo = index + 1;
@@ -80,10 +109,43 @@
       const rowIdAttr = rowId ? ` id="${rowId}"` : "";
       return (
         `<label${textFor} v-if="isStepType(${ctx}, 'keyboard_button')">Message Template</label>` +
-        `<textarea${textIdAttr} v-if="isStepType(${ctx}, 'keyboard_button')" ` +
+        `<div class="template-editor" v-if="isStepType(${ctx}, 'keyboard_button')">` +
+        `<div class="template-toolbar">` +
+        `<button type="button" class="secondary" @mousedown.prevent="applyTemplateSnippet(${ctx}, 'text_template', '<b>', '</b>', $event)">Bold</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="applyTemplateSnippet(${ctx}, 'text_template', '<i>', '</i>', $event)">Italic</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="applyTemplateSnippet(${ctx}, 'text_template', '<code>', '</code>', $event)">Code</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="applyTemplateSnippet(${ctx}, 'text_template', '<blockquote>', '</blockquote>', $event)">Quote</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="applyTemplateSnippet(${ctx}, 'text_template', '<tg-spoiler>', '</tg-spoiler>', $event)">Spoiler</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="applyTemplateSnippet(${ctx}, 'text_template', '<a href=&quot;https://example.com&quot;>', '</a>', $event)">Link</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="insertTemplateToken(${ctx}, 'text_template', '{bot_name}', $event)">Bot</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="insertTemplateToken(${ctx}, 'text_template', '{user_first_name}', $event)">Name</button>` +
+        `<button type="button" class="secondary" @mousedown.prevent="insertTemplateToken(${ctx}, 'text_template', '\\n', $event)">Line</button>` +
+        `</div>` +
+        `<textarea${textIdAttr} ` +
         `placeholder="Choose an option." ` +
         `:value="currentStepField(${ctx}, 'text_template')" ` +
         `@input="updateCurrentStepField(${ctx}, 'text_template', $event.target.value)"></textarea>` +
+        `</div>` +
+        `<label v-if="isStepType(${ctx}, 'keyboard_button')">Run If Context Keys</label>` +
+        `<div class="module-list-tools" v-if="isStepType(${ctx}, 'keyboard_button')">` +
+        `<select :value="contextKeyDraft(${ctx}, 'run_if_context_keys')" @change="updateContextKeyDraftField(${ctx}, 'run_if_context_keys', $event.target.value)">` +
+        `<option value="">Select context key</option>` +
+        `<option v-for="contextKey in contextKeyOptions" :key="'keyboard-run-if-' + contextKey" :value="contextKey">[[ contextKey ]]</option>` +
+        `</select>` +
+        `<button type="button" class="secondary" @click="appendContextKey(${ctx}, 'run_if_context_keys')">Add Key</button>` +
+        `</div>` +
+        `<textarea v-if="isStepType(${ctx}, 'keyboard_button')" placeholder="One rule per line&#10;Example: profile.i_am_18=true" :value="currentStepField(${ctx}, 'run_if_context_keys')" @input="updateCurrentStepField(${ctx}, 'run_if_context_keys', $event.target.value)"></textarea>` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'keyboard_button')">Use either a plain context key or a value rule like profile.i_am_18=true. All run_if rules must match before this keyboard_button sends.</p>` +
+        `<label v-if="isStepType(${ctx}, 'keyboard_button')">Skip If Context Keys</label>` +
+        `<div class="module-list-tools" v-if="isStepType(${ctx}, 'keyboard_button')">` +
+        `<select :value="contextKeyDraft(${ctx}, 'skip_if_context_keys')" @change="updateContextKeyDraftField(${ctx}, 'skip_if_context_keys', $event.target.value)">` +
+        `<option value="">Select context key</option>` +
+        `<option v-for="contextKey in contextKeyOptions" :key="'keyboard-skip-if-' + contextKey" :value="contextKey">[[ contextKey ]]</option>` +
+        `</select>` +
+        `<button type="button" class="secondary" @click="appendContextKey(${ctx}, 'skip_if_context_keys')">Add Key</button>` +
+        `</div>` +
+        `<textarea v-if="isStepType(${ctx}, 'keyboard_button')" placeholder="One rule per line&#10;Example: profile.i_am_18=false" :value="currentStepField(${ctx}, 'skip_if_context_keys')" @input="updateCurrentStepField(${ctx}, 'skip_if_context_keys', $event.target.value)"></textarea>` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'keyboard_button')">If any skip_if rule matches, including value rules like profile.i_am_18=false, this keyboard_button is skipped.</p>` +
         `<div class="module-list-tools" v-if="isStepType(${ctx}, 'keyboard_button')">` +
         `<label${buttonFor} class="hint">Button Text</label>` +
         `<input${buttonIdAttr} class="inline-button-input" placeholder="/help" ` +

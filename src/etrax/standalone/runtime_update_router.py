@@ -104,6 +104,7 @@ def handle_update(
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates=callback_context_updates,
             callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
             gateway=gateway,
             bot_token=bot_token,
             profile_log_store=profile_log_store,
@@ -460,9 +461,23 @@ def handle_callback_query_update(
         callback_context_updates_by_message=callback_context_updates_by_message,
         profile_log_store=profile_log_store,
     )
+    remove_message_callback_data_keys = _collect_remove_message_callback_data_keys(
+        command_modules=command_modules,
+        callback_modules=callback_modules,
+    )
 
     pipeline = callback_modules.get(callback_data, [])
     if pipeline:
+        _remove_registered_inline_button_message(
+            bot_id=bot_id,
+            chat_id=chat_id,
+            message=message,
+            callback_data=callback_data,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+            remove_message_callback_data_keys=remove_message_callback_data_keys,
+            gateway=gateway,
+            bot_token=bot_token,
+        )
         sent_count = execute_pipeline(
             pipeline,
             context,
@@ -476,16 +491,6 @@ def handle_callback_query_update(
             callback_execution_stack=(callback_data,),
             gateway=gateway,
             bot_token=bot_token,
-        )
-        _remove_handled_inline_button_reply_markup(
-            bot_id=bot_id,
-            chat_id=chat_id,
-            message=message,
-            callback_data=callback_data,
-            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
-            gateway=gateway,
-            bot_token=bot_token,
-            sent_count=sent_count,
         )
         _activate_callback_temporary_command_menu(
             bot_id=bot_id,
@@ -512,8 +517,28 @@ def handle_callback_query_update(
             callback_continuation_modules=callback_continuation_modules,
         )
         if not continuation_pipeline:
+            _remove_registered_inline_button_message(
+                bot_id=bot_id,
+                chat_id=chat_id,
+                message=message,
+                callback_data=callback_data,
+                inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+                remove_message_callback_data_keys=remove_message_callback_data_keys,
+                gateway=gateway,
+                bot_token=bot_token,
+            )
             return 0
 
+    _remove_registered_inline_button_message(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        message=message,
+        callback_data=callback_data,
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        remove_message_callback_data_keys=remove_message_callback_data_keys,
+        gateway=gateway,
+        bot_token=bot_token,
+    )
     sent_count = _run_callback_continuation_step(
         continuation_pipeline,
         context=context,
@@ -527,16 +552,6 @@ def handle_callback_query_update(
         callback_execution_stack=(callback_data,),
         gateway=gateway,
         bot_token=bot_token,
-    )
-    _remove_handled_inline_button_reply_markup(
-        bot_id=bot_id,
-        chat_id=chat_id,
-        message=message,
-        callback_data=callback_data,
-        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
-        gateway=gateway,
-        bot_token=bot_token,
-        sent_count=sent_count,
     )
     return sent_count
 
@@ -1612,20 +1627,17 @@ def _register_message_inline_button_cleanup_targets(
         inline_button_cleanup_by_message[key] = True
 
 
-def _remove_handled_inline_button_reply_markup(
+def _remove_registered_inline_button_message(
     *,
     bot_id: str,
     chat_id: str,
     message: dict[str, Any],
     callback_data: str,
     inline_button_cleanup_by_message: dict[str, bool] | None,
+    remove_message_callback_data_keys: set[str] | None = None,
     gateway: TelegramBotApiGateway | None,
     bot_token: str,
-    sent_count: int,
 ) -> None:
-    if sent_count <= 0:
-        return
-
     message_id = str(message.get("message_id", "")).strip()
     if not message_id or not bot_id or not chat_id:
         return
@@ -1636,22 +1648,27 @@ def _remove_handled_inline_button_reply_markup(
         message_id=message_id,
         callback_data=callback_data,
     )
-    if not inline_button_cleanup_by_message or not inline_button_cleanup_by_message.get(route_key):
+    is_registered = bool(inline_button_cleanup_by_message and inline_button_cleanup_by_message.get(route_key))
+    if not is_registered and not _can_delete_inline_button_message_from_config(
+        message=message,
+        callback_data=callback_data,
+        remove_message_callback_data_keys=remove_message_callback_data_keys,
+    ):
         return
 
-    _pop_inline_button_cleanup_keys_for_message(
-        bot_id=bot_id,
-        chat_id=chat_id,
-        message_id=message_id,
-        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
-    )
+    if inline_button_cleanup_by_message is not None:
+        _pop_inline_button_cleanup_keys_for_message(
+            bot_id=bot_id,
+            chat_id=chat_id,
+            message_id=message_id,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        )
     if gateway is None or not bot_token:
         return
-    gateway.edit_message_reply_markup(
+    gateway.delete_message(
         bot_token=bot_token,
         chat_id=chat_id,
         message_id=message_id,
-        reply_markup=None,
     )
 
 
@@ -1677,6 +1694,78 @@ def _extract_callback_data_keys(module: object) -> tuple[str, ...]:
     else:
         callback_items = tuple(callback_keys)
     return tuple(str(item).strip() for item in callback_items if str(item).strip())
+
+
+def _collect_remove_message_callback_data_keys(
+    *,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+) -> set[str]:
+    callback_data_keys: set[str] = set()
+    visited: set[int] = set()
+    for module_groups in (command_modules, callback_modules):
+        if not module_groups:
+            continue
+        for modules in module_groups.values():
+            _collect_remove_message_callback_data_keys_from_modules(
+                modules=modules,
+                callback_data_keys=callback_data_keys,
+                visited=visited,
+            )
+    return callback_data_keys
+
+
+def _collect_remove_message_callback_data_keys_from_modules(
+    *,
+    modules: list[FlowModule] | tuple[FlowModule, ...],
+    callback_data_keys: set[str],
+    visited: set[int],
+) -> None:
+    for module in modules:
+        module_id = id(module)
+        if module_id in visited:
+            continue
+        visited.add(module_id)
+        if bool(getattr(module, "remove_inline_buttons_on_click", False)):
+            callback_data_keys.update(_extract_callback_data_keys(module))
+        continuation = getattr(module, "continuation_modules", ())
+        if continuation:
+            _collect_remove_message_callback_data_keys_from_modules(
+                modules=tuple(continuation),
+                callback_data_keys=callback_data_keys,
+                visited=visited,
+            )
+
+
+def _can_delete_inline_button_message_from_config(
+    *,
+    message: dict[str, Any],
+    callback_data: str,
+    remove_message_callback_data_keys: set[str] | None,
+) -> bool:
+    if not remove_message_callback_data_keys or callback_data not in remove_message_callback_data_keys:
+        return False
+    return _message_reply_markup_contains_callback_data(message=message, callback_data=callback_data)
+
+
+def _message_reply_markup_contains_callback_data(*, message: dict[str, Any], callback_data: str) -> bool:
+    reply_markup = message.get("reply_markup")
+    if not isinstance(reply_markup, dict):
+        return True
+    keyboard = reply_markup.get("inline_keyboard")
+    if not isinstance(keyboard, list):
+        return False
+    for row in keyboard:
+        if isinstance(row, dict):
+            buttons = [row]
+        elif isinstance(row, list):
+            buttons = row
+        else:
+            continue
+        for button in buttons:
+            if isinstance(button, dict) and str(button.get("callback_data", "")).strip() == callback_data:
+                return True
+    return False
 
 
 def _extract_callback_context_updates(module: object) -> dict[str, dict[str, Any]]:
@@ -1727,6 +1816,9 @@ def _extract_message_from_payload(payload: dict[str, Any]) -> dict[str, Any] | N
             return message
         if "message_id" in result:
             return result
+        nested_message = _extract_message_from_payload(result)
+        if isinstance(nested_message, dict):
+            return nested_message
 
     if isinstance(payload.get("message_id"), (str, int)):
         return payload

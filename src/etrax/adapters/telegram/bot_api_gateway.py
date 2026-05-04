@@ -130,6 +130,19 @@ class TelegramBotApiGateway:
             payload["reply_markup"] = reply_markup
         return self._request_json(bot_token=bot_token, method="editMessageReplyMarkup", payload=payload)
 
+    def delete_message(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        message_id: str,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+        }
+        return self._request_json(bot_token=bot_token, method="deleteMessage", payload=payload)
+
     def get_updates(
         self,
         *,

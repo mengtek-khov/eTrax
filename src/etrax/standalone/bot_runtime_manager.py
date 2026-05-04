@@ -6,6 +6,8 @@ import hashlib
 import os
 import traceback
 import time
+import ctypes
+from ctypes import wintypes
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -157,11 +159,18 @@ def _read_lock_pid(path: Path) -> int | None:
 
 
 def _process_exists(pid: int) -> bool:
+    if os.name == "nt":
+        windows_result = _windows_process_exists(pid)
+        if windows_result is not None:
+            return windows_result
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
+        if os.name == "nt":
+            return False
         return True
     except OSError as exc:
         # Windows can raise loader/parameter errors for stale or invalid PIDs
@@ -171,6 +180,44 @@ def _process_exists(pid: int) -> bool:
             return False
         raise
     return True
+
+
+def _windows_process_exists(pid: int) -> bool | None:
+    """Return process existence from the Windows process snapshot API."""
+    try:
+        class PROCESSENTRY32(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", ctypes.c_char * 260),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+        invalid_handle_value = ctypes.c_void_p(-1).value
+        if snapshot == invalid_handle_value:
+            return None
+        try:
+            entry = PROCESSENTRY32()
+            entry.dwSize = ctypes.sizeof(entry)
+            if not kernel32.Process32First(snapshot, ctypes.byref(entry)):
+                return False
+            while True:
+                if int(entry.th32ProcessID) == pid:
+                    return True
+                if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                    return False
+        finally:
+            kernel32.CloseHandle(snapshot)
+    except (AttributeError, OSError, ValueError):
+        return None
 
 
 class _InMemoryContactRequestStore(ContactRequestStore):

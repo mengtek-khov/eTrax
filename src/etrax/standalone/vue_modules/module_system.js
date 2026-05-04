@@ -259,6 +259,7 @@
 
   function normalizeStep(rawStep, fallbackType) {
     const source = rawStep && typeof rawStep === "object" ? rawStep : {};
+    const moduleType = normalizeType(source.module_type || fallbackType);
     const hideCaption = normalizeCheckboxValue(source.hide_caption);
     const requireLiveLocation = normalizeCheckboxValue(source.require_live_location);
     const findClosestSavedLocation = normalizeCheckboxValue(source.find_closest_saved_location);
@@ -266,8 +267,12 @@
     const trackBreadcrumb = requireLiveLocation && normalizeCheckboxValue(source.track_breadcrumb);
     const storeHistoryByDay = normalizeCheckboxValue(source.store_history_by_day);
     const removeInlineButtonsOnClick = normalizeCheckboxValue(source.remove_inline_buttons_on_click);
+    const buttons =
+      moduleType === "keyboard_button"
+        ? normalizeKeyboardButtons(source.buttons || [])
+        : normalizeInlineButtons(source.buttons || []);
     return {
-      module_type: normalizeType(source.module_type || fallbackType),
+      module_type: moduleType,
       text_template: source.text_template == null ? "" : String(source.text_template),
       parse_mode: source.parse_mode == null ? "" : String(source.parse_mode),
       hide_caption: hideCaption,
@@ -278,7 +283,7 @@
       store_history_by_day: storeHistoryByDay,
       title: source.title == null ? "Main Menu" : String(source.title),
       items: parseMenuItems(Array.isArray(source.items) ? source.items.join("\n") : source.items || ""),
-      buttons: normalizeInlineButtons(source.buttons || []),
+      buttons,
       run_if_context_keys: Array.isArray(source.run_if_context_keys)
         ? source.run_if_context_keys.join("\n")
         : source.run_if_context_keys == null
@@ -294,6 +299,9 @@
       target_callback_key: source.target_callback_key == null ? "" : String(source.target_callback_key),
       target_command_key: source.target_command_key == null ? "" : String(source.target_command_key),
       photo_url: source.photo_url == null ? "" : String(source.photo_url),
+      source_result_key: source.source_result_key == null ? "send_message_result" : String(source.source_result_key),
+      message_id_context_key: source.message_id_context_key == null ? "message_id" : String(source.message_id_context_key),
+      message_id: source.message_id == null ? "" : String(source.message_id),
       location_latitude: source.location_latitude == null ? "" : String(source.location_latitude),
       location_longitude: source.location_longitude == null ? "" : String(source.location_longitude),
       button_text: source.button_text == null ? "" : String(source.button_text),

@@ -267,6 +267,9 @@ def _build_handler(
             if parsed.path == "/module-forget-user-data.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("forget_user_data_module.js"))
                 return
+            if parsed.path == "/module-delete-message.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("delete_message_module.js"))
+                return
             if parsed.path == "/module-userinfo.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("userinfo_module.js"))
                 return
@@ -549,6 +552,9 @@ def _build_handler(
             command_callback_target_keys = form.get("command_callback_target_key", [])
             command_command_target_keys = form.get("command_command_target_key", [])
             command_photo_urls = form.get("command_photo_url", [])
+            command_delete_source_result_keys = form.get("command_delete_source_result_key", [])
+            command_delete_message_id_context_keys = form.get("command_delete_message_id_context_key", [])
+            command_delete_message_ids = form.get("command_delete_message_id", [])
             command_location_latitudes = form.get("command_location_latitude", [])
             command_location_longitudes = form.get("command_location_longitude", [])
             command_contact_button_texts = form.get("command_contact_button_text", [])
@@ -622,6 +628,9 @@ def _build_handler(
             callback_callback_target_keys = form.get("callback_callback_target_key", [])
             callback_command_target_keys = form.get("callback_command_target_key", [])
             callback_photo_urls = form.get("callback_photo_url", [])
+            callback_delete_source_result_keys = form.get("callback_delete_source_result_key", [])
+            callback_delete_message_id_context_keys = form.get("callback_delete_message_id_context_key", [])
+            callback_delete_message_ids = form.get("callback_delete_message_id", [])
             callback_location_latitudes = form.get("callback_location_latitude", [])
             callback_location_longitudes = form.get("callback_location_longitude", [])
             callback_contact_button_texts = form.get("callback_contact_button_text", [])
@@ -696,6 +705,9 @@ def _build_handler(
             start_callback_target_key = form.get("start_callback_target_key", [""])[0].strip()
             start_command_target_key = form.get("start_command_target_key", [""])[0].strip()
             start_photo_url = form.get("start_photo_url", [""])[0].strip()
+            start_delete_source_result_key = form.get("start_delete_source_result_key", [""])[0].strip()
+            start_delete_message_id_context_key = form.get("start_delete_message_id_context_key", [""])[0].strip()
+            start_delete_message_id = form.get("start_delete_message_id", [""])[0].strip()
             start_location_latitude = form.get("start_location_latitude", [""])[0].strip()
             start_location_longitude = form.get("start_location_longitude", [""])[0].strip()
             start_contact_button_text = form.get("start_contact_button_text", [""])[0].strip()
@@ -791,6 +803,9 @@ def _build_handler(
                     command_callback_target_keys=command_callback_target_keys,
                     command_command_target_keys=command_command_target_keys,
                     command_photo_urls=command_photo_urls,
+                    command_delete_source_result_keys=command_delete_source_result_keys,
+                    command_delete_message_id_context_keys=command_delete_message_id_context_keys,
+                    command_delete_message_ids=command_delete_message_ids,
                     command_location_latitudes=command_location_latitudes,
                     command_location_longitudes=command_location_longitudes,
                     command_contact_button_texts=command_contact_button_texts,
@@ -864,6 +879,9 @@ def _build_handler(
                         callback_target_key=start_callback_target_key,
                         command_target_key=start_command_target_key,
                         photo_url=start_photo_url,
+                        delete_source_result_key=start_delete_source_result_key,
+                        delete_message_id_context_key=start_delete_message_id_context_key,
+                        delete_message_id=start_delete_message_id,
                         location_latitude=start_location_latitude,
                         location_longitude=start_location_longitude,
                         contact_button_text=start_contact_button_text,
@@ -937,6 +955,9 @@ def _build_handler(
                     callback_callback_target_keys=callback_callback_target_keys,
                     callback_command_target_keys=callback_command_target_keys,
                     callback_photo_urls=callback_photo_urls,
+                    callback_delete_source_result_keys=callback_delete_source_result_keys,
+                    callback_delete_message_id_context_keys=callback_delete_message_id_context_keys,
+                    callback_delete_message_ids=callback_delete_message_ids,
                     callback_location_latitudes=callback_location_latitudes,
                     callback_location_longitudes=callback_location_longitudes,
                     callback_contact_button_texts=callback_contact_button_texts,
@@ -3718,6 +3739,7 @@ def _render_config_page(
   <script src="/module-cart-button.js?v={asset_version}"></script>
   <script src="/module-open-mini-app.js?v={asset_version}"></script>
   <script src="/module-forget-user-data.js?v={asset_version}"></script>
+  <script src="/module-delete-message.js?v={asset_version}"></script>
   <script src="/module-userinfo.js?v={asset_version}"></script>
   <script src="/module-callback-module.js?v={asset_version}"></script>
   <script src="/module-command-module.js?v={asset_version}"></script>
@@ -4210,6 +4232,9 @@ def _build_command_modules_from_form(
     command_callback_target_keys: list[str],
     command_command_target_keys: list[str],
     command_photo_urls: list[str],
+    command_delete_source_result_keys: list[str],
+    command_delete_message_id_context_keys: list[str],
+    command_delete_message_ids: list[str],
     command_location_latitudes: list[str],
     command_location_longitudes: list[str],
     command_contact_button_texts: list[str],
@@ -4282,6 +4307,9 @@ def _build_command_modules_from_form(
         len(command_callback_target_keys),
         len(command_command_target_keys),
         len(command_photo_urls),
+        len(command_delete_source_result_keys),
+        len(command_delete_message_id_context_keys),
+        len(command_delete_message_ids),
         len(command_location_latitudes),
         len(command_location_longitudes),
         len(command_contact_button_texts),
@@ -4363,6 +4391,15 @@ def _build_command_modules_from_form(
         callback_target_key = command_callback_target_keys[idx].strip() if idx < len(command_callback_target_keys) else ""
         command_target_key = command_command_target_keys[idx].strip() if idx < len(command_command_target_keys) else ""
         photo_url = command_photo_urls[idx].strip() if idx < len(command_photo_urls) else ""
+        delete_source_result_key = (
+            command_delete_source_result_keys[idx].strip() if idx < len(command_delete_source_result_keys) else ""
+        )
+        delete_message_id_context_key = (
+            command_delete_message_id_context_keys[idx].strip()
+            if idx < len(command_delete_message_id_context_keys)
+            else ""
+        )
+        delete_message_id = command_delete_message_ids[idx].strip() if idx < len(command_delete_message_ids) else ""
         location_latitude = (
             command_location_latitudes[idx].strip() if idx < len(command_location_latitudes) else ""
         )
@@ -4511,6 +4548,9 @@ def _build_command_modules_from_form(
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
+            delete_source_result_key=delete_source_result_key,
+            delete_message_id_context_key=delete_message_id_context_key,
+            delete_message_id=delete_message_id,
             location_latitude=location_latitude,
             location_longitude=location_longitude,
             contact_button_text=contact_button_text,
@@ -4584,6 +4624,9 @@ def _build_callback_modules_from_form(
     callback_callback_target_keys: list[str],
     callback_command_target_keys: list[str],
     callback_photo_urls: list[str],
+    callback_delete_source_result_keys: list[str],
+    callback_delete_message_id_context_keys: list[str],
+    callback_delete_message_ids: list[str],
     callback_location_latitudes: list[str],
     callback_location_longitudes: list[str],
     callback_contact_button_texts: list[str],
@@ -4657,6 +4700,9 @@ def _build_callback_modules_from_form(
         len(callback_callback_target_keys),
         len(callback_command_target_keys),
         len(callback_photo_urls),
+        len(callback_delete_source_result_keys),
+        len(callback_delete_message_id_context_keys),
+        len(callback_delete_message_ids),
         len(callback_location_latitudes),
         len(callback_location_longitudes),
         len(callback_contact_button_texts),
@@ -4738,6 +4784,15 @@ def _build_callback_modules_from_form(
         callback_target_key = callback_callback_target_keys[idx].strip() if idx < len(callback_callback_target_keys) else ""
         command_target_key = callback_command_target_keys[idx].strip() if idx < len(callback_command_target_keys) else ""
         photo_url = callback_photo_urls[idx].strip() if idx < len(callback_photo_urls) else ""
+        delete_source_result_key = (
+            callback_delete_source_result_keys[idx].strip() if idx < len(callback_delete_source_result_keys) else ""
+        )
+        delete_message_id_context_key = (
+            callback_delete_message_id_context_keys[idx].strip()
+            if idx < len(callback_delete_message_id_context_keys)
+            else ""
+        )
+        delete_message_id = callback_delete_message_ids[idx].strip() if idx < len(callback_delete_message_ids) else ""
         location_latitude = (
             callback_location_latitudes[idx].strip() if idx < len(callback_location_latitudes) else ""
         )
@@ -4891,6 +4946,9 @@ def _build_callback_modules_from_form(
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
+            delete_source_result_key=delete_source_result_key,
+            delete_message_id_context_key=delete_message_id_context_key,
+            delete_message_id=delete_message_id,
             location_latitude=location_latitude,
             location_longitude=location_longitude,
             contact_button_text=contact_button_text,
@@ -5095,6 +5153,9 @@ def _build_command_module_entry(
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
+    delete_source_result_key: str = "",
+    delete_message_id_context_key: str = "",
+    delete_message_id: str = "",
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
@@ -5170,6 +5231,9 @@ def _build_command_module_entry(
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
+        delete_source_result_key=delete_source_result_key,
+        delete_message_id_context_key=delete_message_id_context_key,
+        delete_message_id=delete_message_id,
         location_latitude=location_latitude,
         location_longitude=location_longitude,
         contact_button_text=contact_button_text,
@@ -5245,6 +5309,9 @@ def _build_callback_module_entry(
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
+    delete_source_result_key: str = "",
+    delete_message_id_context_key: str = "",
+    delete_message_id: str = "",
     contact_button_text: str,
     mini_app_button_text: str,
     contact_success_text: str,
@@ -5319,6 +5386,9 @@ def _build_callback_module_entry(
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
+        delete_source_result_key=delete_source_result_key,
+        delete_message_id_context_key=delete_message_id_context_key,
+        delete_message_id=delete_message_id,
         location_latitude=location_latitude,
         location_longitude=location_longitude,
         contact_button_text=contact_button_text,
@@ -5402,6 +5472,9 @@ def _build_module_step(
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
+    delete_source_result_key: str = "",
+    delete_message_id_context_key: str = "",
+    delete_message_id: str = "",
     location_latitude: str,
     location_longitude: str,
     contact_button_text: str,
@@ -5497,12 +5570,16 @@ def _build_module_step(
         )
         if not buttons:
             raise ValueError(f"command /{command_name}: keyboard_button requires at least one button")
-        return {
-            "module_type": "keyboard_button",
-            "text_template": text_template.strip() or "Choose an option.",
-            "parse_mode": parse_mode_value,
-            "buttons": buttons,
-        }
+        return _attach_context_key_rules(
+            {
+                "module_type": "keyboard_button",
+                "text_template": text_template.strip() or "Choose an option.",
+                "parse_mode": parse_mode_value,
+                "buttons": buttons,
+            },
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
+        )
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -5570,6 +5647,13 @@ def _build_module_step(
             "parse_mode": parse_mode_value,
             "buttons": buttons,
         }
+
+    if normalized_module_type == "delete_message":
+        return _build_delete_message_step(
+            source_result_key=delete_source_result_key,
+            message_id_context_key=delete_message_id_context_key,
+            message_id=delete_message_id,
+        )
 
     if normalized_module_type == "send_location":
         return _build_send_location_step(
@@ -5753,6 +5837,9 @@ def _build_callback_module_step(
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
+    delete_source_result_key: str = "",
+    delete_message_id_context_key: str = "",
+    delete_message_id: str = "",
     location_latitude: str,
     location_longitude: str,
     contact_button_text: str,
@@ -5849,12 +5936,16 @@ def _build_callback_module_step(
         )
         if not buttons:
             raise ValueError(f"callback '{callback_key}': keyboard_button requires at least one button")
-        return {
-            "module_type": "keyboard_button",
-            "text_template": text_template.strip() or default_text,
-            "parse_mode": parse_mode_value,
-            "buttons": buttons,
-        }
+        return _attach_context_key_rules(
+            {
+                "module_type": "keyboard_button",
+                "text_template": text_template.strip() or default_text,
+                "parse_mode": parse_mode_value,
+                "buttons": buttons,
+            },
+            run_if_context_keys=inline_run_if_context_keys_text,
+            skip_if_context_keys=inline_skip_if_context_keys_text,
+        )
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -5922,6 +6013,13 @@ def _build_callback_module_step(
             "parse_mode": parse_mode_value,
             "buttons": buttons,
         }
+
+    if normalized_module_type == "delete_message":
+        return _build_delete_message_step(
+            source_result_key=delete_source_result_key,
+            message_id_context_key=delete_message_id_context_key,
+            message_id=delete_message_id,
+        )
 
     if normalized_module_type == "send_location":
         return _build_send_location_step(
@@ -6538,6 +6636,24 @@ def _build_send_location_step(
     }
 
 
+def _build_delete_message_step(
+    *,
+    source_result_key: str,
+    message_id_context_key: str,
+    message_id: str,
+) -> dict[str, object]:
+    """Build a normalized delete_message step payload."""
+    step: dict[str, object] = {
+        "module_type": "delete_message",
+        "source_result_key": source_result_key.strip() or "send_message_result",
+        "message_id_context_key": message_id_context_key.strip() or "message_id",
+    }
+    fixed_message_id = message_id.strip()
+    if fixed_message_id:
+        step["message_id"] = fixed_message_id
+    return step
+
+
 def _extract_command_module_form_values(
     *,
     command_name: str,
@@ -6553,6 +6669,10 @@ def _extract_command_module_form_values(
     if module_type == "send_photo":
         text_default = ""
     elif module_type == "send_location":
+        text_default = ""
+    elif module_type == "delete_message":
+        text_default = ""
+    elif module_type == "delete_message":
         text_default = ""
     elif module_type == "share_contact":
         text_default = "Please share your contact using the button below."
@@ -6587,7 +6707,7 @@ def _extract_command_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -6625,6 +6745,9 @@ def _extract_command_module_form_values(
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
+    delete_source_result_key = str(module.get("source_result_key", "send_message_result")).strip()
+    delete_message_id_context_key = str(module.get("message_id_context_key", "message_id")).strip()
+    delete_message_id = str(module.get("message_id", "")).strip()
     location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
     contact_button_text = str(module.get("button_text", "")).strip()
@@ -6720,6 +6843,9 @@ def _extract_command_module_form_values(
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
         "photo_url": photo_url,
+        "delete_source_result_key": delete_source_result_key,
+        "delete_message_id_context_key": delete_message_id_context_key,
+        "delete_message_id": delete_message_id,
         "location_latitude": location_latitude,
         "location_longitude": location_longitude,
         "contact_button_text": contact_button_text,
@@ -6825,7 +6951,7 @@ def _extract_callback_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -6860,6 +6986,9 @@ def _extract_callback_module_form_values(
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
+    delete_source_result_key = str(module.get("source_result_key", "send_message_result")).strip()
+    delete_message_id_context_key = str(module.get("message_id_context_key", "message_id")).strip()
+    delete_message_id = str(module.get("message_id", "")).strip()
     location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
     contact_button_text = str(module.get("button_text", "")).strip()
@@ -6954,6 +7083,9 @@ def _extract_callback_module_form_values(
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
         "photo_url": photo_url,
+        "delete_source_result_key": delete_source_result_key,
+        "delete_message_id_context_key": delete_message_id_context_key,
+        "delete_message_id": delete_message_id,
         "location_latitude": location_latitude,
         "location_longitude": location_longitude,
         "contact_button_text": contact_button_text,
@@ -7805,6 +7937,8 @@ def _parse_keyboard_button_chain_step(
     text_template: str,
     parse_mode: str,
     buttons_raw: object,
+    run_if_context_keys: object = "",
+    skip_if_context_keys: object = "",
 ) -> dict[str, object]:
     """Build a normalized keyboard_button chain step."""
     buttons = _normalize_keyboard_buttons(buttons_raw)
@@ -7812,12 +7946,16 @@ def _parse_keyboard_button_chain_step(
         raise ValueError(
             f"{route_label} chain step {step_index}: keyboard_button requires at least one valid button"
         )
-    return {
-        "module_type": "keyboard_button",
-        "text_template": text_template or "Choose an option.",
-        "parse_mode": parse_mode or None,
-        "buttons": buttons,
-    }
+    return _attach_context_key_rules(
+        {
+            "module_type": "keyboard_button",
+            "text_template": text_template or "Choose an option.",
+            "parse_mode": parse_mode or None,
+            "buttons": buttons,
+        },
+        run_if_context_keys=run_if_context_keys,
+        skip_if_context_keys=skip_if_context_keys,
+    )
 
 
 def _parse_send_photo_chain_step(
@@ -8149,6 +8287,8 @@ def _parse_route_chain_steps(
                         text_template=str(serialized.get("text_template", "")),
                         parse_mode=parse_mode,
                         buttons_raw=serialized.get("buttons", []),
+                        run_if_context_keys=serialized.get("run_if_context_keys", []),
+                        skip_if_context_keys=serialized.get("skip_if_context_keys", []),
                     )
                 )
                 continue
@@ -8205,6 +8345,15 @@ def _parse_route_chain_steps(
                     _parse_send_location_chain_step(
                         location_latitude=str(serialized.get("location_latitude", serialized.get("latitude", ""))),
                         location_longitude=str(serialized.get("location_longitude", serialized.get("longitude", ""))),
+                    )
+                )
+                continue
+            if module_type == "delete_message":
+                steps.append(
+                    _build_delete_message_step(
+                        source_result_key=str(serialized.get("source_result_key", "")),
+                        message_id_context_key=str(serialized.get("message_id_context_key", "")),
+                        message_id=str(serialized.get("message_id", "")),
                     )
                 )
                 continue
@@ -8416,7 +8565,7 @@ def _parse_route_chain_steps(
                 )
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -8544,6 +8693,15 @@ def _parse_route_chain_steps(
                 _parse_send_location_chain_step(
                     location_latitude=parts[1] if len(parts) >= 2 else "",
                     location_longitude=parts[2] if len(parts) >= 3 else "",
+                )
+            )
+            continue
+        if module_type == "delete_message":
+            steps.append(
+                _build_delete_message_step(
+                    source_result_key=parts[1] if len(parts) >= 2 else "",
+                    message_id_context_key=parts[2] if len(parts) >= 3 else "",
+                    message_id=parts[3] if len(parts) >= 4 else "",
                 )
             )
             continue
@@ -8821,6 +8979,12 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "parse_mode": parse_mode,
                 "buttons": _normalize_keyboard_buttons(step.get("buttons", [])),
             }
+            run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
+            skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
+            if run_if_context_keys:
+                payload["run_if_context_keys"] = run_if_context_keys
+            if skip_if_context_keys:
+                payload["skip_if_context_keys"] = skip_if_context_keys
         elif module_type == "callback_module":
             payload = {
                 "module_type": "callback_module",
@@ -8874,6 +9038,13 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "module_type": "send_location",
                 "location_latitude": str(step.get("location_latitude", step.get("latitude", ""))).strip(),
                 "location_longitude": str(step.get("location_longitude", step.get("longitude", ""))).strip(),
+            }
+        elif module_type == "delete_message":
+            payload = {
+                "module_type": "delete_message",
+                "source_result_key": str(step.get("source_result_key", "send_message_result")).strip(),
+                "message_id_context_key": str(step.get("message_id_context_key", "message_id")).strip(),
+                "message_id": str(step.get("message_id", "")).strip(),
             }
         elif module_type == "share_contact":
             payload = {

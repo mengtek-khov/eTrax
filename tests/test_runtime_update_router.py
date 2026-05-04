@@ -56,6 +56,7 @@ class FakeGateway:
     def __init__(self) -> None:
         self.message_calls: list[dict[str, Any]] = []
         self.edited_reply_markups: list[dict[str, Any]] = []
+        self.deleted_messages: list[dict[str, Any]] = []
 
     def send_message(
         self,
@@ -92,6 +93,21 @@ class FakeGateway:
             "reply_markup": reply_markup,
         }
         self.edited_reply_markups.append(payload)
+        return payload
+
+    def delete_message(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        message_id: str,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "chat_id": chat_id,
+            "message_id": message_id,
+        }
+        self.deleted_messages.append(payload)
         return payload
 
 
@@ -1318,7 +1334,9 @@ def test_handle_message_update_registers_mirrored_inline_button_callback_value_b
     assert callback_target.contexts[0]["selected_plan"] == "Basic"
 
 
-def test_handle_callback_query_update_removes_inline_buttons_after_handled_click() -> None:
+def test_handle_callback_query_update_removes_message_after_handled_click() -> None:
+    events: list[str] = []
+
     class MessageIdGateway(FakeGateway):
         def send_message(
             self,
@@ -1339,6 +1357,21 @@ def test_handle_callback_query_update_removes_inline_buttons_after_handled_click
             payload["message_id"] = 901
             return payload
 
+        def delete_message(
+            self,
+            *,
+            bot_token: str,
+            chat_id: str,
+            message_id: str,
+        ) -> dict[str, Any]:
+            events.append("delete")
+            return super().delete_message(bot_token=bot_token, chat_id=chat_id, message_id=message_id)
+
+    class OrderedCaptureModule(CaptureModule):
+        def execute(self, context: dict[str, Any]) -> ModuleOutcome:
+            events.append("pipeline")
+            return super().execute(context)
+
     gateway = MessageIdGateway()
     inline_button_target = SendTelegramInlineButtonModule(
         token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
@@ -1351,7 +1384,7 @@ def test_handle_callback_query_update_removes_inline_buttons_after_handled_click
             remove_inline_buttons_on_click=True,
         ),
     )
-    callback_target = CaptureModule()
+    callback_target = OrderedCaptureModule()
     inline_button_cleanup_by_message: dict[str, bool] = {}
 
     sent = handle_message_update(
@@ -1395,18 +1428,273 @@ def test_handle_callback_query_update_removes_inline_buttons_after_handled_click
         },
         bot_id="support-bot",
         callback_modules={"basic_plan": [callback_target]},
+        callback_context_updates={"basic_plan": {"selected_plan": "Basic"}},
         inline_button_cleanup_by_message=inline_button_cleanup_by_message,
         gateway=gateway,
         bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
     )
 
     assert handled == 1
-    assert gateway.edited_reply_markups == [
+    assert gateway.deleted_messages == [
         {
             "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
             "chat_id": "12345",
             "message_id": "901",
-            "reply_markup": None,
+        }
+    ]
+    assert events == ["delete", "pipeline"]
+    assert callback_target.contexts[0]["selected_plan"] == "Basic"
+    assert inline_button_cleanup_by_message == {}
+
+
+def test_handle_update_forwards_inline_button_cleanup_to_callback_handler_for_message_removal() -> None:
+    class RuntimeGateway(FakeGateway):
+        def __init__(self) -> None:
+            super().__init__()
+            self.acks: list[dict[str, Any]] = []
+
+        def answer_callback_query(
+            self,
+            *,
+            bot_token: str,
+            callback_query_id: str,
+            text: str | None = None,
+            show_alert: bool = False,
+        ) -> dict[str, Any]:
+            payload = {
+                "bot_token": bot_token,
+                "callback_query_id": callback_query_id,
+                "text": text,
+                "show_alert": show_alert,
+            }
+            self.acks.append(payload)
+            return payload
+
+        def send_message(
+            self,
+            *,
+            bot_token: str,
+            chat_id: str,
+            text: str,
+            parse_mode: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            payload = super().send_message(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+            payload["message_id"] = 902
+            return payload
+
+    gateway = RuntimeGateway()
+    bot_token = "123456:ABCDEFGHIJKLMNOPQRSTUVWX"
+    inline_button_target = SendTelegramInlineButtonModule(
+        token_resolver=FakeTokenResolver({"support-bot": bot_token}),
+        gateway=gateway,
+        config=SendInlineButtonConfig(
+            bot_id="support-bot",
+            chat_id="12345",
+            text_template="Choose plan",
+            buttons=[{"text": "Basic", "callback_data": "basic_plan"}],
+            remove_inline_buttons_on_click=True,
+        ),
+    )
+    callback_target = CaptureModule()
+    inline_button_cleanup_by_message: dict[str, bool] = {}
+    processed_callback_query_ids: dict[str, float] = {}
+
+    sent = handle_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [inline_button_target]},
+        callback_modules={"basic_plan": [callback_target]},
+        cart_modules={},
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        gateway=gateway,
+        bot_token=bot_token,
+        processed_callback_query_ids=processed_callback_query_ids,
+    )
+
+    assert sent == 1
+    assert inline_button_cleanup_by_message == {
+        "support-bot:12345:902:basic_plan": True,
+    }
+
+    handled = handle_update(
+        {
+            "callback_query": {
+                "id": "cb-basic",
+                "data": "basic_plan",
+                "from": {"id": 77, "first_name": "Alice"},
+                "message": {
+                    "message_id": 902,
+                    "chat": {"id": 12345},
+                    "text": "Choose plan",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [inline_button_target]},
+        callback_modules={"basic_plan": [callback_target]},
+        cart_modules={},
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        gateway=gateway,
+        bot_token=bot_token,
+        processed_callback_query_ids=processed_callback_query_ids,
+    )
+
+    assert handled == 1
+    assert callback_target.contexts
+    assert gateway.acks[-1]["callback_query_id"] == "cb-basic"
+    assert gateway.deleted_messages == [
+        {
+            "bot_token": bot_token,
+            "chat_id": "12345",
+            "message_id": "902",
+        }
+    ]
+    assert inline_button_cleanup_by_message == {}
+
+
+def test_handle_update_removes_registered_inline_button_message_without_callback_pipeline() -> None:
+    class RuntimeGateway(FakeGateway):
+        def __init__(self) -> None:
+            super().__init__()
+            self.acks: list[dict[str, Any]] = []
+
+        def answer_callback_query(
+            self,
+            *,
+            bot_token: str,
+            callback_query_id: str,
+            text: str | None = None,
+            show_alert: bool = False,
+        ) -> dict[str, Any]:
+            payload = {
+                "bot_token": bot_token,
+                "callback_query_id": callback_query_id,
+                "text": text,
+                "show_alert": show_alert,
+            }
+            self.acks.append(payload)
+            return payload
+
+        def send_message(
+            self,
+            *,
+            bot_token: str,
+            chat_id: str,
+            text: str,
+            parse_mode: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            payload = super().send_message(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+            return {
+                "ok": True,
+                "result": {
+                    "message_id": 903,
+                    "chat": {"id": chat_id},
+                    "text": text,
+                    "reply_markup": payload["reply_markup"],
+                },
+            }
+
+    gateway = RuntimeGateway()
+    bot_token = "123456:ABCDEFGHIJKLMNOPQRSTUVWX"
+    inline_button_target = SendTelegramInlineButtonModule(
+        token_resolver=FakeTokenResolver({"eTrax Bot V1": bot_token}),
+        gateway=gateway,
+        config=SendInlineButtonConfig(
+            bot_id="eTrax Bot V1",
+            chat_id="12345",
+            text_template="Command /start received.",
+            buttons=[
+                {"text": "btn 1", "callback_data": "no", "row": 1},
+                {"text": "btn 2", "callback_data": "no", "row": 1},
+            ],
+            remove_inline_buttons_on_click=True,
+        ),
+    )
+    inline_button_cleanup_by_message: dict[str, bool] = {}
+    processed_callback_query_ids: dict[str, float] = {}
+
+    sent = handle_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="eTrax Bot V1",
+        command_modules={"start": [inline_button_target]},
+        callback_modules={},
+        cart_modules={},
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        gateway=gateway,
+        bot_token=bot_token,
+        processed_callback_query_ids=processed_callback_query_ids,
+    )
+
+    assert sent == 1
+    assert inline_button_cleanup_by_message == {
+        "eTrax Bot V1:12345:903:no": True,
+    }
+    inline_button_cleanup_by_message.clear()
+
+    handled = handle_update(
+        {
+            "callback_query": {
+                "id": "cb-no",
+                "data": "no",
+                "from": {"id": 77, "first_name": "Alice"},
+                "message": {
+                    "message_id": 903,
+                    "chat": {"id": 12345},
+                    "text": "Command /start received.",
+                    "reply_markup": {
+                        "inline_keyboard": [
+                            [
+                                {"text": "btn 1", "callback_data": "no"},
+                                {"text": "btn 2", "callback_data": "no"},
+                            ]
+                        ]
+                    },
+                },
+            }
+        },
+        bot_id="eTrax Bot V1",
+        command_modules={"start": [inline_button_target]},
+        callback_modules={},
+        cart_modules={},
+        inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+        gateway=gateway,
+        bot_token=bot_token,
+        processed_callback_query_ids=processed_callback_query_ids,
+    )
+
+    assert handled == 0
+    assert gateway.acks[-1]["callback_query_id"] == "cb-no"
+    assert gateway.deleted_messages == [
+        {
+            "bot_token": bot_token,
+            "chat_id": "12345",
+            "message_id": "903",
         }
     ]
     assert inline_button_cleanup_by_message == {}

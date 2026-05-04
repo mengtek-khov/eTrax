@@ -1,8 +1,13 @@
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 from etrax.standalone.bot_runtime_manager import _PollingTokenLock, _process_exists
+
+
+def test_process_exists_detects_current_process() -> None:
+    assert _process_exists(os.getpid()) is True
 
 
 def test_polling_token_lock_blocks_second_process_acquire(tmp_path: Path) -> None:
@@ -56,6 +61,19 @@ def test_process_exists_treats_winerror_11_as_stale_pid(monkeypatch) -> None:
     def fake_kill(pid: int, sig: int) -> None:
         raise error
 
+    monkeypatch.setattr("etrax.standalone.bot_runtime_manager.os.kill", fake_kill)
+
+    assert _process_exists(999999) is False
+
+
+def test_process_exists_treats_windows_permission_error_as_stale_pid(monkeypatch) -> None:
+    error = PermissionError(13, "Access is denied")
+    error.winerror = 5
+
+    def fake_kill(pid: int, sig: int) -> None:
+        raise error
+
+    monkeypatch.setattr("etrax.standalone.bot_runtime_manager.os.name", "nt")
     monkeypatch.setattr("etrax.standalone.bot_runtime_manager.os.kill", fake_kill)
 
     assert _process_exists(999999) is False

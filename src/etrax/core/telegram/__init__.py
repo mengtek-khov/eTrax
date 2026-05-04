@@ -29,8 +29,10 @@ from .bind_code import (
     BoundCodeStore,
 )
 from .forget_user_data import ForgetUserDataConfig, ForgetUserDataModule
+from .delete_message import DeleteMessageConfig, DeleteTelegramMessageModule
 from .user_info import UserInfoConfig, UserInfoModule, render_user_info_text
 from .inline_button import SendInlineButtonConfig, SendTelegramInlineButtonModule
+from .keyboard_button import SendKeyboardButtonConfig, SendTelegramKeyboardButtonModule
 from .load_inline_button import LoadInlineButtonConfig, LoadInlineButtonModule
 from .open_mini_app import OpenMiniAppConfig, OpenMiniAppModule
 from .payway_payment import PaywayPaymentConfig, PaywayPaymentModule
@@ -154,12 +156,16 @@ __all__ = [
     "daily_history_key",
     "SendInlineButtonConfig",
     "SendTelegramInlineButtonModule",
+    "SendKeyboardButtonConfig",
+    "SendTelegramKeyboardButtonModule",
     "OpenMiniAppConfig",
     "OpenMiniAppModule",
     "RouteConfig",
     "RouteModule",
     "ForgetUserDataConfig",
     "ForgetUserDataModule",
+    "DeleteMessageConfig",
+    "DeleteTelegramMessageModule",
     "UserInfoConfig",
     "UserInfoModule",
     "render_user_info_text",

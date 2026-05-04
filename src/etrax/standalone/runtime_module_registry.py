@@ -16,6 +16,7 @@ from etrax.core.telegram import (
     CartButtonConfig,
     CheckoutCartConfig,
     CustomCodeConfig,
+    DeleteMessageConfig,
     ForgetUserDataConfig,
     LoadCallbackConfig,
     LoadCommandConfig,
@@ -24,6 +25,7 @@ from etrax.core.telegram import (
     PaywayPaymentConfig,
     RouteConfig,
     SendInlineButtonConfig,
+    SendKeyboardButtonConfig,
     SendLocationConfig,
     SendMessageConfig,
     SendPhotoConfig,
@@ -225,6 +227,7 @@ def _assert_runtime_step_config_type(config: object) -> None:
 def _supported_runtime_config_types() -> tuple[type[object], ...]:
     return (
         SendInlineButtonConfig,
+        SendKeyboardButtonConfig,
         BindCodeConfig,
         SendMessageConfig,
         SendLocationConfig,
@@ -235,6 +238,7 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
         ShareLocationConfig,
         CartButtonConfig,
         CheckoutCartConfig,
+        DeleteMessageConfig,
         PaywayPaymentConfig,
         RouteConfig,
         LoadCallbackConfig,
