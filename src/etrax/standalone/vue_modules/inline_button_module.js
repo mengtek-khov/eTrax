@@ -34,6 +34,7 @@
         run_if_context_keys: "",
         skip_if_context_keys: "",
         save_callback_data_to_key: "",
+        click_timestamp_format: "%Y-%m-%d %H:%M:%S",
         remove_inline_buttons_on_click: false,
       };
     },
@@ -51,6 +52,9 @@
         run_if_context_keys: formatContextKeyLines(source.run_if_context_keys),
         skip_if_context_keys: formatContextKeyLines(source.skip_if_context_keys),
         save_callback_data_to_key: source.save_callback_data_to_key ? String(source.save_callback_data_to_key) : "",
+        click_timestamp_format: source.click_timestamp_format
+          ? String(source.click_timestamp_format)
+          : "%Y-%m-%d %H:%M:%S",
         remove_inline_buttons_on_click: Boolean(source.remove_inline_buttons_on_click),
       };
     },
@@ -74,6 +78,7 @@
         run_if_context_keys: formatContextKeyLines(parts[4] || ""),
         skip_if_context_keys: formatContextKeyLines(parts[5] || ""),
         save_callback_data_to_key: parts[6] ? String(parts[6]) : "",
+        click_timestamp_format: "%Y-%m-%d %H:%M:%S",
         remove_inline_buttons_on_click: false,
       };
     },
@@ -94,6 +99,9 @@
       }
       if (String(step.save_callback_data_to_key || "").trim()) {
         payload.save_callback_data_to_key = String(step.save_callback_data_to_key).trim();
+      }
+      if (String(step.click_timestamp_format || "").trim()) {
+        payload.click_timestamp_format = String(step.click_timestamp_format).trim();
       }
       if (step.remove_inline_buttons_on_click) {
         payload.remove_inline_buttons_on_click = true;
@@ -165,6 +173,9 @@
         `<label v-if="isStepType(${ctx}, 'inline_button')">Save Clicked Value To</label>` +
         `<input v-if="isStepType(${ctx}, 'inline_button')" placeholder="selected_option" :value="currentStepField(${ctx}, 'save_callback_data_to_key')" @input="updateCurrentStepField(${ctx}, 'save_callback_data_to_key', $event.target.value)">` +
         `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">When a callback button in this module is clicked, the button actual_value is saved here if set; otherwise callback_data is used.</p>` +
+        `<label v-if="isStepType(${ctx}, 'inline_button')">Click Timestamp Format</label>` +
+        `<input v-if="isStepType(${ctx}, 'inline_button')" placeholder="%Y-%m-%d %H:%M:%S" :value="currentStepField(${ctx}, 'click_timestamp_format')" @input="updateCurrentStepField(${ctx}, 'click_timestamp_format', $event.target.value)">` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">Saved as {button_clicked_at} and {inline_button_clicked_at}. Uses Python strftime format.</p>` +
         `<label v-if="isStepType(${ctx}, 'inline_button')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'remove_inline_buttons_on_click')" @change="updateCurrentStepToggle(${ctx}, 'remove_inline_buttons_on_click', $event.target.checked)"><span>Remove message after a handled click</span></label>` +
         `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">If enabled, the source message is deleted after one of its callback actions runs.</p>` +
         `<div class="module-list-tools" v-if="isStepType(${ctx}, 'inline_button')">` +

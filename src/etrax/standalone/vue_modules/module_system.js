@@ -80,6 +80,32 @@
     return normalized;
   }
 
+  function normalizeKeyboardReplyButtons(rawButtons) {
+    if (!Array.isArray(rawButtons)) {
+      return [];
+    }
+
+    const normalized = [];
+    for (let rawIndex = 0; rawIndex < rawButtons.length; rawIndex += 1) {
+      const rawButton = Array.isArray(rawButtons[rawIndex]) ? rawButtons[rawIndex] : [rawButtons[rawIndex]];
+      const fallbackRow = Array.isArray(rawButtons[rawIndex]) ? rawIndex + 1 : normalized.length + 1;
+      for (const candidate of rawButton) {
+        if (!candidate || typeof candidate !== "object") {
+          continue;
+        }
+        const text = String(candidate.text || "").trim();
+        const value = String(candidate.value || candidate.actual_value || text).trim() || text;
+        const rowRaw = Number.parseInt(candidate.row, 10);
+        const row = Number.isInteger(rowRaw) && rowRaw > 0 ? rowRaw : fallbackRow;
+        if (!text) {
+          continue;
+        }
+        normalized.push({ text, value, row });
+      }
+    }
+    return normalized;
+  }
+
   function parseOptionalInlineButtonMetadata(rawParts, fallbackRow) {
     let row = fallbackRow;
     let actualValue = "";
@@ -222,6 +248,37 @@
     return lines.join("\n");
   }
 
+  function parseKeyboardReplyButtons(raw) {
+    const buttons = [];
+    const lines = splitLines(raw);
+    for (let index = 0; index < lines.length; index += 1) {
+      const parts = lines[index].split("|").map((part) => part.trim());
+      const text = String(parts[0] || "").trim();
+      if (!text) {
+        continue;
+      }
+      const value = String(parts[1] || text).trim() || text;
+      buttons.push({ text, value, row: parseOptionalKeyboardButtonRow(parts.slice(2), index + 1) });
+    }
+    return buttons;
+  }
+
+  function formatKeyboardReplyButtons(buttons) {
+    const normalized = normalizeKeyboardReplyButtons(buttons);
+    const lines = [];
+    for (const button of normalized) {
+      const text = String(button.text || "").trim();
+      if (!text) {
+        continue;
+      }
+      const value = String(button.value || text).trim() || text;
+      const rowRaw = Number.parseInt(button.row, 10);
+      const row = Number.isInteger(rowRaw) && rowRaw > 0 ? rowRaw : lines.length + 1;
+      lines.push(`${text} | ${value} | ${row}`);
+    }
+    return lines.join("\n");
+  }
+
   const helpers = {
     splitLines,
     parseMenuItems,
@@ -231,6 +288,9 @@
     parseKeyboardButtons,
     formatKeyboardButtons,
     normalizeKeyboardButtons,
+    parseKeyboardReplyButtons,
+    formatKeyboardReplyButtons,
+    normalizeKeyboardReplyButtons,
   };
 
   function registeredType(raw) {
@@ -267,10 +327,12 @@
     const trackBreadcrumb = requireLiveLocation && normalizeCheckboxValue(source.track_breadcrumb);
     const storeHistoryByDay = normalizeCheckboxValue(source.store_history_by_day);
     const removeInlineButtonsOnClick = normalizeCheckboxValue(source.remove_inline_buttons_on_click);
-    const buttons =
-      moduleType === "keyboard_button"
-        ? normalizeKeyboardButtons(source.buttons || [])
-        : normalizeInlineButtons(source.buttons || []);
+    let buttons = normalizeInlineButtons(source.buttons || []);
+    if (moduleType === "keyboard_button") {
+      buttons = normalizeKeyboardButtons(source.buttons || []);
+    } else if (moduleType === "wait_keyboard_reply") {
+      buttons = normalizeKeyboardReplyButtons(source.buttons || []);
+    }
     return {
       module_type: moduleType,
       text_template: source.text_template == null ? "" : String(source.text_template),
@@ -295,6 +357,9 @@
           ? ""
           : String(source.skip_if_context_keys),
       save_callback_data_to_key: source.save_callback_data_to_key == null ? "" : String(source.save_callback_data_to_key),
+      save_reply_to_key: source.save_reply_to_key == null ? "" : String(source.save_reply_to_key),
+      click_timestamp_format:
+        source.click_timestamp_format == null ? "%Y-%m-%d %H:%M:%S" : String(source.click_timestamp_format),
       remove_inline_buttons_on_click: removeInlineButtonsOnClick,
       target_callback_key: source.target_callback_key == null ? "" : String(source.target_callback_key),
       target_command_key: source.target_command_key == null ? "" : String(source.target_command_key),

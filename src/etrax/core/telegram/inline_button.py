@@ -31,6 +31,7 @@ class SendInlineButtonConfig:
     skip_if_context_keys: tuple[str, ...] = ()
     save_callback_data_to_key: str = ""
     remove_inline_buttons_on_click: bool = False
+    click_timestamp_format: str = "%Y-%m-%d %H:%M:%S"
 
 
 class SendTelegramInlineButtonModule:
@@ -126,6 +127,11 @@ class SendTelegramInlineButtonModule:
     def remove_inline_buttons_on_click(self) -> bool:
         return bool(self._config.remove_inline_buttons_on_click)
 
+    @property
+    def callback_click_timestamp_formats_by_data(self) -> dict[str, str]:
+        timestamp_format = str(self._config.click_timestamp_format or "").strip() or "%Y-%m-%d %H:%M:%S"
+        return {callback_data: timestamp_format for callback_data in self.callback_data_keys}
+
     def copy_with(self, *, save_callback_data_to_key: str | None = None) -> "SendTelegramInlineButtonModule":
         next_config = self._config
         if save_callback_data_to_key is not None:
@@ -147,6 +153,7 @@ class SendTelegramInlineButtonModule:
                 skip_if_context_keys=next_config.skip_if_context_keys,
                 save_callback_data_to_key=save_callback_data_to_key,
                 remove_inline_buttons_on_click=next_config.remove_inline_buttons_on_click,
+                click_timestamp_format=next_config.click_timestamp_format,
             )
         return SendTelegramInlineButtonModule(
             token_resolver=self._token_resolver,

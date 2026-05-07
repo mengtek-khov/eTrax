@@ -25,7 +25,9 @@ from etrax.core.telegram import (
     CartButtonModule,
     CheckoutCartModule,
     ContactRequestStore,
+    KeyboardReplyRequestStore,
     LocationRequestStore,
+    PendingKeyboardReplyRequest,
     PendingSelfieRequest,
     PendingContactRequest,
     PendingLocationRequest,
@@ -301,6 +303,33 @@ class _InMemorySelfieRequestStore(SelfieRequestStore):
             return self._values.pop(key, None)
 
 
+class _InMemoryKeyboardReplyRequestStore(KeyboardReplyRequestStore):
+    """Process-local pending reply-keyboard request store for standalone runtime."""
+
+    def __init__(self) -> None:
+        """Initialize the in-memory pending-keyboard-reply index."""
+        self._values: dict[tuple[str, str, str], PendingKeyboardReplyRequest] = {}
+        self._lock = Lock()
+
+    def set_pending(self, request: PendingKeyboardReplyRequest) -> None:
+        """Store a pending keyboard reply request by bot, chat, and user."""
+        key = (request.bot_id, request.chat_id, request.user_id)
+        with self._lock:
+            self._values[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingKeyboardReplyRequest | None:
+        """Look up a pending keyboard reply request without removing it."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.get(key)
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingKeyboardReplyRequest | None:
+        """Remove and return a pending keyboard reply request once it is handled."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.pop(key, None)
+
+
 class BotRuntimeManager:
     """Runs per-bot long-poll workers and delegates module-specific work to focused runtime helpers."""
 
@@ -352,6 +381,7 @@ class BotRuntimeManager:
         self._contact_request_store = _InMemoryContactRequestStore()
         self._selfie_request_store = _InMemorySelfieRequestStore()
         self._location_request_store = _InMemoryLocationRequestStore()
+        self._keyboard_reply_request_store = _InMemoryKeyboardReplyRequestStore()
 
     def start(self, bot_id: str) -> tuple[bool, str]:
         """Start long polling for one bot if it is not already running."""
@@ -549,6 +579,7 @@ class BotRuntimeManager:
                             contact_request_store=self._contact_request_store,
                             selfie_request_store=self._selfie_request_store,
                             location_request_store=self._location_request_store,
+                            keyboard_reply_request_store=self._keyboard_reply_request_store,
                             profile_log_store=self._profile_log_store,
                             processed_callback_query_ids=processed_callback_query_ids,
                             locations_file=self._state_file.with_name("locations_ui.json"),
@@ -665,6 +696,7 @@ class BotRuntimeManager:
                 contact_request_store=self._contact_request_store,
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
+                keyboard_reply_request_store=self._keyboard_reply_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )
@@ -681,6 +713,7 @@ class BotRuntimeManager:
                 contact_request_store=self._contact_request_store,
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
+                keyboard_reply_request_store=self._keyboard_reply_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )
@@ -703,6 +736,7 @@ class BotRuntimeManager:
                     contact_request_store=self._contact_request_store,
                     selfie_request_store=self._selfie_request_store,
                     location_request_store=self._location_request_store,
+                    keyboard_reply_request_store=self._keyboard_reply_request_store,
                     cart_configs=cart_configs,
                     checkout_modules=checkout_modules,
                 )
@@ -734,6 +768,7 @@ class BotRuntimeManager:
                 contact_request_store=self._contact_request_store,
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
+                keyboard_reply_request_store=self._keyboard_reply_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )[0]

@@ -2,6 +2,36 @@
   "bot_id": "eTrax Bot V1",
   "command_menu": {
     "callback_modules": {
+      "Clock_In": {
+        "button_text": "Share My Location",
+        "module_type": "share_location",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "button_text": "Share My Location",
+            "module_type": "share_location",
+            "parse_mode": null,
+            "require_live_location": true,
+            "success_text_template": "Thanks, your location was received.",
+            "text_template": "\ud83d\uddfa Please share your LIVE location to clock in."
+          },
+          {
+            "invalid_text_template": "Please send a selfie photo.",
+            "module_type": "ask_selfie",
+            "parse_mode": null,
+            "success_text_template": "Thanks, your selfie was received.",
+            "text_template": "\ud83d\udcf7 Please share a selfie to complete clock-in."
+          },
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "\u2705 Clock-in received at {keyboard_reply_clicked_at}."
+          }
+        ],
+        "require_live_location": true,
+        "success_text_template": "Thanks, your location was received.",
+        "text_template": "\ud83d\uddfa Please share your LIVE location to clock in."
+      },
       "age verify": {
         "buttons": [
           {
@@ -17,6 +47,7 @@
             "text": "\u274c I am under 18"
           }
         ],
+        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
         "module_type": "inline_button",
         "parse_mode": null,
         "pipeline": [
@@ -35,6 +66,7 @@
                 "text": "\u274c I am under 18"
               }
             ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
             "module_type": "inline_button",
             "parse_mode": null,
             "remove_inline_buttons_on_click": true,
@@ -95,6 +127,40 @@
       }
     },
     "command_modules": {
+      "clock": {
+        "buttons": [
+          {
+            "row": 1,
+            "text": "\ud83d\udfe2 Clock In \ud83d\udfe2",
+            "value": "Clock_In"
+          }
+        ],
+        "click_timestamp_format": "%I:%M %p",
+        "invalid_text_template": "Please choose from the keyboard.",
+        "module_type": "wait_keyboard_reply",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "buttons": [
+              {
+                "row": 1,
+                "text": "\ud83d\udfe2 Clock In \ud83d\udfe2",
+                "value": "Clock_In"
+              }
+            ],
+            "click_timestamp_format": "%I:%M %p",
+            "invalid_text_template": "Please choose from the keyboard.",
+            "module_type": "wait_keyboard_reply",
+            "parse_mode": null,
+            "save_reply_to_key": "keyboard_reply",
+            "success_text_template": "",
+            "text_template": "Please choose one option."
+          }
+        ],
+        "save_reply_to_key": "keyboard_reply",
+        "success_text_template": "",
+        "text_template": "Please choose one option."
+      },
       "getinfo": {
         "empty_text_template": "No user information has been gathered yet.",
         "module_type": "userinfo",
@@ -146,6 +212,7 @@
                 "text": "Remind me later"
               }
             ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
             "module_type": "inline_button",
             "parse_mode": "None",
             "remove_inline_buttons_on_click": true,
@@ -169,6 +236,7 @@
                 "text": "\u274c I am under 18"
               }
             ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
             "module_type": "inline_button",
             "parse_mode": "None",
             "remove_inline_buttons_on_click": true,
@@ -206,6 +274,10 @@
       {
         "command": "getinfo",
         "description": "Getinfo"
+      },
+      {
+        "command": "clock",
+        "description": "Clock"
       }
     ]
   },
@@ -247,6 +319,6 @@
   "token_ref": {
     "bot_id": "eTrax Bot V1"
   },
-  "updated_at": "2026-05-04T07:51:57.007704+00:00",
+  "updated_at": "2026-05-07T06:31:50.512780+00:00",
   "version": 1
 }

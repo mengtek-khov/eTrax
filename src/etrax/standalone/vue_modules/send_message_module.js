@@ -6,6 +6,33 @@
     return;
   }
 
+  const buttonClickTokens = [
+    "button_clicked_at",
+    "button_clicked_iso",
+    "button_clicked_unix",
+    "inline_button_clicked_at",
+    "inline_button_clicked_iso",
+    "inline_button_clicked_unix",
+    "keyboard_button_clicked_at",
+    "keyboard_button_clicked_iso",
+    "keyboard_button_clicked_unix",
+    "keyboard_reply_clicked_at",
+    "keyboard_reply_clicked_iso",
+    "keyboard_reply_clicked_unix",
+  ];
+
+  function renderButtonClickTokenSelect(ctx) {
+    const options = buttonClickTokens
+      .map((token) => `<option value="{${token}}">{${token}}</option>`)
+      .join("");
+    return (
+      `<select class="inline-button-input" @change="if ($event.target.value) { insertTemplateToken(${ctx}, 'text_template', $event.target.value, $event); $event.target.value = ''; }">` +
+      `<option value="">Button time</option>` +
+      options +
+      `</select>`
+    );
+  }
+
   moduleSystem.register({
     type: "send_message",
     label: "send_message",
@@ -79,6 +106,7 @@
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '{user_first_name}', $event)\">Name</button>` +
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '{user_username}', $event)\">Username</button>` +
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '{location}', $event)\">Location</button>` +
+        renderButtonClickTokenSelect(ctx) +
         `<button type=\"button\" class=\"secondary\" @mousedown.prevent=\"insertTemplateToken(${ctx}, 'text_template', '\\n', $event)\">Line</button>` +
         `</div>` +
         `<textarea${idAttr} ` +

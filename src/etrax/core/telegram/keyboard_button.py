@@ -28,6 +28,8 @@ class SendKeyboardButtonConfig:
     run_if_context_keys: tuple[str, ...] = ()
     skip_if_context_keys: tuple[str, ...] = ()
     one_time_keyboard: bool = True
+    remove_keyboard_on_click: bool = True
+    click_timestamp_format: str = "%Y-%m-%d %H:%M:%S"
 
 
 class SendTelegramKeyboardButtonModule:
@@ -100,3 +102,45 @@ class SendTelegramKeyboardButtonModule:
             ),
         )
         return message_module.execute(context)
+
+    @property
+    def keyboard_button_texts(self) -> tuple[str, ...]:
+        return _extract_keyboard_button_texts(self._config.buttons)
+
+    @property
+    def remove_keyboard_on_click(self) -> bool:
+        return bool(self._config.remove_keyboard_on_click)
+
+    @property
+    def keyboard_click_timestamp_formats_by_text(self) -> dict[str, str]:
+        timestamp_format = str(self._config.click_timestamp_format or "").strip() or "%Y-%m-%d %H:%M:%S"
+        return {text: timestamp_format for text in self.keyboard_button_texts}
+
+
+def _extract_keyboard_button_texts(raw_buttons: object) -> tuple[str, ...]:
+    extracted: list[str] = []
+    seen: set[str] = set()
+
+    if raw_buttons is None:
+        return ()
+    buttons = raw_buttons
+    if isinstance(buttons, dict):
+        buttons = [buttons]
+    if not isinstance(buttons, list):
+        return ()
+
+    for row in buttons:
+        row_buttons = row
+        if isinstance(row_buttons, dict):
+            row_buttons = [row_buttons]
+        elif not isinstance(row_buttons, list):
+            continue
+        for raw_button in row_buttons:
+            if not isinstance(raw_button, dict):
+                continue
+            text = str(raw_button.get("text", "")).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            extracted.append(text)
+    return tuple(extracted)

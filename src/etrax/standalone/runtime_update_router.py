@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +14,13 @@ from etrax.core.telegram import (
     CartButtonModule,
     CheckoutCartModule,
     ContactRequestStore,
+    KeyboardReplyRequestStore,
     LocationRequestStore,
     SelfieRequestStore,
     SendTelegramInlineButtonModule,
     build_breadcrumb_session_entry,
     build_location_breadcrumb_context,
+    build_remove_keyboard_reply_markup,
 )
 
 from .runtime_module_registry import (
@@ -30,6 +33,7 @@ from .runtime_support import print_runtime_step
 
 CALLBACK_QUERY_DEDUPE_TTL_SECONDS = 120.0
 DEFAULT_FINISH_CURRENT_COMMAND_TEXT = "Please finish the current command before starting a new one."
+DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def handle_update(
@@ -54,6 +58,7 @@ def handle_update(
     contact_request_store: ContactRequestStore | None = None,
     selfie_request_store: SelfieRequestStore | None = None,
     location_request_store: LocationRequestStore | None = None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None = None,
     profile_log_store: UserProfileLogStore | None = None,
     processed_callback_query_ids: dict[str, float] | None = None,
     locations_file: Path | None = None,
@@ -84,6 +89,7 @@ def handle_update(
                 gateway=gateway,
                 bot_token=bot_token,
                 location_request_store=location_request_store,
+                keyboard_reply_request_store=keyboard_reply_request_store,
                 profile_log_store=profile_log_store,
                 cart_modules=cart_modules,
                 checkout_modules=checkout_modules or {},
@@ -127,6 +133,7 @@ def handle_update(
                 inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 profile_log_store=profile_log_store,
                 locations_file=locations_file,
+                keyboard_reply_request_store=keyboard_reply_request_store,
             )
         if contact_sent_count > 0:
             return contact_sent_count
@@ -148,6 +155,7 @@ def handle_update(
         contact_request_store=contact_request_store,
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
         profile_log_store=profile_log_store,
     )
 
@@ -176,6 +184,33 @@ def _callback_query_was_processed(
         return True
     processed_callback_query_ids[callback_query_id] = current_time
     return False
+
+
+def build_button_click_timestamp_context(
+    *,
+    timestamp_format: str | None = None,
+    prefix: str = "button",
+) -> dict[str, Any]:
+    """Build reusable context fields for button-click timestamps."""
+    now = datetime.now(timezone.utc)
+    normalized_format = str(timestamp_format or "").strip() or DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT
+    try:
+        formatted = now.astimezone().strftime(normalized_format)
+    except (TypeError, ValueError):
+        formatted = now.astimezone().strftime(DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT)
+    iso_text = now.isoformat()
+    unix_text = str(int(now.timestamp()))
+    context = {
+        "button_clicked_at": formatted,
+        "button_clicked_iso": iso_text,
+        "button_clicked_unix": unix_text,
+    }
+    normalized_prefix = str(prefix or "").strip()
+    if normalized_prefix:
+        context[f"{normalized_prefix}_clicked_at"] = formatted
+        context[f"{normalized_prefix}_clicked_iso"] = iso_text
+        context[f"{normalized_prefix}_clicked_unix"] = unix_text
+    return context
 
 
 def log_user_profile(
@@ -239,6 +274,7 @@ def handle_message_update(
     contact_request_store: ContactRequestStore | None = None,
     selfie_request_store: SelfieRequestStore | None = None,
     location_request_store: LocationRequestStore | None = None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None = None,
     profile_log_store: UserProfileLogStore | None = None,
 ) -> int:
     """Dispatch a plain message update into the configured command pipeline."""
@@ -281,8 +317,22 @@ def handle_message_update(
             using_temporary_command_menu = True
     if not pipeline:
         pipeline = command_modules.get(command_name, [])
+    keyboard_timestamp_format = _find_keyboard_click_timestamp_format(
+        text=text,
+        command_modules=command_modules,
+        callback_modules=callback_modules,
+    )
+    keyboard_cleanup_sent = _remove_keyboard_for_clicked_keyboard_button(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        text=text,
+        command_modules=command_modules,
+        callback_modules=callback_modules,
+        gateway=gateway,
+        bot_token=bot_token,
+    )
     if not pipeline:
-        return 0
+        return keyboard_cleanup_sent
     user_id = str(sender.get("id", "")).strip()
     command_transition_sent = _prepare_command_transition(
         bot_id=bot_id,
@@ -293,6 +343,7 @@ def handle_message_update(
         contact_request_store=contact_request_store,
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
         profile_log_store=profile_log_store,
     )
     if command_transition_sent is not None:
@@ -307,6 +358,13 @@ def handle_message_update(
         "command_name": command_name,
         "command_payload": payload_text,
     }
+    if keyboard_timestamp_format:
+        context.update(
+            build_button_click_timestamp_context(
+                timestamp_format=keyboard_timestamp_format,
+                prefix="keyboard_button",
+            )
+        )
     context.update(_build_sender_context(sender))
     _apply_profile_log_context(context, bot_id=bot_id, profile_log_store=profile_log_store)
     if command_name == "start":
@@ -320,7 +378,7 @@ def handle_message_update(
             active_temporary_command_menu=active_temporary_command_menu,
         ):
             try:
-                return execute_pipeline(
+                return keyboard_cleanup_sent + execute_pipeline(
                     pipeline,
                     context,
                     command_modules=command_modules,
@@ -345,7 +403,7 @@ def handle_message_update(
                     gateway=gateway,
                     bot_token=bot_token,
                 )
-        return execute_pipeline(
+        return keyboard_cleanup_sent + execute_pipeline(
             pipeline,
             context,
             command_modules=command_modules,
@@ -362,7 +420,7 @@ def handle_message_update(
         )
     if command_name == "restart" and isinstance(active_temporary_command_menu, dict):
         try:
-            return execute_pipeline(
+            return keyboard_cleanup_sent + execute_pipeline(
                 pipeline,
                 context,
                 command_modules=command_modules,
@@ -387,7 +445,7 @@ def handle_message_update(
                 gateway=gateway,
                 bot_token=bot_token,
             )
-    return execute_pipeline(
+    return keyboard_cleanup_sent + execute_pipeline(
         pipeline,
         context,
         command_modules=command_modules,
@@ -449,6 +507,16 @@ def handle_callback_query_update(
         "callback_query_id": str(callback_query.get("id", "")).strip(),
         "callback_message_text": message_text,
     }
+    context.update(
+        build_button_click_timestamp_context(
+            timestamp_format=_find_inline_click_timestamp_format(
+                callback_data=callback_data,
+                command_modules=command_modules,
+                callback_modules=callback_modules,
+            ),
+            prefix="inline_button",
+        )
+    )
     context.update(_build_sender_context(sender))
     _apply_profile_log_context(context, bot_id=bot_id, profile_log_store=profile_log_store)
     _apply_callback_context_updates(
@@ -714,6 +782,7 @@ def _prepare_command_transition(
     contact_request_store: ContactRequestStore | None,
     selfie_request_store: SelfieRequestStore | None,
     location_request_store: LocationRequestStore | None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None,
     profile_log_store: UserProfileLogStore | None,
 ) -> int | None:
     """Block or clear pending continuation flows before starting a new command."""
@@ -726,6 +795,7 @@ def _prepare_command_transition(
         contact_request_store=contact_request_store,
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
     )
     if blocking_request is not None:
         if gateway is not None and bot_token:
@@ -744,6 +814,7 @@ def _prepare_command_transition(
         contact_request_store=contact_request_store,
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
         profile_log_store=profile_log_store,
     )
     return None
@@ -757,9 +828,10 @@ def _find_blocking_pending_request(
     contact_request_store: ContactRequestStore | None,
     selfie_request_store: SelfieRequestStore | None,
     location_request_store: LocationRequestStore | None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None,
 ) -> object | None:
     """Return the first pending request that must be completed before a new command can start."""
-    for store in (contact_request_store, location_request_store, selfie_request_store):
+    for store in (contact_request_store, location_request_store, selfie_request_store, keyboard_reply_request_store):
         if store is None:
             continue
         pending_request = store.get_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
@@ -778,6 +850,7 @@ def _clear_replaceable_pending_requests(
     contact_request_store: ContactRequestStore | None,
     selfie_request_store: SelfieRequestStore | None,
     location_request_store: LocationRequestStore | None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None,
     profile_log_store: UserProfileLogStore | None,
 ) -> None:
     """Cancel old pending command continuations so the new command becomes the active flow."""
@@ -785,6 +858,8 @@ def _clear_replaceable_pending_requests(
         contact_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
     if selfie_request_store is not None:
         selfie_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
+    if keyboard_reply_request_store is not None:
+        keyboard_reply_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
     if location_request_store is None:
         return
     pending_location_request = location_request_store.pop_pending(
@@ -1713,6 +1788,202 @@ def _collect_remove_message_callback_data_keys(
                 visited=visited,
             )
     return callback_data_keys
+
+
+def _remove_keyboard_for_clicked_keyboard_button(
+    *,
+    bot_id: str,
+    chat_id: str,
+    text: str,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+) -> int:
+    if not bot_id or not chat_id or not text or gateway is None or not bot_token:
+        return 0
+    if text not in _collect_remove_keyboard_button_texts(
+        command_modules=command_modules,
+        callback_modules=callback_modules,
+    ):
+        return 0
+    gateway.send_message(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text="Keyboard removed.",
+        reply_markup=build_remove_keyboard_reply_markup(),
+    )
+    return 1
+
+
+def _collect_remove_keyboard_button_texts(
+    *,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+) -> set[str]:
+    button_texts: set[str] = set()
+    visited: set[int] = set()
+    for module_groups in (command_modules, callback_modules):
+        if not module_groups:
+            continue
+        for modules in module_groups.values():
+            _collect_remove_keyboard_button_texts_from_modules(
+                modules=modules,
+                button_texts=button_texts,
+                visited=visited,
+            )
+    return button_texts
+
+
+def _find_keyboard_click_timestamp_format(
+    *,
+    text: str,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+) -> str:
+    normalized_text = str(text or "").strip()
+    if not normalized_text:
+        return ""
+    formats = _collect_keyboard_click_timestamp_formats(
+        command_modules=command_modules,
+        callback_modules=callback_modules,
+    )
+    return formats.get(normalized_text, "")
+
+
+def _find_inline_click_timestamp_format(
+    *,
+    callback_data: str,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+) -> str:
+    normalized_callback_data = str(callback_data or "").strip()
+    if not normalized_callback_data:
+        return DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT
+    formats = _collect_inline_click_timestamp_formats(
+        command_modules=command_modules,
+        callback_modules=callback_modules,
+    )
+    return formats.get(normalized_callback_data, DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT)
+
+
+def _collect_keyboard_click_timestamp_formats(
+    *,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+) -> dict[str, str]:
+    timestamp_formats: dict[str, str] = {}
+    visited: set[int] = set()
+    for module_groups in (command_modules, callback_modules):
+        if not module_groups:
+            continue
+        for modules in module_groups.values():
+            _collect_keyboard_click_timestamp_formats_from_modules(
+                modules=modules,
+                timestamp_formats=timestamp_formats,
+                visited=visited,
+            )
+    return timestamp_formats
+
+
+def _collect_inline_click_timestamp_formats(
+    *,
+    command_modules: dict[str, list[FlowModule]] | None,
+    callback_modules: dict[str, list[FlowModule]] | None,
+) -> dict[str, str]:
+    timestamp_formats: dict[str, str] = {}
+    visited: set[int] = set()
+    for module_groups in (command_modules, callback_modules):
+        if not module_groups:
+            continue
+        for modules in module_groups.values():
+            _collect_inline_click_timestamp_formats_from_modules(
+                modules=modules,
+                timestamp_formats=timestamp_formats,
+                visited=visited,
+            )
+    return timestamp_formats
+
+
+def _collect_remove_keyboard_button_texts_from_modules(
+    *,
+    modules: list[FlowModule] | tuple[FlowModule, ...],
+    button_texts: set[str],
+    visited: set[int],
+) -> None:
+    for module in modules:
+        module_id = id(module)
+        if module_id in visited:
+            continue
+        visited.add(module_id)
+        if bool(getattr(module, "remove_keyboard_on_click", False)):
+            keyboard_texts = getattr(module, "keyboard_button_texts", ())
+            button_texts.update(str(item).strip() for item in keyboard_texts if str(item).strip())
+        continuation = getattr(module, "continuation_modules", ())
+        if continuation:
+            _collect_remove_keyboard_button_texts_from_modules(
+                modules=tuple(continuation),
+                button_texts=button_texts,
+                visited=visited,
+            )
+
+
+def _collect_keyboard_click_timestamp_formats_from_modules(
+    *,
+    modules: list[FlowModule] | tuple[FlowModule, ...],
+    timestamp_formats: dict[str, str],
+    visited: set[int],
+) -> None:
+    for module in modules:
+        module_id = id(module)
+        if module_id in visited:
+            continue
+        visited.add(module_id)
+        raw_formats = getattr(module, "keyboard_click_timestamp_formats_by_text", {})
+        if isinstance(raw_formats, dict):
+            for raw_text, raw_format in raw_formats.items():
+                button_text = str(raw_text or "").strip()
+                if not button_text:
+                    continue
+                timestamp_formats[button_text] = (
+                    str(raw_format or "").strip() or DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT
+                )
+        continuation = getattr(module, "continuation_modules", ())
+        if continuation:
+            _collect_keyboard_click_timestamp_formats_from_modules(
+                modules=tuple(continuation),
+                timestamp_formats=timestamp_formats,
+                visited=visited,
+            )
+
+
+def _collect_inline_click_timestamp_formats_from_modules(
+    *,
+    modules: list[FlowModule] | tuple[FlowModule, ...],
+    timestamp_formats: dict[str, str],
+    visited: set[int],
+) -> None:
+    for module in modules:
+        module_id = id(module)
+        if module_id in visited:
+            continue
+        visited.add(module_id)
+        raw_formats = getattr(module, "callback_click_timestamp_formats_by_data", {})
+        if isinstance(raw_formats, dict):
+            for raw_callback_data, raw_format in raw_formats.items():
+                callback_data = str(raw_callback_data or "").strip()
+                if not callback_data:
+                    continue
+                timestamp_formats[callback_data] = (
+                    str(raw_format or "").strip() or DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT
+                )
+        continuation = getattr(module, "continuation_modules", ())
+        if continuation:
+            _collect_inline_click_timestamp_formats_from_modules(
+                modules=tuple(continuation),
+                timestamp_formats=timestamp_formats,
+                visited=visited,
+            )
 
 
 def _collect_remove_message_callback_data_keys_from_modules(

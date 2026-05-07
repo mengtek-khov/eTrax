@@ -1,6 +1,21 @@
 (function (global) {
   "use strict";
 
+  const BUTTON_CLICK_CONTEXT_KEYS = [
+    "button_clicked_at",
+    "button_clicked_iso",
+    "button_clicked_unix",
+    "inline_button_clicked_at",
+    "inline_button_clicked_iso",
+    "inline_button_clicked_unix",
+    "keyboard_button_clicked_at",
+    "keyboard_button_clicked_iso",
+    "keyboard_button_clicked_unix",
+    "keyboard_reply_clicked_at",
+    "keyboard_reply_clicked_iso",
+    "keyboard_reply_clicked_unix",
+  ];
+
   // Bootstraps the standalone workflow editor once the shared module system is available.
 
   const moduleSystem = global.EtraxModuleSystem;
@@ -443,6 +458,7 @@
   <input type="hidden" name="start_inline_run_if_context_keys" :value="startPrimary.run_if_context_keys">
   <input type="hidden" name="start_inline_skip_if_context_keys" :value="startPrimary.skip_if_context_keys">
   <input type="hidden" name="start_inline_save_callback_data_to_key" :value="startPrimary.save_callback_data_to_key">
+  <input type="hidden" name="start_click_timestamp_format" :value="startPrimary.click_timestamp_format">
   <input type="hidden" name="start_inline_remove_buttons_on_click" :value="startPrimary.remove_inline_buttons_on_click ? '1' : ''">
   <input type="hidden" name="start_callback_target_key" :value="startPrimary.target_callback_key">
   <input type="hidden" name="start_command_target_key" :value="startPrimary.target_command_key">
@@ -560,6 +576,7 @@
 	      <input type="hidden" name="command_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
 	      <input type="hidden" name="command_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
 	      <input type="hidden" name="command_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
+	      <input type="hidden" name="command_click_timestamp_format" :value="primaryStep(entry.editor).click_timestamp_format">
 	      <input type="hidden" name="command_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
 	      <input type="hidden" name="command_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
@@ -755,6 +772,7 @@
       <input type="hidden" name="callback_inline_run_if_context_keys" :value="primaryStep(entry.editor).run_if_context_keys">
       <input type="hidden" name="callback_inline_skip_if_context_keys" :value="primaryStep(entry.editor).skip_if_context_keys">
       <input type="hidden" name="callback_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
+      <input type="hidden" name="callback_click_timestamp_format" :value="primaryStep(entry.editor).click_timestamp_format">
       <input type="hidden" name="callback_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
       <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
@@ -921,6 +939,9 @@
           for (const value of this.profileLogContextKeys) {
             addOption(value);
           }
+          for (const value of BUTTON_CLICK_CONTEXT_KEYS) {
+            addOption(value);
+          }
           return options;
         },
       },
@@ -1003,6 +1024,10 @@
           const step = this.currentStep(editor);
           if (this.currentStepType(editor) === "keyboard_button") {
             step.buttons = helpers.normalizeKeyboardButtons(step.buttons || []);
+            return step.buttons;
+          }
+          if (this.currentStepType(editor) === "wait_keyboard_reply") {
+            step.buttons = helpers.normalizeKeyboardReplyButtons(step.buttons || []);
             return step.buttons;
           }
           step.buttons = helpers.normalizeInlineButtons(step.buttons || []);
@@ -1223,11 +1248,15 @@
           const buttons = this.ensureStepButtons(editor);
           const draft = this.ensureInlineButtonDraft(editor);
           const text = String(draft.text || "").trim();
+          const value = String(draft.actual_value || draft.value || "").trim();
           const row = Number.isInteger(draft.row) && draft.row > 0 ? draft.row : 1;
           if (!text) {
             return;
           }
           const nextButton = { text, row };
+          if (this.currentStepType(editor) === "wait_keyboard_reply" && value) {
+            nextButton.value = value;
+          }
           if (Number.isInteger(draft.edit_index) && draft.edit_index >= 0 && draft.edit_index < buttons.length) {
             buttons.splice(draft.edit_index, 1, nextButton);
           } else {
@@ -1253,8 +1282,8 @@
           const draft = this.ensureInlineButtonDraft(editor);
           draft.text = String(button.text || "");
           draft.action = "callback_data";
-          draft.value = "";
-          draft.actual_value = "";
+          draft.value = String(button.value || button.actual_value || "");
+          draft.actual_value = String(button.value || button.actual_value || "");
           const rowRaw = Number.parseInt(button.row, 10);
           draft.row = Number.isInteger(rowRaw) && rowRaw > 0 ? rowRaw : index + 1;
           draft.edit_index = index;
@@ -1534,6 +1563,9 @@
         },
         formatPrimaryButtons(step) {
           const source = step && typeof step === "object" ? step : {};
+          if (String(source.module_type || "").trim() === "wait_keyboard_reply") {
+            return helpers.formatKeyboardReplyButtons(source.buttons || []);
+          }
           if (String(source.module_type || "").trim() === "keyboard_button") {
             return helpers.formatKeyboardButtons(source.buttons || []);
           }
@@ -1573,6 +1605,7 @@
             inline_run_if_context_keys: primary.run_if_context_keys,
             inline_skip_if_context_keys: primary.skip_if_context_keys,
             inline_save_callback_data_to_key: primary.save_callback_data_to_key,
+            click_timestamp_format: primary.click_timestamp_format,
             inline_remove_buttons_on_click: primary.remove_inline_buttons_on_click ? "1" : "",
             callback_target_key: primary.target_callback_key,
             command_target_key: primary.target_command_key,

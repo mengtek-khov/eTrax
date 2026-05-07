@@ -13,7 +13,9 @@ from etrax.core.telegram import (
     LoadInlineButtonConfig,
     LoadInlineButtonModule,
     SendInlineButtonConfig,
+    SendKeyboardButtonConfig,
     SendTelegramInlineButtonModule,
+    SendTelegramKeyboardButtonModule,
     ShareContactConfig,
     ShareContactModule,
     ShareLocationConfig,
@@ -1698,6 +1700,121 @@ def test_handle_update_removes_registered_inline_button_message_without_callback
         }
     ]
     assert inline_button_cleanup_by_message == {}
+
+
+def test_handle_message_update_removes_reply_keyboard_after_keyboard_button_click_without_pipeline() -> None:
+    gateway = FakeGateway()
+    keyboard_module = SendTelegramKeyboardButtonModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        config=SendKeyboardButtonConfig(
+            bot_id="support-bot",
+            chat_id="12345",
+            text_template="Choose",
+            buttons=[{"text": "Plain Choice", "row": 1}],
+        ),
+    )
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "Plain Choice",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [keyboard_module]},
+        callback_modules={},
+        start_returning_user=False,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert sent == 1
+    assert gateway.message_calls == [
+        {
+            "ok": True,
+            "chat_id": "12345",
+            "text": "Keyboard removed.",
+            "parse_mode": None,
+            "reply_markup": {"remove_keyboard": True},
+            "bot_token_suffix": "UVWX",
+        }
+    ]
+
+
+def test_handle_message_update_removes_reply_keyboard_before_keyboard_button_command_pipeline() -> None:
+    class OrderedGateway(FakeGateway):
+        def __init__(self) -> None:
+            super().__init__()
+            self.events: list[str] = []
+
+        def send_message(
+            self,
+            *,
+            bot_token: str,
+            chat_id: str,
+            text: str,
+            parse_mode: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            self.events.append(text)
+            return super().send_message(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+
+    class SendingCaptureModule(CaptureModule):
+        def __init__(self, gateway: OrderedGateway) -> None:
+            super().__init__()
+            self.gateway = gateway
+
+        def execute(self, context: dict[str, Any]) -> ModuleOutcome:
+            super().execute(context)
+            self.gateway.send_message(
+                bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+                chat_id=str(context["chat_id"]),
+                text="Command ran.",
+            )
+            return ModuleOutcome()
+
+    gateway = OrderedGateway()
+    keyboard_module = SendTelegramKeyboardButtonModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        config=SendKeyboardButtonConfig(
+            bot_id="support-bot",
+            chat_id="12345",
+            text_template="Choose",
+            buttons=[{"text": "/help", "row": 1}],
+        ),
+    )
+    pipeline_module = SendingCaptureModule(gateway)
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/help",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [keyboard_module], "help": [pipeline_module]},
+        callback_modules={},
+        start_returning_user=False,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert sent == 2
+    assert gateway.events == ["Keyboard removed.", "Command ran."]
+    assert gateway.message_calls[0]["reply_markup"] == {"remove_keyboard": True}
+    assert pipeline_module.contexts[0]["command_name"] == "help"
 
 
 def test_handle_message_update_registers_inline_button_module_override_save_target() -> None:

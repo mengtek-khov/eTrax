@@ -32,6 +32,7 @@ from etrax.core.telegram import (
     ShareContactConfig,
     ShareLocationConfig,
     UserInfoConfig,
+    WaitKeyboardReplyConfig,
 )
 
 from .runtime_contracts import RuntimeStepConfig
@@ -228,6 +229,7 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
     return (
         SendInlineButtonConfig,
         SendKeyboardButtonConfig,
+        WaitKeyboardReplyConfig,
         BindCodeConfig,
         SendMessageConfig,
         SendLocationConfig,
@@ -317,6 +319,7 @@ def build_runtime_step_module(
     contact_request_store: object | None = None,
     selfie_request_store: object | None = None,
     location_request_store: object | None = None,
+    keyboard_reply_request_store: object | None = None,
     cart_configs: dict[str, object] | None = None,
     checkout_modules: dict[str, object] | None = None,
     continuation_modules: list[FlowModule] | None = None,
@@ -333,6 +336,7 @@ def build_runtime_step_module(
         "contact_request_store": contact_request_store,
         "selfie_request_store": selfie_request_store,
         "location_request_store": location_request_store,
+        "keyboard_reply_request_store": keyboard_reply_request_store,
         "cart_configs": cart_configs,
         "checkout_modules": checkout_modules,
     }

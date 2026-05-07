@@ -33,6 +33,16 @@ from .delete_message import DeleteMessageConfig, DeleteTelegramMessageModule
 from .user_info import UserInfoConfig, UserInfoModule, render_user_info_text
 from .inline_button import SendInlineButtonConfig, SendTelegramInlineButtonModule
 from .keyboard_button import SendKeyboardButtonConfig, SendTelegramKeyboardButtonModule
+from .wait_keyboard_reply import (
+    KeyboardReplyRequestStore,
+    PendingKeyboardReplyRequest,
+    WaitKeyboardReplyConfig,
+    WaitKeyboardReplyModule,
+    build_keyboard_reply_context,
+    find_keyboard_reply_button,
+    normalize_keyboard_reply_buttons,
+    render_wait_keyboard_reply_text,
+)
 from .load_inline_button import LoadInlineButtonConfig, LoadInlineButtonModule
 from .open_mini_app import OpenMiniAppConfig, OpenMiniAppModule
 from .payway_payment import PaywayPaymentConfig, PaywayPaymentModule
@@ -158,6 +168,14 @@ __all__ = [
     "SendTelegramInlineButtonModule",
     "SendKeyboardButtonConfig",
     "SendTelegramKeyboardButtonModule",
+    "WaitKeyboardReplyConfig",
+    "WaitKeyboardReplyModule",
+    "KeyboardReplyRequestStore",
+    "PendingKeyboardReplyRequest",
+    "build_keyboard_reply_context",
+    "find_keyboard_reply_button",
+    "normalize_keyboard_reply_buttons",
+    "render_wait_keyboard_reply_text",
     "OpenMiniAppConfig",
     "OpenMiniAppModule",
     "RouteConfig",

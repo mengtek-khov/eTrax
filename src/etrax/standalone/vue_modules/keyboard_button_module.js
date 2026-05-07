@@ -33,6 +33,7 @@
         buttons: [],
         run_if_context_keys: "",
         skip_if_context_keys: "",
+        click_timestamp_format: "%Y-%m-%d %H:%M:%S",
       };
     },
     parsePrimary(source, helpers) {
@@ -48,6 +49,9 @@
         buttons,
         run_if_context_keys: formatContextKeyLines(source.run_if_context_keys),
         skip_if_context_keys: formatContextKeyLines(source.skip_if_context_keys),
+        click_timestamp_format: source.click_timestamp_format
+          ? String(source.click_timestamp_format)
+          : "%Y-%m-%d %H:%M:%S",
       };
     },
     parseChain(parts, helpers) {
@@ -69,6 +73,7 @@
         buttons: helpers.normalizeKeyboardButtons(buttonsRaw),
         run_if_context_keys: formatContextKeyLines(parts[4] || ""),
         skip_if_context_keys: formatContextKeyLines(parts[5] || ""),
+        click_timestamp_format: "%Y-%m-%d %H:%M:%S",
       };
     },
     formatChain(step, helpers) {
@@ -85,6 +90,9 @@
       }
       if (skipIfContextKeys.length > 0) {
         payload.skip_if_context_keys = skipIfContextKeys;
+      }
+      if (String(step.click_timestamp_format || "").trim()) {
+        payload.click_timestamp_format = String(step.click_timestamp_format).trim();
       }
       return JSON.stringify(payload);
     },
@@ -146,6 +154,9 @@
         `</div>` +
         `<textarea v-if="isStepType(${ctx}, 'keyboard_button')" placeholder="One rule per line&#10;Example: profile.i_am_18=false" :value="currentStepField(${ctx}, 'skip_if_context_keys')" @input="updateCurrentStepField(${ctx}, 'skip_if_context_keys', $event.target.value)"></textarea>` +
         `<p class="hint" v-if="isStepType(${ctx}, 'keyboard_button')">If any skip_if rule matches, including value rules like profile.i_am_18=false, this keyboard_button is skipped.</p>` +
+        `<label v-if="isStepType(${ctx}, 'keyboard_button')">Click Timestamp Format</label>` +
+        `<input v-if="isStepType(${ctx}, 'keyboard_button')" placeholder="%Y-%m-%d %H:%M:%S" :value="currentStepField(${ctx}, 'click_timestamp_format')" @input="updateCurrentStepField(${ctx}, 'click_timestamp_format', $event.target.value)">` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'keyboard_button')">Saved as {button_clicked_at} and {keyboard_button_clicked_at}. Uses Python strftime format.</p>` +
         `<div class="module-list-tools" v-if="isStepType(${ctx}, 'keyboard_button')">` +
         `<label${buttonFor} class="hint">Button Text</label>` +
         `<input${buttonIdAttr} class="inline-button-input" placeholder="/help" ` +

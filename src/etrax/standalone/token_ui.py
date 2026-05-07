@@ -234,6 +234,9 @@ def _build_handler(
             if parsed.path == "/module-keyboard-button.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("keyboard_button_module.js"))
                 return
+            if parsed.path == "/module-wait-keyboard-reply.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("wait_keyboard_reply_module.js"))
+                return
             if parsed.path == "/module-share-contact.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_contact_module.js"))
                 return
@@ -548,6 +551,7 @@ def _build_handler(
             command_inline_run_if_context_keys = form.get("command_inline_run_if_context_keys", [])
             command_inline_skip_if_context_keys = form.get("command_inline_skip_if_context_keys", [])
             command_inline_save_callback_data_to_keys = form.get("command_inline_save_callback_data_to_key", [])
+            command_click_timestamp_formats = form.get("command_click_timestamp_format", [])
             command_inline_remove_buttons_on_click_values = form.get("command_inline_remove_buttons_on_click", [])
             command_callback_target_keys = form.get("command_callback_target_key", [])
             command_command_target_keys = form.get("command_command_target_key", [])
@@ -624,6 +628,7 @@ def _build_handler(
             callback_inline_run_if_context_keys = form.get("callback_inline_run_if_context_keys", [])
             callback_inline_skip_if_context_keys = form.get("callback_inline_skip_if_context_keys", [])
             callback_inline_save_callback_data_to_keys = form.get("callback_inline_save_callback_data_to_key", [])
+            callback_click_timestamp_formats = form.get("callback_click_timestamp_format", [])
             callback_inline_remove_buttons_on_click_values = form.get("callback_inline_remove_buttons_on_click", [])
             callback_callback_target_keys = form.get("callback_callback_target_key", [])
             callback_command_target_keys = form.get("callback_command_target_key", [])
@@ -701,6 +706,7 @@ def _build_handler(
             start_inline_run_if_context_keys = form.get("start_inline_run_if_context_keys", [""])[0].strip()
             start_inline_skip_if_context_keys = form.get("start_inline_skip_if_context_keys", [""])[0].strip()
             start_inline_save_callback_data_to_key = form.get("start_inline_save_callback_data_to_key", [""])[0].strip()
+            start_click_timestamp_format = form.get("start_click_timestamp_format", [""])[0].strip()
             start_inline_remove_buttons_on_click = form.get("start_inline_remove_buttons_on_click", [""])[0].strip()
             start_callback_target_key = form.get("start_callback_target_key", [""])[0].strip()
             start_command_target_key = form.get("start_command_target_key", [""])[0].strip()
@@ -799,6 +805,7 @@ def _build_handler(
                     command_inline_run_if_context_keys=command_inline_run_if_context_keys,
                     command_inline_skip_if_context_keys=command_inline_skip_if_context_keys,
                     command_inline_save_callback_data_to_keys=command_inline_save_callback_data_to_keys,
+                    command_click_timestamp_formats=command_click_timestamp_formats,
                     command_inline_remove_buttons_on_click_values=command_inline_remove_buttons_on_click_values,
                     command_callback_target_keys=command_callback_target_keys,
                     command_command_target_keys=command_command_target_keys,
@@ -875,6 +882,7 @@ def _build_handler(
                         inline_run_if_context_keys_text=start_inline_run_if_context_keys,
                         inline_skip_if_context_keys_text=start_inline_skip_if_context_keys,
                         inline_save_callback_data_to_key_text=start_inline_save_callback_data_to_key,
+                        click_timestamp_format_text=start_click_timestamp_format,
                         inline_remove_buttons_on_click_text=start_inline_remove_buttons_on_click,
                         callback_target_key=start_callback_target_key,
                         command_target_key=start_command_target_key,
@@ -951,6 +959,7 @@ def _build_handler(
                     callback_inline_run_if_context_keys=callback_inline_run_if_context_keys,
                     callback_inline_skip_if_context_keys=callback_inline_skip_if_context_keys,
                     callback_inline_save_callback_data_to_keys=callback_inline_save_callback_data_to_keys,
+                    callback_click_timestamp_formats=callback_click_timestamp_formats,
                     callback_inline_remove_buttons_on_click_values=callback_inline_remove_buttons_on_click_values,
                     callback_callback_target_keys=callback_callback_target_keys,
                     callback_command_target_keys=callback_command_target_keys,
@@ -3728,6 +3737,7 @@ def _render_config_page(
   <script src="/module-menu.js?v={asset_version}"></script>
   <script src="/module-inline-button.js?v={asset_version}"></script>
   <script src="/module-keyboard-button.js?v={asset_version}"></script>
+  <script src="/module-wait-keyboard-reply.js?v={asset_version}"></script>
   <script src="/module-share-contact.js?v={asset_version}"></script>
   <script src="/module-ask-selfie.js?v={asset_version}"></script>
   <script src="/module-custom-code.js?v={asset_version}"></script>
@@ -4228,6 +4238,7 @@ def _build_command_modules_from_form(
     command_inline_run_if_context_keys: list[str],
     command_inline_skip_if_context_keys: list[str],
     command_inline_save_callback_data_to_keys: list[str],
+    command_click_timestamp_formats: list[str],
     command_inline_remove_buttons_on_click_values: list[str],
     command_callback_target_keys: list[str],
     command_command_target_keys: list[str],
@@ -4303,6 +4314,7 @@ def _build_command_modules_from_form(
         len(command_inline_run_if_context_keys),
         len(command_inline_skip_if_context_keys),
         len(command_inline_save_callback_data_to_keys),
+        len(command_click_timestamp_formats),
         len(command_inline_remove_buttons_on_click_values),
         len(command_callback_target_keys),
         len(command_command_target_keys),
@@ -4381,6 +4393,11 @@ def _build_command_modules_from_form(
         inline_save_callback_data_to_key_text = (
             command_inline_save_callback_data_to_keys[idx].strip()
             if idx < len(command_inline_save_callback_data_to_keys)
+            else ""
+        )
+        click_timestamp_format_text = (
+            command_click_timestamp_formats[idx].strip()
+            if idx < len(command_click_timestamp_formats)
             else ""
         )
         inline_remove_buttons_on_click_text = (
@@ -4544,6 +4561,7 @@ def _build_command_modules_from_form(
             inline_run_if_context_keys_text=inline_run_if_context_keys_text,
             inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+            click_timestamp_format_text=click_timestamp_format_text,
             inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
@@ -4620,6 +4638,7 @@ def _build_callback_modules_from_form(
     callback_inline_run_if_context_keys: list[str],
     callback_inline_skip_if_context_keys: list[str],
     callback_inline_save_callback_data_to_keys: list[str],
+    callback_click_timestamp_formats: list[str],
     callback_inline_remove_buttons_on_click_values: list[str],
     callback_callback_target_keys: list[str],
     callback_command_target_keys: list[str],
@@ -4696,6 +4715,7 @@ def _build_callback_modules_from_form(
         len(callback_inline_run_if_context_keys),
         len(callback_inline_skip_if_context_keys),
         len(callback_inline_save_callback_data_to_keys),
+        len(callback_click_timestamp_formats),
         len(callback_inline_remove_buttons_on_click_values),
         len(callback_callback_target_keys),
         len(callback_command_target_keys),
@@ -4774,6 +4794,11 @@ def _build_callback_modules_from_form(
         inline_save_callback_data_to_key_text = (
             callback_inline_save_callback_data_to_keys[idx].strip()
             if idx < len(callback_inline_save_callback_data_to_keys)
+            else ""
+        )
+        click_timestamp_format_text = (
+            callback_click_timestamp_formats[idx].strip()
+            if idx < len(callback_click_timestamp_formats)
             else ""
         )
         inline_remove_buttons_on_click_text = (
@@ -4942,6 +4967,7 @@ def _build_callback_modules_from_form(
             inline_run_if_context_keys_text=inline_run_if_context_keys_text,
             inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+            click_timestamp_format_text=click_timestamp_format_text,
             inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
@@ -5149,6 +5175,7 @@ def _build_command_module_entry(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
@@ -5227,6 +5254,7 @@ def _build_command_module_entry(
         inline_run_if_context_keys_text=inline_run_if_context_keys_text,
         inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+        click_timestamp_format_text=click_timestamp_format_text,
         inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
@@ -5305,6 +5333,7 @@ def _build_callback_module_entry(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
@@ -5382,6 +5411,7 @@ def _build_callback_module_entry(
         inline_run_if_context_keys_text=inline_run_if_context_keys_text,
         inline_skip_if_context_keys_text=inline_skip_if_context_keys_text,
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
+        click_timestamp_format_text=click_timestamp_format_text,
         inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
@@ -5468,6 +5498,7 @@ def _build_module_step(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
@@ -5554,6 +5585,7 @@ def _build_module_step(
             "text_template": text_template.strip() or f"Command /{command_name} received.",
             "parse_mode": parse_mode_value,
             "buttons": buttons,
+            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format_text),
         }
         return _attach_inline_button_context_rules(
             step,
@@ -5576,10 +5608,29 @@ def _build_module_step(
                 "text_template": text_template.strip() or "Choose an option.",
                 "parse_mode": parse_mode_value,
                 "buttons": buttons,
+                "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format_text),
             },
             run_if_context_keys=inline_run_if_context_keys_text,
             skip_if_context_keys=inline_skip_if_context_keys_text,
         )
+
+    if normalized_module_type == "wait_keyboard_reply":
+        buttons = _parse_keyboard_reply_buttons_text(
+            raw=inline_buttons_text,
+            context_label=f"command /{command_name}",
+        )
+        if not buttons:
+            raise ValueError(f"command /{command_name}: wait_keyboard_reply requires at least one button")
+        return {
+            "module_type": "wait_keyboard_reply",
+            "text_template": text_template.strip() or "Please choose one option.",
+            "parse_mode": parse_mode_value,
+            "buttons": buttons,
+            "save_reply_to_key": contact_button_text.strip() or "keyboard_reply",
+            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format_text),
+            "success_text_template": contact_success_text.strip(),
+            "invalid_text_template": contact_invalid_text.strip() or "Please choose from the keyboard.",
+        }
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -5833,6 +5884,7 @@ def _build_callback_module_step(
     inline_run_if_context_keys_text: str,
     inline_skip_if_context_keys_text: str,
     inline_save_callback_data_to_key_text: str,
+    click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
     callback_target_key: str,
     command_target_key: str,
@@ -5920,6 +5972,7 @@ def _build_callback_module_step(
             "text_template": text_template.strip() or default_text,
             "parse_mode": parse_mode_value,
             "buttons": buttons,
+            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format_text),
         }
         return _attach_inline_button_context_rules(
             step,
@@ -5942,10 +5995,29 @@ def _build_callback_module_step(
                 "text_template": text_template.strip() or default_text,
                 "parse_mode": parse_mode_value,
                 "buttons": buttons,
+                "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format_text),
             },
             run_if_context_keys=inline_run_if_context_keys_text,
             skip_if_context_keys=inline_skip_if_context_keys_text,
         )
+
+    if normalized_module_type == "wait_keyboard_reply":
+        buttons = _parse_keyboard_reply_buttons_text(
+            raw=inline_buttons_text,
+            context_label=f"callback '{callback_key}'",
+        )
+        if not buttons:
+            raise ValueError(f"callback '{callback_key}': wait_keyboard_reply requires at least one button")
+        return {
+            "module_type": "wait_keyboard_reply",
+            "text_template": text_template.strip() or "Please choose one option.",
+            "parse_mode": parse_mode_value,
+            "buttons": buttons,
+            "save_reply_to_key": contact_button_text.strip() or "keyboard_reply",
+            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format_text),
+            "success_text_template": contact_success_text.strip(),
+            "invalid_text_template": contact_invalid_text.strip() or "Please choose from the keyboard.",
+        }
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -6700,6 +6772,8 @@ def _extract_command_module_form_values(
         text_default = ""
     elif module_type == "keyboard_button":
         text_default = "Choose an option."
+    elif module_type == "wait_keyboard_reply":
+        text_default = "Please choose one option."
     elif module_type == "forget_user_data":
         text_default = ""
     elif module_type in {"userinfo", "user_info"}:
@@ -6707,12 +6781,14 @@ def _extract_command_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
     if module_type == "ask_selfie" and not text_template:
         text_template = "Please send a selfie photo."
+    if module_type == "wait_keyboard_reply" and not text_template:
+        text_template = "Please choose one option."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
     if module_type == "route" and not text_template:
@@ -6734,13 +6810,16 @@ def _extract_command_module_form_values(
         module.get("start_returning_text_template", module.get("welcome_back_template", ""))
     ).strip()
     chain_steps = _pipeline_to_chain_steps(module.get("pipeline", []))
-    if module_type == "keyboard_button":
+    if module_type == "wait_keyboard_reply":
+        inline_buttons = _keyboard_reply_buttons_to_text(module.get("buttons", []))
+    elif module_type == "keyboard_button":
         inline_buttons = _keyboard_buttons_to_text(module.get("buttons", []))
     else:
         inline_buttons = _inline_buttons_to_text(module.get("buttons", []))
     inline_run_if_context_keys = _context_key_lines_to_text(module.get("run_if_context_keys", []))
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
+    click_timestamp_format = _normalize_click_timestamp_format(module.get("click_timestamp_format", ""))
     inline_remove_buttons_on_click = "1" if bool(module.get("remove_inline_buttons_on_click", False)) else ""
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
@@ -6750,7 +6829,7 @@ def _extract_command_module_form_values(
     delete_message_id = str(module.get("message_id", "")).strip()
     location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
-    contact_button_text = str(module.get("button_text", "")).strip()
+    contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
     custom_code_function_name = str(module.get("function_name", "")).strip()
     bind_code_prefix = str(module.get("prefix", module.get("bind_code_prefix", ""))).strip()
@@ -6839,6 +6918,7 @@ def _extract_command_module_form_values(
         "inline_run_if_context_keys": inline_run_if_context_keys,
         "inline_skip_if_context_keys": inline_skip_if_context_keys,
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
+        "click_timestamp_format": click_timestamp_format,
         "inline_remove_buttons_on_click": inline_remove_buttons_on_click,
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
@@ -6944,6 +7024,8 @@ def _extract_callback_module_form_values(
         text_default = ""
     elif module_type == "keyboard_button":
         text_default = "Choose an option."
+    elif module_type == "wait_keyboard_reply":
+        text_default = "Please choose one option."
     elif module_type == "forget_user_data":
         text_default = ""
     elif module_type in {"userinfo", "user_info"}:
@@ -6951,12 +7033,14 @@ def _extract_callback_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
     if module_type == "ask_selfie" and not text_template:
         text_template = "Please send a selfie photo."
+    if module_type == "wait_keyboard_reply" and not text_template:
+        text_template = "Please choose one option."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
     if module_type == "route" and not text_template:
@@ -6975,13 +7059,16 @@ def _extract_callback_module_form_values(
     elif isinstance(items_raw, str):
         menu_items = items_raw.strip()
     chain_steps = _pipeline_to_chain_steps(module.get("pipeline", []))
-    if module_type == "keyboard_button":
+    if module_type == "wait_keyboard_reply":
+        inline_buttons = _keyboard_reply_buttons_to_text(module.get("buttons", []))
+    elif module_type == "keyboard_button":
         inline_buttons = _keyboard_buttons_to_text(module.get("buttons", []))
     else:
         inline_buttons = _inline_buttons_to_text(module.get("buttons", []))
     inline_run_if_context_keys = _context_key_lines_to_text(module.get("run_if_context_keys", []))
     inline_skip_if_context_keys = _context_key_lines_to_text(module.get("skip_if_context_keys", []))
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
+    click_timestamp_format = _normalize_click_timestamp_format(module.get("click_timestamp_format", ""))
     inline_remove_buttons_on_click = "1" if bool(module.get("remove_inline_buttons_on_click", False)) else ""
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
@@ -6991,7 +7078,7 @@ def _extract_callback_module_form_values(
     delete_message_id = str(module.get("message_id", "")).strip()
     location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
-    contact_button_text = str(module.get("button_text", "")).strip()
+    contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
     custom_code_function_name = str(module.get("function_name", "")).strip()
     bind_code_prefix = str(module.get("prefix", module.get("bind_code_prefix", ""))).strip()
@@ -7079,6 +7166,7 @@ def _extract_callback_module_form_values(
         "inline_run_if_context_keys": inline_run_if_context_keys,
         "inline_skip_if_context_keys": inline_skip_if_context_keys,
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
+        "click_timestamp_format": click_timestamp_format,
         "inline_remove_buttons_on_click": inline_remove_buttons_on_click,
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
@@ -7181,6 +7269,7 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "inline_run_if_context_keys": module_values["inline_run_if_context_keys"],
                     "inline_skip_if_context_keys": module_values["inline_skip_if_context_keys"],
                     "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
+                    "click_timestamp_format": module_values["click_timestamp_format"],
                     "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
                     "callback_target_key": module_values["callback_target_key"],
                     "command_target_key": module_values["command_target_key"],
@@ -7255,6 +7344,7 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                 "inline_run_if_context_keys": "",
                 "inline_skip_if_context_keys": "",
                 "inline_save_callback_data_to_key": "",
+                "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
                 "inline_remove_buttons_on_click": "",
                 "callback_target_key": "",
                 "command_target_key": "",
@@ -7342,6 +7432,7 @@ def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
                 "inline_run_if_context_keys": module_values["inline_run_if_context_keys"],
                 "inline_skip_if_context_keys": module_values["inline_skip_if_context_keys"],
                 "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
+                "click_timestamp_format": module_values["click_timestamp_format"],
                 "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
                 "callback_target_key": module_values["callback_target_key"],
                 "command_target_key": module_values["command_target_key"],
@@ -7662,6 +7753,24 @@ def _parse_keyboard_buttons_text(*, raw: str, context_label: str) -> list[dict[s
     return buttons
 
 
+def _parse_keyboard_reply_buttons_text(*, raw: str, context_label: str) -> list[dict[str, object]]:
+    """Parse wait-keyboard-reply editor text into text/value/row payloads."""
+    buttons: list[dict[str, object]] = []
+    if not raw.strip():
+        return buttons
+
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    for idx, line in enumerate(lines, start=1):
+        parts = [part.strip() for part in line.split("|")]
+        text = parts[0] if parts else ""
+        if not text:
+            raise ValueError(f"{context_label} wait_keyboard_reply line {idx}: button text is required")
+        value = parts[1] if len(parts) >= 2 and parts[1] else text
+        row = _parse_keyboard_button_optional_parts(parts[2:], default_row=idx)
+        buttons.append({"text": text, "value": value, "row": row})
+    return buttons
+
+
 def _normalize_keyboard_buttons(raw_buttons: object) -> list[dict[str, object]]:
     """Normalize keyboard-button payloads to text plus row fields."""
     if not isinstance(raw_buttons, list):
@@ -7690,6 +7799,35 @@ def _normalize_keyboard_buttons(raw_buttons: object) -> list[dict[str, object]]:
     return normalized
 
 
+def _normalize_keyboard_reply_buttons(raw_buttons: object) -> list[dict[str, object]]:
+    """Normalize wait-keyboard-reply payloads to text, value, and row fields."""
+    if not isinstance(raw_buttons, list):
+        return []
+
+    normalized: list[dict[str, object]] = []
+    for raw_index, raw_button in enumerate(raw_buttons, start=1):
+        candidates: list[object]
+        if isinstance(raw_button, list):
+            candidates = list(raw_button)
+            fallback_row = raw_index
+        else:
+            candidates = [raw_button]
+            fallback_row = len(normalized) + 1
+
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            text = str(candidate.get("text", "")).strip()
+            value = str(candidate.get("value", candidate.get("actual_value", text))).strip() or text
+            row_raw = candidate.get("row")
+            row_text = str(row_raw).strip() if row_raw is not None else ""
+            row = int(row_text) if row_text.isdigit() and int(row_text) > 0 else fallback_row
+            if not text:
+                continue
+            normalized.append({"text": text, "value": value, "row": row})
+    return normalized
+
+
 def _keyboard_buttons_to_text(raw_buttons: object) -> str:
     """Serialize keyboard-button payloads for the textarea-based form representation."""
     normalized = _normalize_keyboard_buttons(raw_buttons)
@@ -7700,6 +7838,20 @@ def _keyboard_buttons_to_text(raw_buttons: object) -> str:
         row_text = str(row_raw).strip() if row_raw is not None else ""
         row = int(row_text) if row_text.isdigit() and int(row_text) > 0 else len(lines) + 1
         lines.append(f"{text} | {row}")
+    return "\n".join(lines)
+
+
+def _keyboard_reply_buttons_to_text(raw_buttons: object) -> str:
+    """Serialize wait-keyboard-reply choices for the textarea-based form representation."""
+    normalized = _normalize_keyboard_reply_buttons(raw_buttons)
+    lines: list[str] = []
+    for button in normalized:
+        text = button["text"]
+        value = button.get("value", text)
+        row_raw = button.get("row")
+        row_text = str(row_raw).strip() if row_raw is not None else ""
+        row = int(row_text) if row_text.isdigit() and int(row_text) > 0 else len(lines) + 1
+        lines.append(f"{text} | {value} | {row}")
     return "\n".join(lines)
 
 
@@ -7862,6 +8014,10 @@ def _attach_context_key_rules(
     return step
 
 
+def _normalize_click_timestamp_format(raw: object) -> str:
+    return str(raw or "").strip() or "%Y-%m-%d %H:%M:%S"
+
+
 def _command_menu_uses_module_type(command_menu: dict[str, object], module_type: str) -> bool:
     """Check whether any configured command or callback uses the given module type."""
     normalized_module_type = str(module_type).strip().lower()
@@ -7908,6 +8064,7 @@ def _parse_inline_button_chain_step(
     run_if_context_keys: object = (),
     skip_if_context_keys: object = (),
     save_callback_data_to_key: object = "",
+    click_timestamp_format: object = "",
     remove_inline_buttons_on_click: object = "",
 ) -> dict[str, object]:
     """Build a normalized inline_button chain step."""
@@ -7922,6 +8079,7 @@ def _parse_inline_button_chain_step(
             "text_template": text_template or default_text,
             "parse_mode": parse_mode or None,
             "buttons": buttons,
+            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format),
         },
         run_if_context_keys=run_if_context_keys,
         skip_if_context_keys=skip_if_context_keys,
@@ -7939,6 +8097,7 @@ def _parse_keyboard_button_chain_step(
     buttons_raw: object,
     run_if_context_keys: object = "",
     skip_if_context_keys: object = "",
+    click_timestamp_format: object = "",
 ) -> dict[str, object]:
     """Build a normalized keyboard_button chain step."""
     buttons = _normalize_keyboard_buttons(buttons_raw)
@@ -7952,6 +8111,7 @@ def _parse_keyboard_button_chain_step(
             "text_template": text_template or "Choose an option.",
             "parse_mode": parse_mode or None,
             "buttons": buttons,
+            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format),
         },
         run_if_context_keys=run_if_context_keys,
         skip_if_context_keys=skip_if_context_keys,
@@ -8031,6 +8191,36 @@ def _parse_ask_selfie_chain_step(
         success_text=success_text_template,
         invalid_text=invalid_text_template,
     )
+
+
+def _parse_wait_keyboard_reply_chain_step(
+    *,
+    route_label: str,
+    step_index: int,
+    text_template: str,
+    parse_mode: str,
+    buttons_raw: object,
+    save_reply_to_key: object = "",
+    click_timestamp_format: object = "",
+    success_text_template: object = "",
+    invalid_text_template: object = "",
+) -> dict[str, object]:
+    """Build a normalized wait_keyboard_reply chain step."""
+    buttons = _normalize_keyboard_reply_buttons(buttons_raw)
+    if not buttons:
+        raise ValueError(
+            f"{route_label} chain step {step_index}: wait_keyboard_reply requires at least one valid button"
+        )
+    return {
+        "module_type": "wait_keyboard_reply",
+        "text_template": text_template or "Please choose one option.",
+        "parse_mode": parse_mode or None,
+        "buttons": buttons,
+        "save_reply_to_key": str(save_reply_to_key or "").strip() or "keyboard_reply",
+        "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format),
+        "success_text_template": str(success_text_template or "").strip(),
+        "invalid_text_template": str(invalid_text_template or "").strip() or "Please choose from the keyboard.",
+    }
 
 
 def _parse_custom_code_chain_step(*, route_label: str, step_index: int, function_name: str) -> dict[str, object]:
@@ -8275,6 +8465,7 @@ def _parse_route_chain_steps(
                         run_if_context_keys=serialized.get("run_if_context_keys", []),
                         skip_if_context_keys=serialized.get("skip_if_context_keys", []),
                         save_callback_data_to_key=serialized.get("save_callback_data_to_key", ""),
+                        click_timestamp_format=serialized.get("click_timestamp_format", ""),
                         remove_inline_buttons_on_click=serialized.get("remove_inline_buttons_on_click", ""),
                     )
                 )
@@ -8289,6 +8480,7 @@ def _parse_route_chain_steps(
                         buttons_raw=serialized.get("buttons", []),
                         run_if_context_keys=serialized.get("run_if_context_keys", []),
                         skip_if_context_keys=serialized.get("skip_if_context_keys", []),
+                        click_timestamp_format=serialized.get("click_timestamp_format", ""),
                     )
                 )
                 continue
@@ -8377,6 +8569,21 @@ def _parse_route_chain_steps(
                         parse_mode=parse_mode,
                         success_text_template=str(serialized.get("success_text_template", "")),
                         invalid_text_template=str(serialized.get("invalid_text_template", "")),
+                    )
+                )
+                continue
+            if module_type == "wait_keyboard_reply":
+                steps.append(
+                    _parse_wait_keyboard_reply_chain_step(
+                        route_label=route_label,
+                        step_index=idx,
+                        text_template=str(serialized.get("text_template", "")),
+                        parse_mode=parse_mode,
+                        buttons_raw=serialized.get("buttons", []),
+                        save_reply_to_key=serialized.get("save_reply_to_key", ""),
+                        click_timestamp_format=serialized.get("click_timestamp_format", ""),
+                        success_text_template=serialized.get("success_text_template", ""),
+                        invalid_text_template=serialized.get("invalid_text_template", ""),
                     )
                 )
                 continue
@@ -8565,7 +8772,7 @@ def _parse_route_chain_steps(
                 )
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -8897,6 +9104,29 @@ def _parse_route_chain_steps(
         if module_type == "forget_user_data":
             steps.append({"module_type": "forget_user_data"})
             continue
+        if module_type == "wait_keyboard_reply":
+            buttons_raw: object = []
+            if len(parts) >= 3 and parts[2].strip():
+                try:
+                    buttons_raw = json.loads(parts[2])
+                except json.JSONDecodeError:
+                    buttons_raw = _parse_keyboard_reply_buttons_text(
+                        raw=parts[2],
+                        context_label=f"{route_label} chain step {idx}",
+                    )
+            steps.append(
+                _parse_wait_keyboard_reply_chain_step(
+                    route_label=route_label,
+                    step_index=idx,
+                    text_template=parts[1] if len(parts) >= 2 else "",
+                    parse_mode=parts[6] if len(parts) >= 7 else "",
+                    buttons_raw=buttons_raw,
+                    save_reply_to_key=parts[3] if len(parts) >= 4 else "",
+                    success_text_template=parts[4] if len(parts) >= 5 else "",
+                    invalid_text_template=parts[5] if len(parts) >= 6 else "",
+                )
+            )
+            continue
         if module_type in {"userinfo", "user_info"}:
             steps.append(
                 {
@@ -8910,7 +9140,7 @@ def _parse_route_chain_steps(
             )
             continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
         )
     return steps
 
@@ -8960,6 +9190,7 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "text_template": str(step.get("text_template", "")),
                 "parse_mode": parse_mode,
                 "buttons": _normalize_inline_buttons(step.get("buttons", [])),
+                "click_timestamp_format": _normalize_click_timestamp_format(step.get("click_timestamp_format", "")),
             }
             run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
             skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
@@ -8978,6 +9209,7 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "text_template": str(step.get("text_template", "Choose an option.")),
                 "parse_mode": parse_mode,
                 "buttons": _normalize_keyboard_buttons(step.get("buttons", [])),
+                "click_timestamp_format": _normalize_click_timestamp_format(step.get("click_timestamp_format", "")),
             }
             run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
             skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
@@ -9062,6 +9294,20 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "parse_mode": parse_mode,
                 "success_text_template": str(step.get("success_text_template", "")),
                 "invalid_text_template": str(step.get("invalid_text_template", "")),
+            }
+        elif module_type == "wait_keyboard_reply":
+            payload = {
+                "module_type": "wait_keyboard_reply",
+                "text_template": str(step.get("text_template", "Please choose one option.")),
+                "parse_mode": parse_mode,
+                "buttons": _normalize_keyboard_reply_buttons(step.get("buttons", [])),
+                "save_reply_to_key": str(step.get("save_reply_to_key", "keyboard_reply")).strip()
+                or "keyboard_reply",
+                "click_timestamp_format": _normalize_click_timestamp_format(step.get("click_timestamp_format", "")),
+                "success_text_template": str(step.get("success_text_template", "")),
+                "invalid_text_template": str(
+                    step.get("invalid_text_template", "Please choose from the keyboard.")
+                ),
             }
         elif module_type == "custom_code":
             payload = {
