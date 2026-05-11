@@ -9,6 +9,7 @@ from etrax.core.telegram import (
     CheckoutCartModule,
     CartStateStore,
     ContactRequestStore,
+    InlineButtonActionRequestStore,
     KeyboardReplyRequestStore,
     LocationRequestStore,
     SelfieRequestStore,
@@ -28,6 +29,7 @@ def build_runtime_modules(
     selfie_request_store: SelfieRequestStore,
     location_request_store: LocationRequestStore,
     keyboard_reply_request_store: KeyboardReplyRequestStore,
+    inline_action_request_store: InlineButtonActionRequestStore | None = None,
     cart_configs: dict[str, CartButtonConfig],
     checkout_modules: dict[str, CheckoutCartModule],
 ) -> list[FlowModule]:
@@ -46,6 +48,7 @@ def build_runtime_modules(
             "selfie_request_store": selfie_request_store,
             "location_request_store": location_request_store,
             "keyboard_reply_request_store": keyboard_reply_request_store,
+            "inline_action_request_store": inline_action_request_store,
             "cart_configs": cart_configs,
             "checkout_modules": checkout_modules,
         }
@@ -61,6 +64,7 @@ def build_runtime_modules(
                 selfie_request_store=selfie_request_store,
                 location_request_store=location_request_store,
                 keyboard_reply_request_store=keyboard_reply_request_store,
+                inline_action_request_store=inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )

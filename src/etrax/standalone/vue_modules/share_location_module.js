@@ -148,6 +148,8 @@
         breadcrumb_ended_text_template: "",
         run_if_context_keys: "",
         skip_if_context_keys: "",
+        require_finish_current_command: false,
+        finish_current_command_text_template: "",
       };
     },
     parsePrimary(source) {
@@ -199,6 +201,10 @@
         breadcrumb_ended_text_template: source.breadcrumb_ended_text_template ? String(source.breadcrumb_ended_text_template) : "",
         run_if_context_keys: formatContextKeyLines(source.run_if_context_keys),
         skip_if_context_keys: formatContextKeyLines(source.skip_if_context_keys),
+        require_finish_current_command: Boolean(source.require_finish_current_command),
+        finish_current_command_text_template: source.finish_current_command_text_template
+          ? String(source.finish_current_command_text_template)
+          : "",
         closest_location_group_action_type: resolveClosestLocationGroupActionType(
           source.closest_location_group_action_type,
           source.closest_location_group_text_template,
@@ -223,6 +229,8 @@
         breadcrumb_min_distance_meters: parts[11] || "",
         run_if_context_keys: String(parts[6] || ""),
         skip_if_context_keys: String(parts[7] || ""),
+        require_finish_current_command: false,
+        finish_current_command_text_template: "",
         title: "Main Menu",
         items: [],
         buttons: [],
@@ -333,6 +341,12 @@
       }
       if (skipIfContextKeys.length > 0) {
         payload.skip_if_context_keys = skipIfContextKeys;
+      }
+      if (step.require_finish_current_command) {
+        payload.require_finish_current_command = true;
+      }
+      if (String(step.finish_current_command_text_template || "").trim()) {
+        payload.finish_current_command_text_template = String(step.finish_current_command_text_template).trim();
       }
       return JSON.stringify(payload);
     },
@@ -452,6 +466,10 @@
         `placeholder="Leave blank for the automatic reply. Example: Closest saved location is {closest_location_name}." ` +
         `:value="currentStepField(${ctx}, 'success_text_template')" ` +
         `@input="updateCurrentStepField(${ctx}, 'success_text_template', $event.target.value)"></textarea>` +
+        `<label v-if="isStepType(${ctx}, 'share_location')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'require_finish_current_command')" @change="updateCurrentStepToggle(${ctx}, 'require_finish_current_command', $event.target.checked)"><span>Require this location before new actions</span></label>` +
+        `<label v-if="isStepType(${ctx}, 'share_location')">Blocked Action Text</label>` +
+        `<textarea v-if="isStepType(${ctx}, 'share_location')" placeholder="Please finish the current command before starting a new one." :value="currentStepField(${ctx}, 'finish_current_command_text_template')" @input="updateCurrentStepField(${ctx}, 'finish_current_command_text_template', $event.target.value)"></textarea>` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'share_location')">If enabled, other commands and callbacks wait until the user shares the requested location. /restart is still allowed.</p>` +
         `<label v-if="isStepType(${ctx}, 'share_location')">Run If Context Keys</label>` +
         `<div class="module-list-tools" v-if="isStepType(${ctx}, 'share_location')">` +
         `<select :value="contextKeyDraft(${ctx}, 'run_if_context_keys')" @change="updateContextKeyDraftField(${ctx}, 'run_if_context_keys', $event.target.value)">` +

@@ -36,6 +36,8 @@
         save_callback_data_to_key: "",
         click_timestamp_format: "%Y-%m-%d %H:%M:%S",
         remove_inline_buttons_on_click: false,
+        require_finish_current_command: false,
+        finish_current_command_text_template: "",
       };
     },
     parsePrimary(source, helpers) {
@@ -56,6 +58,10 @@
           ? String(source.click_timestamp_format)
           : "%Y-%m-%d %H:%M:%S",
         remove_inline_buttons_on_click: Boolean(source.remove_inline_buttons_on_click),
+        require_finish_current_command: Boolean(source.require_finish_current_command),
+        finish_current_command_text_template: source.finish_current_command_text_template
+          ? String(source.finish_current_command_text_template)
+          : "",
       };
     },
     parseChain(parts, helpers) {
@@ -80,6 +86,8 @@
         save_callback_data_to_key: parts[6] ? String(parts[6]) : "",
         click_timestamp_format: "%Y-%m-%d %H:%M:%S",
         remove_inline_buttons_on_click: false,
+        require_finish_current_command: false,
+        finish_current_command_text_template: "",
       };
     },
     formatChain(step, helpers) {
@@ -105,6 +113,12 @@
       }
       if (step.remove_inline_buttons_on_click) {
         payload.remove_inline_buttons_on_click = true;
+      }
+      if (step.require_finish_current_command) {
+        payload.require_finish_current_command = true;
+      }
+      if (String(step.finish_current_command_text_template || "").trim()) {
+        payload.finish_current_command_text_template = String(step.finish_current_command_text_template).trim();
       }
       return JSON.stringify(payload);
     },
@@ -178,6 +192,10 @@
         `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">Saved as {button_clicked_at} and {inline_button_clicked_at}. Uses Python strftime format.</p>` +
         `<label v-if="isStepType(${ctx}, 'inline_button')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'remove_inline_buttons_on_click')" @change="updateCurrentStepToggle(${ctx}, 'remove_inline_buttons_on_click', $event.target.checked)"><span>Remove message after a handled click</span></label>` +
         `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">If enabled, the source message is deleted after one of its callback actions runs.</p>` +
+        `<label v-if="isStepType(${ctx}, 'inline_button')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'require_finish_current_command')" @change="updateCurrentStepToggle(${ctx}, 'require_finish_current_command', $event.target.checked)"><span>Require this button action before new actions</span></label>` +
+        `<label v-if="isStepType(${ctx}, 'inline_button')">Blocked Action Text</label>` +
+        `<textarea v-if="isStepType(${ctx}, 'inline_button')" placeholder="Please finish the current command before starting a new one." :value="currentStepField(${ctx}, 'finish_current_command_text_template')" @input="updateCurrentStepField(${ctx}, 'finish_current_command_text_template', $event.target.value)"></textarea>` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'inline_button')">If enabled, the user must click one of this module's callback buttons before other commands or callbacks run. /restart is still allowed.</p>` +
         `<div class="module-list-tools" v-if="isStepType(${ctx}, 'inline_button')">` +
         `<input class="inline-button-input" placeholder="Button Text" ` +
         `:value="inlineButtonDraft(${ctx}).text" ` +

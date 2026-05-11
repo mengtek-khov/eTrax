@@ -34,6 +34,8 @@ def resolve_ask_selfie_step_config(
         invalid_text_template=str(step.get("invalid_text_template", "")).strip() or None,
         require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()
         in {"1", "true", "yes", "on"},
+        finish_current_command_text_template=str(step.get("finish_current_command_text_template", "")).strip()
+        or None,
     )
 
 
@@ -66,7 +68,12 @@ def handle_selfie_message_update(
     gateway: TelegramBotApiGateway,
     bot_token: str,
     selfie_request_store: SelfieRequestStore | None,
+    command_menu: list[dict[str, str]] | None = None,
+    command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None = None,
+    temporary_command_menu_state_store: object | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
     inline_button_cleanup_by_message: dict[str, bool] | None = None,
@@ -97,6 +104,8 @@ def handle_selfie_message_update(
     if not selfie_photo_present(photo):
         raw_text = str(message.get("text", "")).strip()
         if raw_text.startswith("/"):
+            return 0
+        if bool(getattr(pending_request, "require_finish_current_command", False)):
             return 0
         context = dict(pending_request.context_snapshot)
         context.update(
@@ -176,10 +185,17 @@ def handle_selfie_message_update(
         sent_count += execute_pipeline(
             list(pending_request.continuation_modules),
             context,
+            command_menu=command_menu,
+            command_modules=command_modules,
             callback_modules=callback_modules,
+            temporary_command_menus=temporary_command_menus,
+            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+            temporary_command_menu_state_store=temporary_command_menu_state_store,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates_by_message=callback_context_updates_by_message,
             inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+            gateway=gateway,
+            bot_token=bot_token,
         )
     return sent_count
 

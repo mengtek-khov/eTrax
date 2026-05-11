@@ -36,6 +36,8 @@ def resolve_share_contact_step_config(
         invalid_text_template=str(step.get("invalid_text_template", "")).strip() or None,
         require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()
         in {"1", "true", "yes", "on"},
+        finish_current_command_text_template=str(step.get("finish_current_command_text_template", "")).strip()
+        or None,
     )
 
 
@@ -68,7 +70,12 @@ def handle_contact_message_update(
     gateway: TelegramBotApiGateway,
     bot_token: str,
     contact_request_store: ContactRequestStore | None,
+    command_menu: list[dict[str, str]] | None = None,
+    command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
+    temporary_command_menus: dict[str, dict[str, object]] | None = None,
+    active_temporary_command_menus_by_chat: dict[str, dict[str, object]] | None = None,
+    temporary_command_menu_state_store: object | None = None,
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
     inline_button_cleanup_by_message: dict[str, bool] | None = None,
@@ -112,6 +119,8 @@ def handle_contact_message_update(
     )
 
     if not shared_contact_belongs_to_user(contact, user_id=user_id):
+        if bool(getattr(pending_request, "require_finish_current_command", False)):
+            return 0
         invalid_text = render_share_contact_text(
             pending_request.invalid_text_template,
             context,
@@ -156,10 +165,17 @@ def handle_contact_message_update(
         sent_count += execute_pipeline(
             list(pending_request.continuation_modules),
             context,
+            command_menu=command_menu,
+            command_modules=command_modules,
             callback_modules=callback_modules,
+            temporary_command_menus=temporary_command_menus,
+            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+            temporary_command_menu_state_store=temporary_command_menu_state_store,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates_by_message=callback_context_updates_by_message,
             inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+            gateway=gateway,
+            bot_token=bot_token,
         )
     return sent_count
 

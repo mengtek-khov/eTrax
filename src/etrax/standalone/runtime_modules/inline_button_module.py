@@ -32,6 +32,10 @@ def resolve_inline_button_step_config(
         skip_if_context_keys=_normalize_context_key_rules(step.get("skip_if_context_keys")),
         remove_inline_buttons_on_click=bool(step.get("remove_inline_buttons_on_click")),
         click_timestamp_format=str(step.get("click_timestamp_format", "")).strip() or "%Y-%m-%d %H:%M:%S",
+        require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()
+        in {"1", "true", "yes", "on"},
+        finish_current_command_text_template=str(step.get("finish_current_command_text_template", "")).strip()
+        or None,
     )
 
 
@@ -44,6 +48,7 @@ def build_inline_button_module(
     contact_request_store: object | None = None,
     cart_configs: dict[str, Any] | None = None,
     checkout_modules: dict[str, Any] | None = None,
+    inline_action_request_store: object | None = None,
     continuation_modules: list[FlowModule] | tuple[FlowModule, ...] | None = None,
 ) -> FlowModule:
     """Create a flow module instance for inline-button style text messages."""
@@ -52,6 +57,7 @@ def build_inline_button_module(
         token_resolver=token_service,
         gateway=gateway,
         config=step_config,
+        inline_action_request_store=inline_action_request_store,
         continuation_modules=continuation_modules,
     )
 

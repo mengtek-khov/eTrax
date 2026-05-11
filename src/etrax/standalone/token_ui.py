@@ -249,6 +249,9 @@ def _build_handler(
             if parsed.path == "/module-bind-code.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("bind_code_module.js"))
                 return
+            if parsed.path == "/module-check-username.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("check_username_module.js"))
+                return
             if parsed.path == "/module-share-location.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_location_module.js"))
                 return
@@ -269,6 +272,9 @@ def _build_handler(
                 return
             if parsed.path == "/module-forget-user-data.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("forget_user_data_module.js"))
+                return
+            if parsed.path == "/module-reset-command-menu.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("reset_command_menu_module.js"))
                 return
             if parsed.path == "/module-delete-message.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("delete_message_module.js"))
@@ -553,6 +559,8 @@ def _build_handler(
             command_inline_save_callback_data_to_keys = form.get("command_inline_save_callback_data_to_key", [])
             command_click_timestamp_formats = form.get("command_click_timestamp_format", [])
             command_inline_remove_buttons_on_click_values = form.get("command_inline_remove_buttons_on_click", [])
+            command_require_finish_current_commands = form.get("command_require_finish_current_command", [])
+            command_finish_current_command_texts = form.get("command_finish_current_command_text_template", [])
             command_callback_target_keys = form.get("command_callback_target_key", [])
             command_command_target_keys = form.get("command_command_target_key", [])
             command_photo_urls = form.get("command_photo_url", [])
@@ -630,6 +638,8 @@ def _build_handler(
             callback_inline_save_callback_data_to_keys = form.get("callback_inline_save_callback_data_to_key", [])
             callback_click_timestamp_formats = form.get("callback_click_timestamp_format", [])
             callback_inline_remove_buttons_on_click_values = form.get("callback_inline_remove_buttons_on_click", [])
+            callback_require_finish_current_commands = form.get("callback_require_finish_current_command", [])
+            callback_finish_current_command_texts = form.get("callback_finish_current_command_text_template", [])
             callback_callback_target_keys = form.get("callback_callback_target_key", [])
             callback_command_target_keys = form.get("callback_command_target_key", [])
             callback_photo_urls = form.get("callback_photo_url", [])
@@ -708,6 +718,8 @@ def _build_handler(
             start_inline_save_callback_data_to_key = form.get("start_inline_save_callback_data_to_key", [""])[0].strip()
             start_click_timestamp_format = form.get("start_click_timestamp_format", [""])[0].strip()
             start_inline_remove_buttons_on_click = form.get("start_inline_remove_buttons_on_click", [""])[0].strip()
+            start_require_finish_current_command = form.get("start_require_finish_current_command", [""])[0].strip()
+            start_finish_current_command_text = form.get("start_finish_current_command_text_template", [""])[0].strip()
             start_callback_target_key = form.get("start_callback_target_key", [""])[0].strip()
             start_command_target_key = form.get("start_command_target_key", [""])[0].strip()
             start_photo_url = form.get("start_photo_url", [""])[0].strip()
@@ -807,6 +819,8 @@ def _build_handler(
                     command_inline_save_callback_data_to_keys=command_inline_save_callback_data_to_keys,
                     command_click_timestamp_formats=command_click_timestamp_formats,
                     command_inline_remove_buttons_on_click_values=command_inline_remove_buttons_on_click_values,
+                    command_require_finish_current_commands=command_require_finish_current_commands,
+                    command_finish_current_command_texts=command_finish_current_command_texts,
                     command_callback_target_keys=command_callback_target_keys,
                     command_command_target_keys=command_command_target_keys,
                     command_photo_urls=command_photo_urls,
@@ -884,6 +898,8 @@ def _build_handler(
                         inline_save_callback_data_to_key_text=start_inline_save_callback_data_to_key,
                         click_timestamp_format_text=start_click_timestamp_format,
                         inline_remove_buttons_on_click_text=start_inline_remove_buttons_on_click,
+                        require_finish_current_command_text=start_require_finish_current_command,
+                        finish_current_command_text=start_finish_current_command_text,
                         callback_target_key=start_callback_target_key,
                         command_target_key=start_command_target_key,
                         photo_url=start_photo_url,
@@ -961,6 +977,8 @@ def _build_handler(
                     callback_inline_save_callback_data_to_keys=callback_inline_save_callback_data_to_keys,
                     callback_click_timestamp_formats=callback_click_timestamp_formats,
                     callback_inline_remove_buttons_on_click_values=callback_inline_remove_buttons_on_click_values,
+                    callback_require_finish_current_commands=callback_require_finish_current_commands,
+                    callback_finish_current_command_texts=callback_finish_current_command_texts,
                     callback_callback_target_keys=callback_callback_target_keys,
                     callback_command_target_keys=callback_command_target_keys,
                     callback_photo_urls=callback_photo_urls,
@@ -3742,6 +3760,7 @@ def _render_config_page(
   <script src="/module-ask-selfie.js?v={asset_version}"></script>
   <script src="/module-custom-code.js?v={asset_version}"></script>
   <script src="/module-bind-code.js?v={asset_version}"></script>
+  <script src="/module-check-username.js?v={asset_version}"></script>
   <script src="/module-share-location.js?v={asset_version}"></script>
   <script src="/module-route.js?v={asset_version}"></script>
   <script src="/module-checkout.js?v={asset_version}"></script>
@@ -3749,6 +3768,7 @@ def _render_config_page(
   <script src="/module-cart-button.js?v={asset_version}"></script>
   <script src="/module-open-mini-app.js?v={asset_version}"></script>
   <script src="/module-forget-user-data.js?v={asset_version}"></script>
+  <script src="/module-reset-command-menu.js?v={asset_version}"></script>
   <script src="/module-delete-message.js?v={asset_version}"></script>
   <script src="/module-userinfo.js?v={asset_version}"></script>
   <script src="/module-callback-module.js?v={asset_version}"></script>
@@ -4240,6 +4260,8 @@ def _build_command_modules_from_form(
     command_inline_save_callback_data_to_keys: list[str],
     command_click_timestamp_formats: list[str],
     command_inline_remove_buttons_on_click_values: list[str],
+    command_require_finish_current_commands: list[str],
+    command_finish_current_command_texts: list[str],
     command_callback_target_keys: list[str],
     command_command_target_keys: list[str],
     command_photo_urls: list[str],
@@ -4316,6 +4338,8 @@ def _build_command_modules_from_form(
         len(command_inline_save_callback_data_to_keys),
         len(command_click_timestamp_formats),
         len(command_inline_remove_buttons_on_click_values),
+        len(command_require_finish_current_commands),
+        len(command_finish_current_command_texts),
         len(command_callback_target_keys),
         len(command_command_target_keys),
         len(command_photo_urls),
@@ -4403,6 +4427,16 @@ def _build_command_modules_from_form(
         inline_remove_buttons_on_click_text = (
             command_inline_remove_buttons_on_click_values[idx].strip()
             if idx < len(command_inline_remove_buttons_on_click_values)
+            else ""
+        )
+        require_finish_current_command_text = (
+            command_require_finish_current_commands[idx].strip()
+            if idx < len(command_require_finish_current_commands)
+            else ""
+        )
+        finish_current_command_text = (
+            command_finish_current_command_texts[idx].strip()
+            if idx < len(command_finish_current_command_texts)
             else ""
         )
         callback_target_key = command_callback_target_keys[idx].strip() if idx < len(command_callback_target_keys) else ""
@@ -4563,6 +4597,8 @@ def _build_command_modules_from_form(
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
             click_timestamp_format_text=click_timestamp_format_text,
             inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
+            require_finish_current_command_text=require_finish_current_command_text,
+            finish_current_command_text=finish_current_command_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
@@ -4640,6 +4676,8 @@ def _build_callback_modules_from_form(
     callback_inline_save_callback_data_to_keys: list[str],
     callback_click_timestamp_formats: list[str],
     callback_inline_remove_buttons_on_click_values: list[str],
+    callback_require_finish_current_commands: list[str],
+    callback_finish_current_command_texts: list[str],
     callback_callback_target_keys: list[str],
     callback_command_target_keys: list[str],
     callback_photo_urls: list[str],
@@ -4717,6 +4755,8 @@ def _build_callback_modules_from_form(
         len(callback_inline_save_callback_data_to_keys),
         len(callback_click_timestamp_formats),
         len(callback_inline_remove_buttons_on_click_values),
+        len(callback_require_finish_current_commands),
+        len(callback_finish_current_command_texts),
         len(callback_callback_target_keys),
         len(callback_command_target_keys),
         len(callback_photo_urls),
@@ -4804,6 +4844,16 @@ def _build_callback_modules_from_form(
         inline_remove_buttons_on_click_text = (
             callback_inline_remove_buttons_on_click_values[idx].strip()
             if idx < len(callback_inline_remove_buttons_on_click_values)
+            else ""
+        )
+        require_finish_current_command_text = (
+            callback_require_finish_current_commands[idx].strip()
+            if idx < len(callback_require_finish_current_commands)
+            else ""
+        )
+        finish_current_command_text = (
+            callback_finish_current_command_texts[idx].strip()
+            if idx < len(callback_finish_current_command_texts)
             else ""
         )
         callback_target_key = callback_callback_target_keys[idx].strip() if idx < len(callback_callback_target_keys) else ""
@@ -4969,6 +5019,8 @@ def _build_callback_modules_from_form(
             inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
             click_timestamp_format_text=click_timestamp_format_text,
             inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
+            require_finish_current_command_text=require_finish_current_command_text,
+            finish_current_command_text=finish_current_command_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
@@ -5080,7 +5132,10 @@ def _build_callback_temporary_command_entries(
             inline_run_if_context_keys_text=str(raw_entry.get("inline_run_if_context_keys", "")).strip(),
             inline_skip_if_context_keys_text=str(raw_entry.get("inline_skip_if_context_keys", "")).strip(),
             inline_save_callback_data_to_key_text=str(raw_entry.get("inline_save_callback_data_to_key", "")).strip(),
+            click_timestamp_format_text=str(raw_entry.get("click_timestamp_format", "")).strip(),
             inline_remove_buttons_on_click_text=str(raw_entry.get("inline_remove_buttons_on_click", "")).strip(),
+            require_finish_current_command_text=str(raw_entry.get("require_finish_current_command", "")).strip(),
+            finish_current_command_text=str(raw_entry.get("finish_current_command_text_template", "")).strip(),
             callback_target_key=str(raw_entry.get("callback_target_key", "")).strip(),
             command_target_key=str(raw_entry.get("command_target_key", "")).strip(),
             photo_url=str(raw_entry.get("photo_url", "")).strip(),
@@ -5177,6 +5232,8 @@ def _build_command_module_entry(
     inline_save_callback_data_to_key_text: str,
     click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
+    require_finish_current_command_text: str = "",
+    finish_current_command_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -5256,6 +5313,8 @@ def _build_command_module_entry(
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
         click_timestamp_format_text=click_timestamp_format_text,
         inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
+        require_finish_current_command_text=require_finish_current_command_text,
+        finish_current_command_text=finish_current_command_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
@@ -5335,6 +5394,8 @@ def _build_callback_module_entry(
     inline_save_callback_data_to_key_text: str,
     click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
+    require_finish_current_command_text: str = "",
+    finish_current_command_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -5413,6 +5474,8 @@ def _build_callback_module_entry(
         inline_save_callback_data_to_key_text=inline_save_callback_data_to_key_text,
         click_timestamp_format_text=click_timestamp_format_text,
         inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
+        require_finish_current_command_text=require_finish_current_command_text,
+        finish_current_command_text=finish_current_command_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
@@ -5500,6 +5563,8 @@ def _build_module_step(
     inline_save_callback_data_to_key_text: str,
     click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
+    require_finish_current_command_text: str = "",
+    finish_current_command_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -5593,6 +5658,8 @@ def _build_module_step(
             skip_if_context_keys=inline_skip_if_context_keys_text,
             save_callback_data_to_key=inline_save_callback_data_to_key_text,
             remove_inline_buttons_on_click=inline_remove_buttons_on_click_text,
+            require_finish_current_command=require_finish_current_command_text,
+            finish_current_command_text=finish_current_command_text,
         )
 
     if normalized_module_type == "keyboard_button":
@@ -5621,7 +5688,7 @@ def _build_module_step(
         )
         if not buttons:
             raise ValueError(f"command /{command_name}: wait_keyboard_reply requires at least one button")
-        return {
+        step = {
             "module_type": "wait_keyboard_reply",
             "text_template": text_template.strip() or "Please choose one option.",
             "parse_mode": parse_mode_value,
@@ -5631,6 +5698,12 @@ def _build_module_step(
             "success_text_template": contact_success_text.strip(),
             "invalid_text_template": contact_invalid_text.strip() or "Please choose from the keyboard.",
         }
+        _attach_require_finish_current_command(
+            step,
+            require_finish_current_command_text,
+            finish_current_command_text,
+        )
+        return step
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -5730,6 +5803,8 @@ def _build_module_step(
             parse_mode_value=parse_mode_value,
             success_text=contact_success_text,
             invalid_text=contact_invalid_text,
+            require_finish_current_command=require_finish_current_command_text,
+            finish_current_command_text=finish_current_command_text,
         )
 
     if normalized_module_type == "custom_code":
@@ -5744,6 +5819,13 @@ def _build_module_step(
             prefix=bind_code_prefix,
             number_width=bind_code_number_width,
             start_number=bind_code_start_number,
+        )
+
+    if normalized_module_type == "check_username":
+        return _build_check_username_step(
+            required_username=contact_button_text,
+            failure_text_template=text_template,
+            parse_mode_value=parse_mode_value,
         )
 
     if normalized_module_type == "share_location":
@@ -5777,6 +5859,8 @@ def _build_module_step(
                 breadcrumb_ended_text_template=breadcrumb_ended_text_template,
                 route_empty_text=route_empty_text,
                 route_max_link_points=route_max_link_points,
+                require_finish_current_command=require_finish_current_command_text,
+                finish_current_command_text=finish_current_command_text,
             ),
             run_if_context_keys=inline_run_if_context_keys_text,
             skip_if_context_keys=inline_skip_if_context_keys_text,
@@ -5852,6 +5936,11 @@ def _build_module_step(
             "module_type": "forget_user_data",
         }
 
+    if normalized_module_type in {"reset_command_menu", "restore_command_menu", "reset_original_command_menu"}:
+        return {
+            "module_type": "reset_command_menu",
+        }
+
     if normalized_module_type in {"userinfo", "user_info"}:
         return {
             "module_type": "userinfo",
@@ -5886,6 +5975,8 @@ def _build_callback_module_step(
     inline_save_callback_data_to_key_text: str,
     click_timestamp_format_text: str = "",
     inline_remove_buttons_on_click_text: str = "",
+    require_finish_current_command_text: str = "",
+    finish_current_command_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -5980,6 +6071,7 @@ def _build_callback_module_step(
             skip_if_context_keys=inline_skip_if_context_keys_text,
             save_callback_data_to_key=inline_save_callback_data_to_key_text,
             remove_inline_buttons_on_click=inline_remove_buttons_on_click_text,
+            require_finish_current_command=require_finish_current_command_text,
         )
 
     if normalized_module_type == "keyboard_button":
@@ -6008,7 +6100,7 @@ def _build_callback_module_step(
         )
         if not buttons:
             raise ValueError(f"callback '{callback_key}': wait_keyboard_reply requires at least one button")
-        return {
+        step = {
             "module_type": "wait_keyboard_reply",
             "text_template": text_template.strip() or "Please choose one option.",
             "parse_mode": parse_mode_value,
@@ -6018,6 +6110,12 @@ def _build_callback_module_step(
             "success_text_template": contact_success_text.strip(),
             "invalid_text_template": contact_invalid_text.strip() or "Please choose from the keyboard.",
         }
+        _attach_require_finish_current_command(
+            step,
+            require_finish_current_command_text,
+            finish_current_command_text,
+        )
+        return step
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -6117,6 +6215,8 @@ def _build_callback_module_step(
             parse_mode_value=parse_mode_value,
             success_text=contact_success_text,
             invalid_text=contact_invalid_text,
+            require_finish_current_command=require_finish_current_command_text,
+            finish_current_command_text=finish_current_command_text,
         )
 
     if normalized_module_type == "custom_code":
@@ -6131,6 +6231,13 @@ def _build_callback_module_step(
             prefix=bind_code_prefix,
             number_width=bind_code_number_width,
             start_number=bind_code_start_number,
+        )
+
+    if normalized_module_type == "check_username":
+        return _build_check_username_step(
+            required_username=contact_button_text,
+            failure_text_template=text_template,
+            parse_mode_value=parse_mode_value,
         )
 
     if normalized_module_type == "share_location":
@@ -6164,6 +6271,8 @@ def _build_callback_module_step(
                 breadcrumb_ended_text_template=breadcrumb_ended_text_template,
                 route_empty_text=route_empty_text,
                 route_max_link_points=route_max_link_points,
+                require_finish_current_command=require_finish_current_command_text,
+                finish_current_command_text=finish_current_command_text,
             ),
             run_if_context_keys=inline_run_if_context_keys_text,
             skip_if_context_keys=inline_skip_if_context_keys_text,
@@ -6239,6 +6348,11 @@ def _build_callback_module_step(
             "module_type": "forget_user_data",
         }
 
+    if normalized_module_type in {"reset_command_menu", "restore_command_menu", "reset_original_command_menu"}:
+        return {
+            "module_type": "reset_command_menu",
+        }
+
     if normalized_module_type in {"userinfo", "user_info"}:
         return {
             "module_type": "userinfo",
@@ -6262,9 +6376,11 @@ def _build_share_contact_step(
     contact_button_text: str,
     contact_success_text: str,
     contact_invalid_text: str,
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized share_contact step payload."""
-    return {
+    step = {
         "module_type": "share_contact",
         "text_template": text_template.strip() or default_text,
         "parse_mode": parse_mode_value,
@@ -6272,6 +6388,8 @@ def _build_share_contact_step(
         "success_text_template": contact_success_text.strip() or "Thanks {contact_first_name}, your contact was verified.",
         "invalid_text_template": contact_invalid_text.strip() or "Please share your own contact using the button below.",
     }
+    _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
+    return step
 
 
 def _build_ask_selfie_step(
@@ -6281,15 +6399,19 @@ def _build_ask_selfie_step(
     parse_mode_value: str | None,
     success_text: str,
     invalid_text: str,
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized ask_selfie step payload."""
-    return {
+    step = {
         "module_type": "ask_selfie",
         "text_template": text_template.strip() or default_text,
         "parse_mode": parse_mode_value,
         "success_text_template": success_text.strip() or "Thanks, your selfie was received.",
         "invalid_text_template": invalid_text.strip() or "Please send a selfie photo.",
     }
+    _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
+    return step
 
 
 def _build_custom_code_step(*, context_label: str, function_name: str) -> dict[str, object]:
@@ -6331,6 +6453,22 @@ def _build_bind_code_step(
         "prefix": prefix,
         "number_width": normalized_number_width,
         "start_number": normalized_start_number,
+    }
+
+
+def _build_check_username_step(
+    *,
+    required_username: str,
+    failure_text_template: str,
+    parse_mode_value: str | None,
+) -> dict[str, object]:
+    """Build a normalized check_username step payload."""
+    return {
+        "module_type": "check_username",
+        "required_username": str(required_username or "").strip().lstrip("@"),
+        "failure_text_template": str(failure_text_template or "").strip()
+        or "Please set a Telegram username before continuing.",
+        "parse_mode": parse_mode_value,
     }
 
 
@@ -6436,6 +6574,8 @@ def _build_share_location_step(
     breadcrumb_ended_text_template: str = "",
     route_empty_text: str = "",
     route_max_link_points: str = "",
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized share_location step payload."""
     del route_empty_text, route_max_link_points, store_history_by_day
@@ -6530,6 +6670,7 @@ def _build_share_location_step(
                 step["breadcrumb_resumed_text_template"] = breadcrumb_resumed_text_template.strip()
             if breadcrumb_ended_text_template.strip():
                 step["breadcrumb_ended_text_template"] = breadcrumb_ended_text_template.strip()
+    _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
     return step
 
 
@@ -6754,6 +6895,8 @@ def _extract_command_module_form_values(
         text_default = ""
     elif module_type == "bind_code":
         text_default = ""
+    elif module_type == "check_username":
+        text_default = "Please set a Telegram username before continuing."
     elif module_type == "share_location":
         text_default = "Please share your location using the button below."
     elif module_type == "route":
@@ -6776,12 +6919,14 @@ def _extract_command_module_form_values(
         text_default = "Please choose one option."
     elif module_type == "forget_user_data":
         text_default = ""
+    elif module_type in {"reset_command_menu", "restore_command_menu", "reset_original_command_menu"}:
+        text_default = ""
     elif module_type in {"userinfo", "user_info"}:
         text_default = ""
     else:
         text_default = default_text_template
-    text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
+    text_template = str(module.get("text_template", module.get("failure_text_template", text_default))).strip()
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -6789,6 +6934,8 @@ def _extract_command_module_form_values(
         text_template = "Please send a selfie photo."
     if module_type == "wait_keyboard_reply" and not text_template:
         text_template = "Please choose one option."
+    if module_type == "check_username" and not text_template:
+        text_template = "Please set a Telegram username before continuing."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
     if module_type == "route" and not text_template:
@@ -6821,6 +6968,8 @@ def _extract_command_module_form_values(
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
     click_timestamp_format = _normalize_click_timestamp_format(module.get("click_timestamp_format", ""))
     inline_remove_buttons_on_click = "1" if bool(module.get("remove_inline_buttons_on_click", False)) else ""
+    require_finish_current_command = "1" if bool(module.get("require_finish_current_command", False)) else ""
+    finish_current_command_text = str(module.get("finish_current_command_text_template", "")).strip()
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
@@ -6829,7 +6978,10 @@ def _extract_command_module_form_values(
     delete_message_id = str(module.get("message_id", "")).strip()
     location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
-    contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
+    if module_type == "check_username":
+        contact_button_text = str(module.get("required_username", "")).strip()
+    else:
+        contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
     custom_code_function_name = str(module.get("function_name", "")).strip()
     bind_code_prefix = str(module.get("prefix", module.get("bind_code_prefix", ""))).strip()
@@ -6920,6 +7072,8 @@ def _extract_command_module_form_values(
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
         "click_timestamp_format": click_timestamp_format,
         "inline_remove_buttons_on_click": inline_remove_buttons_on_click,
+        "require_finish_current_command": require_finish_current_command,
+        "finish_current_command_text_template": finish_current_command_text,
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
         "photo_url": photo_url,
@@ -7006,6 +7160,8 @@ def _extract_callback_module_form_values(
         text_default = ""
     elif module_type == "bind_code":
         text_default = ""
+    elif module_type == "check_username":
+        text_default = "Please set a Telegram username before continuing."
     elif module_type == "share_location":
         text_default = "Please share your location using the button below."
     elif module_type == "route":
@@ -7028,12 +7184,14 @@ def _extract_callback_module_form_values(
         text_default = "Please choose one option."
     elif module_type == "forget_user_data":
         text_default = ""
+    elif module_type in {"reset_command_menu", "restore_command_menu", "reset_original_command_menu"}:
+        text_default = ""
     elif module_type in {"userinfo", "user_info"}:
         text_default = ""
     else:
         text_default = default_text_template
-    text_template = str(module.get("text_template", text_default)).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "userinfo", "user_info"}:
+    text_template = str(module.get("text_template", module.get("failure_text_template", text_default))).strip()
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -7041,6 +7199,8 @@ def _extract_callback_module_form_values(
         text_template = "Please send a selfie photo."
     if module_type == "wait_keyboard_reply" and not text_template:
         text_template = "Please choose one option."
+    if module_type == "check_username" and not text_template:
+        text_template = "Please set a Telegram username before continuing."
     if module_type == "share_location" and not text_template:
         text_template = "Please share your location using the button below."
     if module_type == "route" and not text_template:
@@ -7070,6 +7230,7 @@ def _extract_callback_module_form_values(
     inline_save_callback_data_to_key = str(module.get("save_callback_data_to_key", "")).strip()
     click_timestamp_format = _normalize_click_timestamp_format(module.get("click_timestamp_format", ""))
     inline_remove_buttons_on_click = "1" if bool(module.get("remove_inline_buttons_on_click", False)) else ""
+    require_finish_current_command = "1" if bool(module.get("require_finish_current_command", False)) else ""
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
@@ -7078,7 +7239,10 @@ def _extract_callback_module_form_values(
     delete_message_id = str(module.get("message_id", "")).strip()
     location_latitude = str(module.get("location_latitude", module.get("latitude", ""))).strip()
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
-    contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
+    if module_type == "check_username":
+        contact_button_text = str(module.get("required_username", "")).strip()
+    else:
+        contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
     custom_code_function_name = str(module.get("function_name", "")).strip()
     bind_code_prefix = str(module.get("prefix", module.get("bind_code_prefix", ""))).strip()
@@ -7168,6 +7332,7 @@ def _extract_callback_module_form_values(
         "inline_save_callback_data_to_key": inline_save_callback_data_to_key,
         "click_timestamp_format": click_timestamp_format,
         "inline_remove_buttons_on_click": inline_remove_buttons_on_click,
+        "require_finish_current_command": require_finish_current_command,
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
         "photo_url": photo_url,
@@ -7271,6 +7436,7 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
                     "click_timestamp_format": module_values["click_timestamp_format"],
                     "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
+                    "require_finish_current_command": module_values["require_finish_current_command"],
                     "callback_target_key": module_values["callback_target_key"],
                     "command_target_key": module_values["command_target_key"],
                     "photo_url": module_values["photo_url"],
@@ -7346,6 +7512,7 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                 "inline_save_callback_data_to_key": "",
                 "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
                 "inline_remove_buttons_on_click": "",
+                "require_finish_current_command": "",
                 "callback_target_key": "",
                 "command_target_key": "",
                 "photo_url": "",
@@ -7434,6 +7601,7 @@ def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
                 "inline_save_callback_data_to_key": module_values["inline_save_callback_data_to_key"],
                 "click_timestamp_format": module_values["click_timestamp_format"],
                 "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
+                "require_finish_current_command": module_values["require_finish_current_command"],
                 "callback_target_key": module_values["callback_target_key"],
                 "command_target_key": module_values["command_target_key"],
                 "photo_url": module_values["photo_url"],
@@ -7983,6 +8151,8 @@ def _attach_inline_button_context_rules(
     skip_if_context_keys: object,
     save_callback_data_to_key: object = "",
     remove_inline_buttons_on_click: object = "",
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Attach optional inline-button validation rules to a step payload."""
     run_if_values = _parse_context_key_lines(run_if_context_keys)
@@ -7996,6 +8166,20 @@ def _attach_inline_button_context_rules(
         step["save_callback_data_to_key"] = save_callback_data_target
     if _is_truthy_text(remove_inline_buttons_on_click):
         step["remove_inline_buttons_on_click"] = True
+    _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
+    return step
+
+
+def _attach_require_finish_current_command(
+    step: dict[str, object],
+    require_finish_current_command: object,
+    finish_current_command_text: object = "",
+) -> dict[str, object]:
+    if _is_truthy_text(require_finish_current_command):
+        step["require_finish_current_command"] = True
+    normalized_finish_text = str(finish_current_command_text or "").strip()
+    if normalized_finish_text:
+        step["finish_current_command_text_template"] = normalized_finish_text
     return step
 
 
@@ -8066,6 +8250,8 @@ def _parse_inline_button_chain_step(
     save_callback_data_to_key: object = "",
     click_timestamp_format: object = "",
     remove_inline_buttons_on_click: object = "",
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized inline_button chain step."""
     buttons = _normalize_inline_buttons(buttons_raw)
@@ -8085,6 +8271,8 @@ def _parse_inline_button_chain_step(
         skip_if_context_keys=skip_if_context_keys,
         save_callback_data_to_key=save_callback_data_to_key,
         remove_inline_buttons_on_click=remove_inline_buttons_on_click,
+        require_finish_current_command=require_finish_current_command,
+        finish_current_command_text=finish_current_command_text,
     )
 
 
@@ -8163,6 +8351,8 @@ def _parse_share_contact_chain_step(
     button_text: str,
     success_text_template: str,
     invalid_text_template: str,
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized share_contact chain step."""
     return _build_share_contact_step(
@@ -8172,6 +8362,8 @@ def _parse_share_contact_chain_step(
         contact_button_text=button_text,
         contact_success_text=success_text_template,
         contact_invalid_text=invalid_text_template,
+        require_finish_current_command=require_finish_current_command,
+        finish_current_command_text=finish_current_command_text,
     )
 
 
@@ -8182,6 +8374,8 @@ def _parse_ask_selfie_chain_step(
     parse_mode: str,
     success_text_template: str,
     invalid_text_template: str,
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized ask_selfie chain step."""
     return _build_ask_selfie_step(
@@ -8190,6 +8384,8 @@ def _parse_ask_selfie_chain_step(
         parse_mode_value=parse_mode or None,
         success_text=success_text_template,
         invalid_text=invalid_text_template,
+        require_finish_current_command=require_finish_current_command,
+        finish_current_command_text=finish_current_command_text,
     )
 
 
@@ -8204,6 +8400,8 @@ def _parse_wait_keyboard_reply_chain_step(
     click_timestamp_format: object = "",
     success_text_template: object = "",
     invalid_text_template: object = "",
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized wait_keyboard_reply chain step."""
     buttons = _normalize_keyboard_reply_buttons(buttons_raw)
@@ -8211,7 +8409,7 @@ def _parse_wait_keyboard_reply_chain_step(
         raise ValueError(
             f"{route_label} chain step {step_index}: wait_keyboard_reply requires at least one valid button"
         )
-    return {
+    step = {
         "module_type": "wait_keyboard_reply",
         "text_template": text_template or "Please choose one option.",
         "parse_mode": parse_mode or None,
@@ -8221,6 +8419,8 @@ def _parse_wait_keyboard_reply_chain_step(
         "success_text_template": str(success_text_template or "").strip(),
         "invalid_text_template": str(invalid_text_template or "").strip() or "Please choose from the keyboard.",
     }
+    _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
+    return step
 
 
 def _parse_custom_code_chain_step(*, route_label: str, step_index: int, function_name: str) -> dict[str, object]:
@@ -8276,6 +8476,8 @@ def _parse_share_location_chain_step(
     breadcrumb_ended_text_template: object = "",
     run_if_context_keys: object = (),
     skip_if_context_keys: object = (),
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
 ) -> dict[str, object]:
     """Build a normalized share_location chain step."""
     return _attach_context_key_rules(
@@ -8306,6 +8508,8 @@ def _parse_share_location_chain_step(
             breadcrumb_interrupted_text_template=str(breadcrumb_interrupted_text_template or ""),
             breadcrumb_resumed_text_template=str(breadcrumb_resumed_text_template or ""),
             breadcrumb_ended_text_template=str(breadcrumb_ended_text_template or ""),
+            require_finish_current_command=require_finish_current_command,
+            finish_current_command_text=finish_current_command_text,
         ),
         run_if_context_keys=run_if_context_keys,
         skip_if_context_keys=skip_if_context_keys,
@@ -8467,6 +8671,8 @@ def _parse_route_chain_steps(
                         save_callback_data_to_key=serialized.get("save_callback_data_to_key", ""),
                         click_timestamp_format=serialized.get("click_timestamp_format", ""),
                         remove_inline_buttons_on_click=serialized.get("remove_inline_buttons_on_click", ""),
+                        require_finish_current_command=serialized.get("require_finish_current_command", ""),
+                        finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
                     )
                 )
                 continue
@@ -8558,6 +8764,8 @@ def _parse_route_chain_steps(
                         button_text=str(serialized.get("button_text", "")),
                         success_text_template=str(serialized.get("success_text_template", "")),
                         invalid_text_template=str(serialized.get("invalid_text_template", "")),
+                        require_finish_current_command=serialized.get("require_finish_current_command", ""),
+                        finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
                     )
                 )
                 continue
@@ -8569,6 +8777,8 @@ def _parse_route_chain_steps(
                         parse_mode=parse_mode,
                         success_text_template=str(serialized.get("success_text_template", "")),
                         invalid_text_template=str(serialized.get("invalid_text_template", "")),
+                        require_finish_current_command=serialized.get("require_finish_current_command", ""),
+                        finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
                     )
                 )
                 continue
@@ -8584,6 +8794,8 @@ def _parse_route_chain_steps(
                         click_timestamp_format=serialized.get("click_timestamp_format", ""),
                         success_text_template=serialized.get("success_text_template", ""),
                         invalid_text_template=serialized.get("invalid_text_template", ""),
+                        require_finish_current_command=serialized.get("require_finish_current_command", ""),
+                        finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
                     )
                 )
                 continue
@@ -8610,6 +8822,17 @@ def _parse_route_chain_steps(
                             "start_number",
                             serialized.get("bind_code_start_number", ""),
                         ),
+                    )
+                )
+                continue
+            if module_type == "check_username":
+                steps.append(
+                    _build_check_username_step(
+                        required_username=str(serialized.get("required_username", "")),
+                        failure_text_template=str(
+                            serialized.get("failure_text_template", serialized.get("text_template", ""))
+                        ),
+                        parse_mode_value=parse_mode or None,
                     )
                 )
                 continue
@@ -8656,6 +8879,8 @@ def _parse_route_chain_steps(
                         breadcrumb_min_distance_meters=serialized.get("breadcrumb_min_distance_meters", ""),
                         run_if_context_keys=serialized.get("run_if_context_keys", []),
                         skip_if_context_keys=serialized.get("skip_if_context_keys", []),
+                        require_finish_current_command=serialized.get("require_finish_current_command", ""),
+                        finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
                     )
                 )
                 continue
@@ -8760,6 +8985,9 @@ def _parse_route_chain_steps(
             if module_type == "forget_user_data":
                 steps.append({"module_type": "forget_user_data"})
                 continue
+            if module_type in {"reset_command_menu", "restore_command_menu", "reset_original_command_menu"}:
+                steps.append({"module_type": "reset_command_menu"})
+                continue
             if module_type in {"userinfo", "user_info"}:
                 steps.append(
                     {
@@ -8772,7 +9000,7 @@ def _parse_route_chain_steps(
                 )
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -8957,6 +9185,15 @@ def _parse_route_chain_steps(
                 )
             )
             continue
+        if module_type == "check_username":
+            steps.append(
+                _build_check_username_step(
+                    required_username=parts[1] if len(parts) >= 2 else "",
+                    failure_text_template=parts[2] if len(parts) >= 3 else "",
+                    parse_mode_value=parts[3] if len(parts) >= 4 and parts[3] else None,
+                )
+            )
+            continue
         if module_type == "share_location":
             parse_mode = parts[4] if len(parts) >= 5 else ""
             steps.append(
@@ -9104,6 +9341,9 @@ def _parse_route_chain_steps(
         if module_type == "forget_user_data":
             steps.append({"module_type": "forget_user_data"})
             continue
+        if module_type in {"reset_command_menu", "restore_command_menu", "reset_original_command_menu"}:
+            steps.append({"module_type": "reset_command_menu"})
+            continue
         if module_type == "wait_keyboard_reply":
             buttons_raw: object = []
             if len(parts) >= 3 and parts[2].strip():
@@ -9140,7 +9380,7 @@ def _parse_route_chain_steps(
             )
             continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., or userinfo|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
         )
     return steps
 
@@ -9203,6 +9443,12 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["save_callback_data_to_key"] = save_callback_data_to_key
             if bool(step.get("remove_inline_buttons_on_click", False)):
                 payload["remove_inline_buttons_on_click"] = True
+            if bool(step.get("require_finish_current_command", False)):
+                payload["require_finish_current_command"] = True
+            if str(step.get("finish_current_command_text_template", "")).strip():
+                payload["finish_current_command_text_template"] = str(
+                    step.get("finish_current_command_text_template", "")
+                ).strip()
         elif module_type == "keyboard_button":
             payload = {
                 "module_type": "keyboard_button",
@@ -9287,6 +9533,12 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "success_text_template": str(step.get("success_text_template", "")),
                 "invalid_text_template": str(step.get("invalid_text_template", "")),
             }
+            if bool(step.get("require_finish_current_command", False)):
+                payload["require_finish_current_command"] = True
+            if str(step.get("finish_current_command_text_template", "")).strip():
+                payload["finish_current_command_text_template"] = str(
+                    step.get("finish_current_command_text_template", "")
+                ).strip()
         elif module_type == "ask_selfie":
             payload = {
                 "module_type": "ask_selfie",
@@ -9295,6 +9547,12 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "success_text_template": str(step.get("success_text_template", "")),
                 "invalid_text_template": str(step.get("invalid_text_template", "")),
             }
+            if bool(step.get("require_finish_current_command", False)):
+                payload["require_finish_current_command"] = True
+            if str(step.get("finish_current_command_text_template", "")).strip():
+                payload["finish_current_command_text_template"] = str(
+                    step.get("finish_current_command_text_template", "")
+                ).strip()
         elif module_type == "wait_keyboard_reply":
             payload = {
                 "module_type": "wait_keyboard_reply",
@@ -9309,6 +9567,12 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                     step.get("invalid_text_template", "Please choose from the keyboard.")
                 ),
             }
+            if bool(step.get("require_finish_current_command", False)):
+                payload["require_finish_current_command"] = True
+            if str(step.get("finish_current_command_text_template", "")).strip():
+                payload["finish_current_command_text_template"] = str(
+                    step.get("finish_current_command_text_template", "")
+                ).strip()
         elif module_type == "custom_code":
             payload = {
                 "module_type": "custom_code",
@@ -9320,6 +9584,16 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "prefix": str(step.get("prefix", step.get("bind_code_prefix", ""))).strip(),
                 "number_width": step.get("number_width", step.get("bind_code_number_width", 4)),
                 "start_number": step.get("start_number", step.get("bind_code_start_number", 1)),
+            }
+        elif module_type == "check_username":
+            payload = {
+                "module_type": "check_username",
+                "required_username": str(step.get("required_username", "")).strip(),
+                "failure_text_template": str(
+                    step.get("failure_text_template", step.get("text_template", ""))
+                ).strip()
+                or "Please set a Telegram username before continuing.",
+                "parse_mode": parse_mode,
             }
         elif module_type == "share_location":
             (
@@ -9396,14 +9670,20 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                     payload["breadcrumb_resumed_text_template"] = str(
                         step.get("breadcrumb_resumed_text_template", "")
                     )
-                if str(step.get("breadcrumb_ended_text_template", "")).strip():
-                    payload["breadcrumb_ended_text_template"] = str(step.get("breadcrumb_ended_text_template", ""))
+            if str(step.get("breadcrumb_ended_text_template", "")).strip():
+                payload["breadcrumb_ended_text_template"] = str(step.get("breadcrumb_ended_text_template", ""))
             run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
             skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
             if run_if_context_keys:
                 payload["run_if_context_keys"] = run_if_context_keys
             if skip_if_context_keys:
                 payload["skip_if_context_keys"] = skip_if_context_keys
+            if bool(step.get("require_finish_current_command", False)):
+                payload["require_finish_current_command"] = True
+            if str(step.get("finish_current_command_text_template", "")).strip():
+                payload["finish_current_command_text_template"] = str(
+                    step.get("finish_current_command_text_template", "")
+                ).strip()
         elif module_type == "route":
             payload = {
                 "module_type": "route",
@@ -9462,6 +9742,10 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
         elif module_type == "forget_user_data":
             payload = {
                 "module_type": "forget_user_data",
+            }
+        elif module_type in {"reset_command_menu", "restore_command_menu", "reset_original_command_menu"}:
+            payload = {
+                "module_type": "reset_command_menu",
             }
         elif module_type in {"userinfo", "user_info"}:
             payload = {

@@ -22,6 +22,8 @@
         click_timestamp_format: "%Y-%m-%d %H:%M:%S",
         success_text_template: "",
         invalid_text_template: "Please choose from the keyboard.",
+        require_finish_current_command: false,
+        finish_current_command_text_template: "",
       };
     },
     parsePrimary(source, helpers) {
@@ -45,6 +47,10 @@
         invalid_text_template: source.invalid_text_template
           ? String(source.invalid_text_template)
           : "Please choose from the keyboard.",
+        require_finish_current_command: Boolean(source.require_finish_current_command),
+        finish_current_command_text_template: source.finish_current_command_text_template
+          ? String(source.finish_current_command_text_template)
+          : "",
       };
     },
     parseChain(parts, helpers) {
@@ -68,6 +74,8 @@
         success_text_template: parts[4] || "",
         invalid_text_template: parts[5] || "Please choose from the keyboard.",
         parse_mode: parts[6] || "",
+        require_finish_current_command: false,
+        finish_current_command_text_template: "",
         title: "Main Menu",
         items: [],
       };
@@ -82,6 +90,8 @@
         click_timestamp_format: String(step.click_timestamp_format || "%Y-%m-%d %H:%M:%S").trim() || "%Y-%m-%d %H:%M:%S",
         success_text_template: String(step.success_text_template || "").trim(),
         invalid_text_template: String(step.invalid_text_template || "Please choose from the keyboard.").trim(),
+        require_finish_current_command: Boolean(step.require_finish_current_command),
+        finish_current_command_text_template: String(step.finish_current_command_text_template || "").trim(),
       });
     },
     rowLabel(step, index) {
@@ -148,7 +158,11 @@
         `<textarea v-if="isStepType(${ctx}, 'wait_keyboard_reply')" ` +
         `placeholder="Please choose from the keyboard." ` +
         `:value="currentStepField(${ctx}, 'invalid_text_template')" ` +
-        `@input="updateCurrentStepField(${ctx}, 'invalid_text_template', $event.target.value)"></textarea>`
+        `@input="updateCurrentStepField(${ctx}, 'invalid_text_template', $event.target.value)"></textarea>` +
+        `<label v-if="isStepType(${ctx}, 'wait_keyboard_reply')" class="checkbox compact"><input type="checkbox" :checked="currentStepChecked(${ctx}, 'require_finish_current_command')" @change="updateCurrentStepToggle(${ctx}, 'require_finish_current_command', $event.target.checked)"><span>Require this reply before new actions</span></label>` +
+        `<label v-if="isStepType(${ctx}, 'wait_keyboard_reply')">Blocked Action Text</label>` +
+        `<textarea v-if="isStepType(${ctx}, 'wait_keyboard_reply')" placeholder="Please finish the current command before starting a new one." :value="currentStepField(${ctx}, 'finish_current_command_text_template')" @input="updateCurrentStepField(${ctx}, 'finish_current_command_text_template', $event.target.value)"></textarea>` +
+        `<p class="hint" v-if="isStepType(${ctx}, 'wait_keyboard_reply')">If enabled, other commands and callbacks wait until the user chooses one reply. /restart is still allowed.</p>`
       );
     },
   });

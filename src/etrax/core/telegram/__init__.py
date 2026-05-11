@@ -17,6 +17,12 @@ from .checkout import (
 )
 from .contracts import BotTokenResolver, CartStateStore, TelegramMessageGateway, UserProfileStore
 from .callback_module import LoadCallbackConfig, LoadCallbackModule
+from .check_username import (
+    CheckUsernameConfig,
+    CheckUsernameModule,
+    DEFAULT_CHECK_USERNAME_FAILURE,
+    render_check_username_text,
+)
 from .command_module import LoadCommandConfig, LoadCommandModule
 from .custom_code import (
     CustomCodeConfig,
@@ -29,9 +35,15 @@ from .bind_code import (
     BoundCodeStore,
 )
 from .forget_user_data import ForgetUserDataConfig, ForgetUserDataModule
+from .reset_command_menu import ResetCommandMenuConfig, ResetCommandMenuModule
 from .delete_message import DeleteMessageConfig, DeleteTelegramMessageModule
 from .user_info import UserInfoConfig, UserInfoModule, render_user_info_text
-from .inline_button import SendInlineButtonConfig, SendTelegramInlineButtonModule
+from .inline_button import (
+    InlineButtonActionRequestStore,
+    PendingInlineButtonActionRequest,
+    SendInlineButtonConfig,
+    SendTelegramInlineButtonModule,
+)
 from .keyboard_button import SendKeyboardButtonConfig, SendTelegramKeyboardButtonModule
 from .wait_keyboard_reply import (
     KeyboardReplyRequestStore,
@@ -118,6 +130,10 @@ __all__ = [
     "UserProfileStore",
     "LoadCallbackConfig",
     "LoadCallbackModule",
+    "CheckUsernameConfig",
+    "CheckUsernameModule",
+    "DEFAULT_CHECK_USERNAME_FAILURE",
+    "render_check_username_text",
     "LoadCommandConfig",
     "LoadCommandModule",
     "BindCodeConfig",
@@ -166,6 +182,8 @@ __all__ = [
     "daily_history_key",
     "SendInlineButtonConfig",
     "SendTelegramInlineButtonModule",
+    "InlineButtonActionRequestStore",
+    "PendingInlineButtonActionRequest",
     "SendKeyboardButtonConfig",
     "SendTelegramKeyboardButtonModule",
     "WaitKeyboardReplyConfig",
@@ -182,6 +200,8 @@ __all__ = [
     "RouteModule",
     "ForgetUserDataConfig",
     "ForgetUserDataModule",
+    "ResetCommandMenuConfig",
+    "ResetCommandMenuModule",
     "DeleteMessageConfig",
     "DeleteTelegramMessageModule",
     "UserInfoConfig",

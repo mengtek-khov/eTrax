@@ -25,8 +25,10 @@ from etrax.core.telegram import (
     CartButtonModule,
     CheckoutCartModule,
     ContactRequestStore,
+    InlineButtonActionRequestStore,
     KeyboardReplyRequestStore,
     LocationRequestStore,
+    PendingInlineButtonActionRequest,
     PendingKeyboardReplyRequest,
     PendingSelfieRequest,
     PendingContactRequest,
@@ -330,6 +332,33 @@ class _InMemoryKeyboardReplyRequestStore(KeyboardReplyRequestStore):
             return self._values.pop(key, None)
 
 
+class _InMemoryInlineButtonActionRequestStore(InlineButtonActionRequestStore):
+    """Process-local pending inline-button action store for standalone runtime."""
+
+    def __init__(self) -> None:
+        """Initialize the in-memory pending-inline-action index."""
+        self._values: dict[tuple[str, str, str], PendingInlineButtonActionRequest] = {}
+        self._lock = Lock()
+
+    def set_pending(self, request: PendingInlineButtonActionRequest) -> None:
+        """Store a pending inline-button action by bot, chat, and user."""
+        key = (request.bot_id, request.chat_id, request.user_id)
+        with self._lock:
+            self._values[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingInlineButtonActionRequest | None:
+        """Look up a pending inline-button action without removing it."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.get(key)
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingInlineButtonActionRequest | None:
+        """Remove and return a pending inline-button action once it is handled."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.pop(key, None)
+
+
 class BotRuntimeManager:
     """Runs per-bot long-poll workers and delegates module-specific work to focused runtime helpers."""
 
@@ -382,6 +411,7 @@ class BotRuntimeManager:
         self._selfie_request_store = _InMemorySelfieRequestStore()
         self._location_request_store = _InMemoryLocationRequestStore()
         self._keyboard_reply_request_store = _InMemoryKeyboardReplyRequestStore()
+        self._inline_action_request_store = _InMemoryInlineButtonActionRequestStore()
 
     def start(self, bot_id: str) -> tuple[bool, str]:
         """Start long polling for one bot if it is not already running."""
@@ -580,6 +610,7 @@ class BotRuntimeManager:
                             selfie_request_store=self._selfie_request_store,
                             location_request_store=self._location_request_store,
                             keyboard_reply_request_store=self._keyboard_reply_request_store,
+                            inline_action_request_store=self._inline_action_request_store,
                             profile_log_store=self._profile_log_store,
                             processed_callback_query_ids=processed_callback_query_ids,
                             locations_file=self._state_file.with_name("locations_ui.json"),
@@ -697,6 +728,7 @@ class BotRuntimeManager:
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
+                inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )
@@ -714,6 +746,7 @@ class BotRuntimeManager:
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
+                inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )
@@ -737,6 +770,7 @@ class BotRuntimeManager:
                     selfie_request_store=self._selfie_request_store,
                     location_request_store=self._location_request_store,
                     keyboard_reply_request_store=self._keyboard_reply_request_store,
+                    inline_action_request_store=self._inline_action_request_store,
                     cart_configs=cart_configs,
                     checkout_modules=checkout_modules,
                 )
@@ -769,6 +803,7 @@ class BotRuntimeManager:
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
+                inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
             )[0]

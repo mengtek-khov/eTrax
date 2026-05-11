@@ -132,6 +132,12 @@
     if (!("remove_inline_buttons_on_click" in normalized) && "inline_remove_buttons_on_click" in source) {
       normalized.remove_inline_buttons_on_click = source.inline_remove_buttons_on_click;
     }
+    if (!("require_finish_current_command" in normalized) && "require_finish_current_command" in source) {
+      normalized.require_finish_current_command = source.require_finish_current_command;
+    }
+    if (!("finish_current_command_text_template" in normalized) && "finish_current_command_text_template" in source) {
+      normalized.finish_current_command_text_template = source.finish_current_command_text_template;
+    }
     if (!("target_callback_key" in normalized) && "callback_target_key" in source) {
       normalized.target_callback_key = source.callback_target_key;
     }
@@ -460,6 +466,8 @@
   <input type="hidden" name="start_inline_save_callback_data_to_key" :value="startPrimary.save_callback_data_to_key">
   <input type="hidden" name="start_click_timestamp_format" :value="startPrimary.click_timestamp_format">
   <input type="hidden" name="start_inline_remove_buttons_on_click" :value="startPrimary.remove_inline_buttons_on_click ? '1' : ''">
+  <input type="hidden" name="start_require_finish_current_command" :value="startPrimary.require_finish_current_command ? '1' : ''">
+  <input type="hidden" name="start_finish_current_command_text_template" :value="startPrimary.finish_current_command_text_template || ''">
   <input type="hidden" name="start_callback_target_key" :value="startPrimary.target_callback_key">
   <input type="hidden" name="start_command_target_key" :value="startPrimary.target_command_key">
   <input type="hidden" name="start_photo_url" :value="startPrimary.photo_url">
@@ -578,6 +586,8 @@
 	      <input type="hidden" name="command_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
 	      <input type="hidden" name="command_click_timestamp_format" :value="primaryStep(entry.editor).click_timestamp_format">
 	      <input type="hidden" name="command_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
+	      <input type="hidden" name="command_require_finish_current_command" :value="primaryStep(entry.editor).require_finish_current_command ? '1' : ''">
+	      <input type="hidden" name="command_finish_current_command_text_template" :value="primaryStep(entry.editor).finish_current_command_text_template || ''">
 	      <input type="hidden" name="command_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 		      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
@@ -774,6 +784,8 @@
       <input type="hidden" name="callback_inline_save_callback_data_to_key" :value="primaryStep(entry.editor).save_callback_data_to_key">
       <input type="hidden" name="callback_click_timestamp_format" :value="primaryStep(entry.editor).click_timestamp_format">
       <input type="hidden" name="callback_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
+      <input type="hidden" name="callback_require_finish_current_command" :value="primaryStep(entry.editor).require_finish_current_command ? '1' : ''">
+      <input type="hidden" name="callback_finish_current_command_text_template" :value="primaryStep(entry.editor).finish_current_command_text_template || ''">
       <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 		      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
@@ -1607,6 +1619,8 @@
             inline_save_callback_data_to_key: primary.save_callback_data_to_key,
             click_timestamp_format: primary.click_timestamp_format,
             inline_remove_buttons_on_click: primary.remove_inline_buttons_on_click ? "1" : "",
+            require_finish_current_command: primary.require_finish_current_command ? "1" : "",
+            finish_current_command_text_template: primary.finish_current_command_text_template || "",
             callback_target_key: primary.target_callback_key,
             command_target_key: primary.target_command_key,
             photo_url: primary.photo_url,

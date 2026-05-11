@@ -14,13 +14,23 @@ from etrax.core.telegram import (
     CartButtonModule,
     CheckoutCartModule,
     ContactRequestStore,
+    END_BREADCRUMB_CALLBACK_DATA,
+    InlineButtonActionRequestStore,
     KeyboardReplyRequestStore,
     LocationRequestStore,
     SelfieRequestStore,
     SendTelegramInlineButtonModule,
     build_breadcrumb_session_entry,
+    build_contact_request_reply_markup,
+    build_inline_keyboard_reply_markup,
     build_location_breadcrumb_context,
+    build_location_request_reply_markup,
     build_remove_keyboard_reply_markup,
+    build_reply_keyboard_reply_markup,
+    render_ask_selfie_text,
+    render_share_contact_text,
+    render_share_location_text,
+    render_wait_keyboard_reply_text,
 )
 
 from .runtime_module_registry import (
@@ -59,6 +69,7 @@ def handle_update(
     selfie_request_store: SelfieRequestStore | None = None,
     location_request_store: LocationRequestStore | None = None,
     keyboard_reply_request_store: KeyboardReplyRequestStore | None = None,
+    inline_action_request_store: InlineButtonActionRequestStore | None = None,
     profile_log_store: UserProfileLogStore | None = None,
     processed_callback_query_ids: dict[str, float] | None = None,
     locations_file: Path | None = None,
@@ -81,6 +92,27 @@ def handle_update(
                 processed_callback_query_ids=processed_callback_query_ids,
             ):
                 return 0
+        callback_data = str(callback_query.get("data", "")).strip()
+        message = callback_query.get("message", {})
+        chat = message.get("chat", {}) if isinstance(message, dict) else {}
+        sender = callback_query.get("from", {})
+        chat_id = str(chat.get("id", "")).strip() if isinstance(chat, dict) else ""
+        user_id = str(sender.get("id", "")).strip() if isinstance(sender, dict) else ""
+        callback_transition_sent = _prepare_callback_transition(
+            bot_id=bot_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            callback_data=callback_data,
+            gateway=gateway,
+            bot_token=bot_token,
+            contact_request_store=contact_request_store,
+            selfie_request_store=selfie_request_store,
+            location_request_store=location_request_store,
+            keyboard_reply_request_store=keyboard_reply_request_store,
+            inline_action_request_store=inline_action_request_store,
+        )
+        if callback_transition_sent is not None:
+            return callback_transition_sent
         for handler in get_runtime_callback_query_handlers():
             sent_count = _invoke_update_handler(
                 handler,
@@ -90,10 +122,16 @@ def handle_update(
                 bot_token=bot_token,
                 location_request_store=location_request_store,
                 keyboard_reply_request_store=keyboard_reply_request_store,
+                inline_action_request_store=inline_action_request_store,
                 profile_log_store=profile_log_store,
                 cart_modules=cart_modules,
                 checkout_modules=checkout_modules or {},
+                command_menu=command_menu,
+                command_modules=command_modules,
                 callback_modules=callback_modules,
+                temporary_command_menus=temporary_command_menus,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                temporary_command_menu_state_store=temporary_command_menu_state_store,
                 inline_button_cleanup_by_message=inline_button_cleanup_by_message,
             )
             if sent_count > 0:
@@ -101,6 +139,7 @@ def handle_update(
         return handle_callback_query_update(
             update,
             bot_id=bot_id,
+            command_menu=command_menu,
             command_modules=command_modules,
             callback_modules=callback_modules,
             temporary_command_menus=temporary_command_menus,
@@ -114,6 +153,11 @@ def handle_update(
             gateway=gateway,
             bot_token=bot_token,
             profile_log_store=profile_log_store,
+            contact_request_store=contact_request_store,
+            selfie_request_store=selfie_request_store,
+            location_request_store=location_request_store,
+            keyboard_reply_request_store=keyboard_reply_request_store,
+            inline_action_request_store=inline_action_request_store,
         )
 
     for handler in get_runtime_contact_message_handlers():
@@ -128,15 +172,33 @@ def handle_update(
                 location_request_store=location_request_store,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
+                temporary_command_menus=temporary_command_menus,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                temporary_command_menu_state_store=temporary_command_menu_state_store,
                 callback_continuation_by_message=callback_continuation_by_message,
                 callback_context_updates_by_message=callback_context_updates_by_message,
                 inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                 profile_log_store=profile_log_store,
                 locations_file=locations_file,
                 keyboard_reply_request_store=keyboard_reply_request_store,
+                inline_action_request_store=inline_action_request_store,
+                command_menu=command_menu,
             )
         if contact_sent_count > 0:
             return contact_sent_count
+    blocked_sent_count = _block_pending_action_message_update(
+        update=update,
+        bot_id=bot_id,
+        gateway=gateway,
+        bot_token=bot_token,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
+    )
+    if blocked_sent_count is not None:
+        return blocked_sent_count
     return handle_message_update(
         update,
         bot_id=bot_id,
@@ -156,6 +218,7 @@ def handle_update(
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
         keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
         profile_log_store=profile_log_store,
     )
 
@@ -275,6 +338,7 @@ def handle_message_update(
     selfie_request_store: SelfieRequestStore | None = None,
     location_request_store: LocationRequestStore | None = None,
     keyboard_reply_request_store: KeyboardReplyRequestStore | None = None,
+    inline_action_request_store: InlineButtonActionRequestStore | None = None,
     profile_log_store: UserProfileLogStore | None = None,
 ) -> int:
     """Dispatch a plain message update into the configured command pipeline."""
@@ -331,9 +395,24 @@ def handle_message_update(
         gateway=gateway,
         bot_token=bot_token,
     )
-    if not pipeline:
-        return keyboard_cleanup_sent
     user_id = str(sender.get("id", "")).strip()
+    if not pipeline:
+        if command_name == "restart":
+            _prepare_command_transition(
+                bot_id=bot_id,
+                chat_id=chat_id,
+                user_id=user_id,
+                gateway=gateway,
+                bot_token=bot_token,
+                contact_request_store=contact_request_store,
+                selfie_request_store=selfie_request_store,
+                location_request_store=location_request_store,
+                keyboard_reply_request_store=keyboard_reply_request_store,
+                inline_action_request_store=inline_action_request_store,
+                profile_log_store=profile_log_store,
+                command_name=command_name,
+            )
+        return keyboard_cleanup_sent
     command_transition_sent = _prepare_command_transition(
         bot_id=bot_id,
         chat_id=chat_id,
@@ -344,7 +423,9 @@ def handle_message_update(
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
         keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
         profile_log_store=profile_log_store,
+        command_name=command_name,
     )
     if command_transition_sent is not None:
         return command_transition_sent
@@ -381,6 +462,7 @@ def handle_message_update(
                 return keyboard_cleanup_sent + execute_pipeline(
                     pipeline,
                     context,
+                    command_menu=command_menu,
                     command_modules=command_modules,
                     callback_modules=callback_modules,
                     temporary_command_menus=None,
@@ -406,6 +488,7 @@ def handle_message_update(
         return keyboard_cleanup_sent + execute_pipeline(
             pipeline,
             context,
+            command_menu=command_menu,
             command_modules=command_modules,
             callback_modules=callback_modules,
             temporary_command_menus=None,
@@ -423,6 +506,7 @@ def handle_message_update(
             return keyboard_cleanup_sent + execute_pipeline(
                 pipeline,
                 context,
+                command_menu=command_menu,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
                 temporary_command_menus=temporary_command_menus,
@@ -448,6 +532,7 @@ def handle_message_update(
     return keyboard_cleanup_sent + execute_pipeline(
         pipeline,
         context,
+        command_menu=command_menu,
         command_modules=command_modules,
         callback_modules=callback_modules,
         temporary_command_menus=temporary_command_menus,
@@ -466,6 +551,7 @@ def handle_callback_query_update(
     update: dict[str, Any],
     *,
     bot_id: str,
+    command_menu: list[dict[str, str]] | None = None,
     command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
     temporary_command_menus: dict[str, dict[str, object]] | None = None,
@@ -479,6 +565,11 @@ def handle_callback_query_update(
     gateway: TelegramBotApiGateway | None = None,
     bot_token: str = "",
     profile_log_store: UserProfileLogStore | None = None,
+    contact_request_store: ContactRequestStore | None = None,
+    selfie_request_store: SelfieRequestStore | None = None,
+    location_request_store: LocationRequestStore | None = None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None = None,
+    inline_action_request_store: InlineButtonActionRequestStore | None = None,
 ) -> int:
     """Dispatch a non-cart callback query into the configured callback pipeline."""
     callback_query = update.get("callback_query")
@@ -499,6 +590,22 @@ def handle_callback_query_update(
     chat_id = str(chat.get("id", "")).strip()
     if not chat_id:
         raise ValueError("callback_query does not include message.chat.id")
+    user_id = str(sender.get("id", "")).strip() if isinstance(sender, dict) else ""
+    callback_transition_sent = _prepare_callback_transition(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        callback_data=callback_data,
+        gateway=gateway,
+        bot_token=bot_token,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
+    )
+    if callback_transition_sent is not None:
+        return callback_transition_sent
     context: dict[str, Any] = {
         "bot_id": bot_id,
         "bot_name": bot_id,
@@ -549,10 +656,12 @@ def handle_callback_query_update(
         sent_count = execute_pipeline(
             pipeline,
             context,
+            command_menu=command_menu,
             command_modules=command_modules,
             callback_modules=callback_modules,
             temporary_command_menus=temporary_command_menus,
             active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+            temporary_command_menu_state_store=temporary_command_menu_state_store,
             callback_continuation_by_message=callback_continuation_by_message,
             callback_context_updates_by_message=callback_context_updates_by_message,
             inline_button_cleanup_by_message=inline_button_cleanup_by_message,
@@ -610,10 +719,12 @@ def handle_callback_query_update(
     sent_count = _run_callback_continuation_step(
         continuation_pipeline,
         context=context,
+        command_menu=command_menu,
         command_modules=command_modules,
         callback_modules=callback_modules,
         temporary_command_menus=temporary_command_menus,
         active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+        temporary_command_menu_state_store=temporary_command_menu_state_store,
         callback_continuation_by_message=callback_continuation_by_message,
         callback_context_updates_by_message=callback_context_updates_by_message,
         inline_button_cleanup_by_message=inline_button_cleanup_by_message,
@@ -783,10 +894,25 @@ def _prepare_command_transition(
     selfie_request_store: SelfieRequestStore | None,
     location_request_store: LocationRequestStore | None,
     keyboard_reply_request_store: KeyboardReplyRequestStore | None,
+    inline_action_request_store: InlineButtonActionRequestStore | None,
     profile_log_store: UserProfileLogStore | None,
+    command_name: str,
 ) -> int | None:
     """Block or clear pending continuation flows before starting a new command."""
     if not user_id:
+        return None
+    if str(command_name or "").strip().lower() == "restart":
+        _clear_replaceable_pending_requests(
+            bot_id=bot_id,
+            chat_id=chat_id,
+            user_id=user_id,
+            contact_request_store=contact_request_store,
+            selfie_request_store=selfie_request_store,
+            location_request_store=location_request_store,
+            keyboard_reply_request_store=keyboard_reply_request_store,
+            inline_action_request_store=inline_action_request_store,
+            profile_log_store=profile_log_store,
+        )
         return None
     blocking_request = _find_blocking_pending_request(
         bot_id=bot_id,
@@ -796,17 +922,15 @@ def _prepare_command_transition(
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
         keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
     )
     if blocking_request is not None:
-        if gateway is not None and bot_token:
-            gateway.send_message(
-                bot_token=bot_token,
-                chat_id=chat_id,
-                text=DEFAULT_FINISH_CURRENT_COMMAND_TEXT,
-                parse_mode=getattr(blocking_request, "parse_mode", None),
-            )
-            return 1
-        return 0
+        return _send_finish_current_command_notice(
+            chat_id=chat_id,
+            gateway=gateway,
+            bot_token=bot_token,
+            blocking_request=blocking_request,
+        )
     _clear_replaceable_pending_requests(
         bot_id=bot_id,
         chat_id=chat_id,
@@ -815,9 +939,282 @@ def _prepare_command_transition(
         selfie_request_store=selfie_request_store,
         location_request_store=location_request_store,
         keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
         profile_log_store=profile_log_store,
     )
     return None
+
+
+def _send_finish_current_command_notice(
+    *,
+    chat_id: str,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+    blocking_request: object,
+) -> int:
+    sent_count = 0
+    if gateway is not None and bot_token:
+        context = dict(getattr(blocking_request, "context_snapshot", {}) or {})
+        notice_text = _render_pending_request_text(
+            getattr(blocking_request, "finish_current_command_text_template", None),
+            context,
+            default_text=DEFAULT_FINISH_CURRENT_COMMAND_TEXT,
+            field_label="finish_current_command_text_template",
+        )
+        gateway.send_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=notice_text,
+            parse_mode=getattr(blocking_request, "parse_mode", None),
+        )
+        sent_count += 1
+        sent_count += _repeat_pending_request_prompt(
+            chat_id=chat_id,
+            gateway=gateway,
+            bot_token=bot_token,
+            blocking_request=blocking_request,
+        )
+    return sent_count
+
+
+def _repeat_pending_request_prompt(
+    *,
+    chat_id: str,
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    blocking_request: object,
+) -> int:
+    context = dict(getattr(blocking_request, "context_snapshot", {}) or {})
+    parse_mode = getattr(blocking_request, "parse_mode", None)
+    prompt_template = getattr(blocking_request, "prompt_text_template", None)
+
+    if hasattr(blocking_request, "buttons") and hasattr(blocking_request, "save_reply_to_key"):
+        text = render_wait_keyboard_reply_text(
+            prompt_template,
+            context,
+            default_text="Please choose one option.",
+            field_label="wait_keyboard_reply prompt",
+        )
+        gateway.send_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=build_reply_keyboard_reply_markup(
+                list(getattr(blocking_request, "buttons", ()) or ()),
+                one_time_keyboard=True,
+            ),
+        )
+        return 1
+
+    if hasattr(blocking_request, "callback_data_keys"):
+        text = _render_pending_request_text(
+            prompt_template,
+            context,
+            default_text=str(context.get("message_text", "")).strip() or "Please choose one option.",
+            field_label="inline_button prompt",
+        )
+        gateway.send_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=build_inline_keyboard_reply_markup(
+                getattr(blocking_request, "buttons", None),
+                context_label="inline_button pending prompt",
+            ),
+        )
+        return 1
+
+    if hasattr(blocking_request, "button_text") and hasattr(blocking_request, "require_live_location"):
+        default_text = (
+            "Please share a live location from Telegram's location menu."
+            if bool(getattr(blocking_request, "require_live_location", False))
+            else "Please share your location using the button below."
+        )
+        text = render_share_location_text(
+            prompt_template,
+            context,
+            default_text=default_text,
+            field_label="share_location prompt",
+        )
+        reply_markup = (
+            build_remove_keyboard_reply_markup()
+            if bool(getattr(blocking_request, "require_live_location", False))
+            else build_location_request_reply_markup(
+                str(getattr(blocking_request, "button_text", "") or "").strip() or "Share My Location"
+            )
+        )
+        gateway.send_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
+        )
+        return 1
+
+    if hasattr(blocking_request, "button_text"):
+        text = render_share_contact_text(
+            prompt_template,
+            context,
+            default_text="Please share your contact using the button below.",
+            field_label="share_contact prompt",
+        )
+        gateway.send_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=build_contact_request_reply_markup(
+                str(getattr(blocking_request, "button_text", "") or "").strip() or "Share My Contact"
+            ),
+        )
+        return 1
+
+    if hasattr(blocking_request, "context_result_key"):
+        text = render_ask_selfie_text(
+            prompt_template,
+            context,
+            default_text="Please send a selfie photo.",
+            field_label="ask_selfie prompt",
+        )
+        gateway.send_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=None,
+        )
+        return 1
+
+    return 0
+
+
+def _render_pending_request_text(
+    template: object,
+    context: dict[str, Any],
+    *,
+    default_text: str,
+    field_label: str,
+) -> str:
+    text_template = str(template or "").strip()
+    if not text_template:
+        return default_text
+    try:
+        return text_template.format_map(context)
+    except KeyError as exc:
+        missing = exc.args[0]
+        raise ValueError(f"{field_label} references missing context key '{missing}'") from exc
+
+
+def _prepare_callback_transition(
+    *,
+    bot_id: str,
+    chat_id: str,
+    user_id: str,
+    callback_data: str,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+    contact_request_store: ContactRequestStore | None,
+    selfie_request_store: SelfieRequestStore | None,
+    location_request_store: LocationRequestStore | None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None,
+    inline_action_request_store: InlineButtonActionRequestStore | None,
+) -> int | None:
+    """Block unrelated callback actions while a require-finish request is active."""
+    if not user_id:
+        return None
+    if callback_data == END_BREADCRUMB_CALLBACK_DATA:
+        return None
+    inline_pending_request = (
+        inline_action_request_store.get_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
+        if inline_action_request_store is not None
+        else None
+    )
+    if inline_pending_request is not None and bool(
+        getattr(inline_pending_request, "require_finish_current_command", False)
+    ):
+        allowed_callbacks = {
+            str(item).strip()
+            for item in getattr(inline_pending_request, "callback_data_keys", ())
+            if str(item).strip()
+        }
+        if callback_data in allowed_callbacks:
+            inline_action_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
+            return None
+        return _send_finish_current_command_notice(
+            chat_id=chat_id,
+            gateway=gateway,
+            bot_token=bot_token,
+            blocking_request=inline_pending_request,
+        )
+
+    blocking_request = _find_blocking_pending_request(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
+    )
+    if blocking_request is None:
+        return None
+    return _send_finish_current_command_notice(
+        chat_id=chat_id,
+        gateway=gateway,
+        bot_token=bot_token,
+        blocking_request=blocking_request,
+    )
+
+
+def _block_pending_action_message_update(
+    *,
+    update: dict[str, Any],
+    bot_id: str,
+    gateway: TelegramBotApiGateway | None,
+    bot_token: str,
+    contact_request_store: ContactRequestStore | None,
+    selfie_request_store: SelfieRequestStore | None,
+    location_request_store: LocationRequestStore | None,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None,
+    inline_action_request_store: InlineButtonActionRequestStore | None,
+) -> int | None:
+    """Block non-command messages while a require-finish request is active."""
+    message = update.get("message")
+    if not isinstance(message, dict):
+        message = update.get("edited_message")
+    if not isinstance(message, dict):
+        return None
+    text = str(message.get("text", "")).strip()
+    if text.startswith("/"):
+        return None
+    chat = message.get("chat", {})
+    sender = message.get("from", {})
+    chat_id = str(chat.get("id", "")).strip() if isinstance(chat, dict) else ""
+    user_id = str(sender.get("id", "")).strip() if isinstance(sender, dict) else ""
+    if not chat_id or not user_id:
+        return None
+    blocking_request = _find_blocking_pending_request(
+        bot_id=bot_id,
+        chat_id=chat_id,
+        user_id=user_id,
+        contact_request_store=contact_request_store,
+        selfie_request_store=selfie_request_store,
+        location_request_store=location_request_store,
+        keyboard_reply_request_store=keyboard_reply_request_store,
+        inline_action_request_store=inline_action_request_store,
+    )
+    if blocking_request is None:
+        return None
+    return _send_finish_current_command_notice(
+        chat_id=chat_id,
+        gateway=gateway,
+        bot_token=bot_token,
+        blocking_request=blocking_request,
+    )
 
 
 def _find_blocking_pending_request(
@@ -829,9 +1226,16 @@ def _find_blocking_pending_request(
     selfie_request_store: SelfieRequestStore | None,
     location_request_store: LocationRequestStore | None,
     keyboard_reply_request_store: KeyboardReplyRequestStore | None,
+    inline_action_request_store: InlineButtonActionRequestStore | None,
 ) -> object | None:
     """Return the first pending request that must be completed before a new command can start."""
-    for store in (contact_request_store, location_request_store, selfie_request_store, keyboard_reply_request_store):
+    for store in (
+        contact_request_store,
+        location_request_store,
+        selfie_request_store,
+        keyboard_reply_request_store,
+        inline_action_request_store,
+    ):
         if store is None:
             continue
         pending_request = store.get_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
@@ -851,6 +1255,7 @@ def _clear_replaceable_pending_requests(
     selfie_request_store: SelfieRequestStore | None,
     location_request_store: LocationRequestStore | None,
     keyboard_reply_request_store: KeyboardReplyRequestStore | None,
+    inline_action_request_store: InlineButtonActionRequestStore | None,
     profile_log_store: UserProfileLogStore | None,
 ) -> None:
     """Cancel old pending command continuations so the new command becomes the active flow."""
@@ -860,6 +1265,8 @@ def _clear_replaceable_pending_requests(
         selfie_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
     if keyboard_reply_request_store is not None:
         keyboard_reply_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
+    if inline_action_request_store is not None:
+        inline_action_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
     if location_request_store is None:
         return
     pending_location_request = location_request_store.pop_pending(
@@ -924,13 +1331,19 @@ def _restore_active_temporary_command_menu(
     gateway: TelegramBotApiGateway | None,
     bot_token: str,
 ) -> None:
-    if active_temporary_command_menus_by_chat is None or not bot_id or not chat_id:
+    if not bot_id or not chat_id:
         return
     state_key = _temporary_command_menu_state_key(bot_id=bot_id, chat_id=chat_id)
-    removed = active_temporary_command_menus_by_chat.pop(state_key, None)
+    removed = None
+    if active_temporary_command_menus_by_chat is not None:
+        removed = active_temporary_command_menus_by_chat.pop(state_key, None)
+    stored = None
     if temporary_command_menu_state_store is not None:
+        stored = temporary_command_menu_state_store.get_active_menu(bot_id=bot_id, chat_id=chat_id)
         temporary_command_menu_state_store.delete_active_menu(bot_id=bot_id, chat_id=chat_id)
-    if removed is None or gateway is None or not bot_token:
+    if removed is None and stored is None:
+        return
+    if gateway is None or not bot_token:
         return
     gateway.delete_my_commands(
         bot_token=bot_token,
@@ -1088,6 +1501,7 @@ def _run_callback_continuation_step(
     pipeline: list[FlowModule],
     *,
     context: dict[str, Any],
+    command_menu: list[dict[str, str]] | None = None,
     command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
     temporary_command_menus: dict[str, dict[str, object]] | None = None,
@@ -1106,6 +1520,7 @@ def _run_callback_continuation_step(
     return execute_pipeline(
         pipeline,
         context,
+        command_menu=command_menu,
         command_modules=command_modules,
         callback_modules=callback_modules,
         temporary_command_menus=temporary_command_menus,
@@ -1124,6 +1539,7 @@ def _run_callback_continuation_step(
 def execute_pipeline(
     pipeline: list[FlowModule],
     context: dict[str, Any],
+    command_menu: list[dict[str, str]] | None = None,
     command_modules: dict[str, list[FlowModule]] | None = None,
     callback_modules: dict[str, list[FlowModule]] | None = None,
     temporary_command_menus: dict[str, dict[str, object]] | None = None,
@@ -1171,11 +1587,22 @@ def execute_pipeline(
                 module=module,
                 inline_button_cleanup_by_message=inline_button_cleanup_by_message,
             )
+        if _outcome_requests_command_menu_reset(outcome):
+            _restore_active_temporary_command_menu(
+                bot_id=str(context.get("bot_id", "")).strip(),
+                chat_id=str(context.get("chat_id", "")).strip(),
+                command_menu=command_menu,
+                active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                temporary_command_menu_state_store=temporary_command_menu_state_store,
+                gateway=gateway,
+                bot_token=bot_token,
+            )
         target_callback_key = _target_callback_key_for_outcome(module, outcome)
         if target_callback_key:
             sent_count += _execute_loaded_callback_pipeline(
                 source_module=module,
                 target_callback_key=target_callback_key,
+                command_menu=command_menu,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
                 callback_execution_stack=callback_execution_stack,
@@ -1194,6 +1621,7 @@ def execute_pipeline(
         if target_command_key:
             sent_count += _execute_loaded_command_pipeline(
                 target_command_key=target_command_key,
+                command_menu=command_menu,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
                 command_execution_stack=command_execution_stack,
@@ -1212,6 +1640,7 @@ def execute_pipeline(
             sent_count += _execute_loaded_inline_button_module(
                 source_module=module,
                 target_callback_key=target_inline_button_key,
+                command_menu=command_menu,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
                 context=context,
@@ -1230,6 +1659,7 @@ def execute_pipeline(
             sent_count += execute_pipeline(
                 continuation_modules,
                 context,
+                command_menu=command_menu,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
                 temporary_command_menus=temporary_command_menus,
@@ -1249,6 +1679,7 @@ def execute_pipeline(
             sent_count += execute_pipeline(
                 continuation_modules,
                 context,
+                command_menu=command_menu,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
                 temporary_command_menus=temporary_command_menus,
@@ -1308,6 +1739,8 @@ def _runtime_module_label(module: object) -> str:
         label = "ask_selfie"
     elif normalized == "customcodemodule":
         label = "custom_code"
+    elif normalized == "resetcommandmenumodule":
+        label = "reset_command_menu"
     elif normalized == "sharelocationmodule":
         label = "share_location"
     elif normalized == "sendtelegrammessagemodule":
@@ -1354,10 +1787,17 @@ def _target_inline_button_key_for_outcome(module: FlowModule, outcome: object) -
     return str(getattr(module, "target_callback_key", "") or "").strip()
 
 
+def _outcome_requests_command_menu_reset(outcome: object) -> bool:
+    if outcome is None:
+        return False
+    return str(getattr(outcome, "reason", "") or "").strip() == "reset_command_menu"
+
+
 def _execute_loaded_callback_pipeline(
     *,
     source_module: FlowModule,
     target_callback_key: str,
+    command_menu: list[dict[str, str]] | None,
     command_modules: dict[str, list[FlowModule]] | None,
     callback_modules: dict[str, list[FlowModule]] | None,
     temporary_command_menus: dict[str, dict[str, object]] | None,
@@ -1391,6 +1831,7 @@ def _execute_loaded_callback_pipeline(
     sent_count = execute_pipeline(
         target_pipeline,
         context,
+        command_menu=command_menu,
         command_modules=command_modules,
         callback_modules=callback_modules,
         temporary_command_menus=temporary_command_menus,
@@ -1421,6 +1862,7 @@ def _execute_loaded_inline_button_module(
     *,
     source_module: FlowModule,
     target_callback_key: str,
+    command_menu: list[dict[str, str]] | None,
     command_modules: dict[str, list[FlowModule]] | None,
     callback_modules: dict[str, list[FlowModule]] | None,
     temporary_command_menus: dict[str, dict[str, object]] | None,
@@ -1442,6 +1884,7 @@ def _execute_loaded_inline_button_module(
     return execute_pipeline(
         [target_module],
         context,
+        command_menu=command_menu,
         command_modules=command_modules,
         callback_modules=callback_modules,
         temporary_command_menus=temporary_command_menus,
@@ -1459,6 +1902,7 @@ def _execute_loaded_inline_button_module(
 def _execute_loaded_command_pipeline(
     *,
     target_command_key: str,
+    command_menu: list[dict[str, str]] | None,
     command_modules: dict[str, list[FlowModule]] | None,
     callback_modules: dict[str, list[FlowModule]] | None,
     temporary_command_menus: dict[str, dict[str, object]] | None,
@@ -1487,6 +1931,7 @@ def _execute_loaded_command_pipeline(
     return execute_pipeline(
         target_pipeline,
         context,
+        command_menu=command_menu,
         command_modules=command_modules,
         callback_modules=callback_modules,
         temporary_command_menus=temporary_command_menus,

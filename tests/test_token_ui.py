@@ -247,6 +247,109 @@ def test_build_command_module_entry_supports_bind_code() -> None:
     assert entry["start_number"] == 1
 
 
+def test_build_command_module_entry_supports_check_username() -> None:
+    entry = _build_command_module_entry(
+        command_name="secure",
+        module_type="check_username",
+        text_template="Please set username.",
+        returning_text_template="",
+        hide_caption="",
+        parse_mode="HTML",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="@alice",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        custom_code_function_name="",
+        bind_code_prefix="",
+        bind_code_number_width="",
+        bind_code_start_number="",
+        location_latitude="",
+        location_longitude="",
+        require_live_location="",
+        find_closest_saved_location="",
+        match_closest_saved_location="",
+        closest_location_tolerance_meters="",
+        closest_location_group_action_type="",
+        closest_location_group_text="",
+        closest_location_group_callback_key="",
+        closest_location_group_custom_code_function_name="",
+        closest_location_group_send_timing="",
+        closest_location_group_send_after_step="",
+        location_invalid_text="",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
+        route_empty_text="",
+        route_max_link_points="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "check_username"
+    assert entry["required_username"] == "alice"
+    assert entry["failure_text_template"] == "Please set username."
+    assert entry["parse_mode"] == "HTML"
+    assert entry["pipeline"][0]["module_type"] == "check_username"
+
+
+def test_pipeline_to_chain_steps_round_trips_check_username_step() -> None:
+    serialized = _pipeline_to_chain_steps(
+        [
+            {"module_type": "send_message", "text_template": "First"},
+            {
+                "module_type": "check_username",
+                "required_username": "alice",
+                "failure_text_template": "Set username.",
+                "parse_mode": "HTML",
+            },
+        ]
+    )
+
+    assert serialized.startswith('{"module_type":"check_username"')
+    parsed = _parse_chain_steps(command_name="secure", raw=serialized)
+    assert parsed == [
+        {
+            "module_type": "check_username",
+            "required_username": "alice",
+            "failure_text_template": "Set username.",
+            "parse_mode": "HTML",
+        }
+    ]
+
+
 def test_build_command_module_entry_preserves_share_location_group_action_type_without_callback_key() -> None:
     entry = _build_command_module_entry(
         command_name="etrex",
@@ -2375,8 +2478,10 @@ def test_build_callback_module_entry_persists_temporary_commands() -> None:
                 "command": "next",
                 "description": "Next station",
                 "restore_original_menu": "",
-                "module_type": "send_message",
+                "module_type": "wait_keyboard_reply",
                 "text_template": "Next station ready",
+                "inline_buttons": "Yes | yes | 1\nNo | no | 1",
+                "click_timestamp_format": "%I:%M %p",
             },
             {
                 "command": "route",
@@ -2435,7 +2540,8 @@ def test_build_callback_module_entry_persists_temporary_commands() -> None:
         {"command": "next", "description": "Next station", "restore_original_menu": False},
         {"command": "route", "description": "Route", "restore_original_menu": True},
     ]
-    assert entry["temporary_command_modules"]["next"]["text_template"] == "Next station ready"
+    assert entry["temporary_command_modules"]["next"]["click_timestamp_format"] == "%I:%M %p"
+    assert entry["temporary_command_modules"]["next"]["pipeline"][0]["click_timestamp_format"] == "%I:%M %p"
     assert entry["temporary_command_modules"]["route"]["text_template"] == "Route ready"
 
 
@@ -2458,12 +2564,16 @@ def test_extract_callback_module_form_values_keeps_temporary_commands() -> None:
             ],
             "temporary_command_modules": {
                 "next": {
-                    "module_type": "send_message",
+                    "module_type": "wait_keyboard_reply",
                     "text_template": "Next station ready",
+                    "click_timestamp_format": "%I:%M %p",
+                    "buttons": [{"text": "Yes", "value": "yes", "row": 1}],
                     "pipeline": [
                         {
-                            "module_type": "send_message",
+                            "module_type": "wait_keyboard_reply",
                             "text_template": "Next station ready",
+                            "click_timestamp_format": "%I:%M %p",
+                            "buttons": [{"text": "Yes", "value": "yes", "row": 1}],
                         }
                     ],
                 },
@@ -2485,6 +2595,7 @@ def test_extract_callback_module_form_values_keeps_temporary_commands() -> None:
     assert temporary_commands[0]["command"] == "next"
     assert temporary_commands[0]["description"] == "Next station"
     assert temporary_commands[0]["restore_original_menu"] == ""
+    assert temporary_commands[0]["click_timestamp_format"] == "%I:%M %p"
     assert temporary_commands[1]["command"] == "route"
     assert temporary_commands[1]["description"] == "Route"
     assert temporary_commands[1]["restore_original_menu"] == "1"

@@ -30,6 +30,88 @@
         ],
         "require_live_location": true,
         "success_text_template": "Thanks, your location was received.",
+        "temporary_command_modules": {
+          "clock_out": {
+            "buttons": [
+              {
+                "row": 1,
+                "text": "\u2705 Yes",
+                "value": "clock_out_now"
+              },
+              {
+                "row": 1,
+                "text": "\u274c No",
+                "value": "clock_out_cancel"
+              }
+            ],
+            "click_timestamp_format": "%I:%M %p",
+            "invalid_text_template": "Please choose from the keyboard.",
+            "module_type": "wait_keyboard_reply",
+            "parse_mode": null,
+            "pipeline": [
+              {
+                "buttons": [
+                  {
+                    "row": 1,
+                    "text": "\u2705 Yes",
+                    "value": "clock_out_now"
+                  },
+                  {
+                    "row": 1,
+                    "text": "\u274c No",
+                    "value": "clock_out_cancel"
+                  }
+                ],
+                "click_timestamp_format": "%I:%M %p",
+                "invalid_text_template": "Please choose from the keyboard.",
+                "module_type": "wait_keyboard_reply",
+                "parse_mode": null,
+                "save_reply_to_key": "keyboard_reply",
+                "success_text_template": "",
+                "text_template": "\u26a0\ufe0f Are you sure you want to CLOCK OUT?"
+              }
+            ],
+            "save_reply_to_key": "keyboard_reply",
+            "success_text_template": "",
+            "text_template": "\u26a0\ufe0f Are you sure you want to CLOCK OUT?"
+          },
+          "track_location": {
+            "breadcrumb_interval_minutes": 5.0,
+            "breadcrumb_min_distance_meters": 15.0,
+            "button_text": "Share My Location",
+            "module_type": "share_location",
+            "parse_mode": null,
+            "pipeline": [
+              {
+                "breadcrumb_interval_minutes": 5.0,
+                "breadcrumb_min_distance_meters": 15.0,
+                "button_text": "Share My Location",
+                "module_type": "share_location",
+                "parse_mode": null,
+                "require_live_location": true,
+                "success_text_template": "Thanks, your location was received.",
+                "text_template": "Please share your location using the button below.",
+                "track_breadcrumb": true
+              }
+            ],
+            "require_live_location": true,
+            "success_text_template": "Thanks, your location was received.",
+            "text_template": "Please share your location using the button below.",
+            "track_breadcrumb": true
+          }
+        },
+        "temporary_commands": [
+          {
+            "command": "clock_out",
+            "description": "Command",
+            "restore_original_menu": false
+          },
+          {
+            "command": "track_location",
+            "description": "Command",
+            "restore_original_menu": false
+          }
+        ],
         "text_template": "\ud83d\uddfa Please share your LIVE location to clock in."
       },
       "age verify": {
@@ -77,6 +159,51 @@
         "remove_inline_buttons_on_click": true,
         "save_callback_data_to_key": "i_am_18",
         "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
+      },
+      "clock_out_cancel": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "\u274e Clock-Out process canceled. Thank you!"
+          }
+        ],
+        "text_template": "\u274e Clock-Out process canceled. Thank you!"
+      },
+      "clock_out_now": {
+        "button_text": "Share My Location",
+        "module_type": "share_location",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "button_text": "Share My Location",
+            "module_type": "share_location",
+            "parse_mode": null,
+            "require_live_location": true,
+            "success_text_template": "Thanks, your location was received.",
+            "text_template": "\ud83d\uddfa Please share your LIVE location to clock out."
+          },
+          {
+            "invalid_text_template": "Please send a selfie photo.",
+            "module_type": "ask_selfie",
+            "parse_mode": null,
+            "success_text_template": "Thanks, your selfie was received.",
+            "text_template": "\ud83d\udcf7 Please share a selfie to complete clock-out."
+          },
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "\u2611\ufe0f  Clock-out received at {keyboard_reply_clicked_at}."
+          },
+          {
+            "module_type": "reset_command_menu"
+          }
+        ],
+        "require_live_location": true,
+        "success_text_template": "Thanks, your location was received.",
+        "text_template": "\ud83d\uddfa Please share your LIVE location to clock out."
       },
       "i_am_18": {
         "module_type": "send_message",
@@ -154,12 +281,12 @@
             "parse_mode": null,
             "save_reply_to_key": "keyboard_reply",
             "success_text_template": "",
-            "text_template": "Please choose one option."
+            "text_template": "Click the button bellow to clock in."
           }
         ],
         "save_reply_to_key": "keyboard_reply",
         "success_text_template": "",
-        "text_template": "Please choose one option."
+        "text_template": "Click the button bellow to clock in."
       },
       "getinfo": {
         "empty_text_template": "No user information has been gathered yet.",
@@ -319,6 +446,6 @@
   "token_ref": {
     "bot_id": "eTrax Bot V1"
   },
-  "updated_at": "2026-05-07T06:31:50.512780+00:00",
+  "updated_at": "2026-05-11T04:49:09.331794+00:00",
   "version": 1
 }

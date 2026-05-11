@@ -56,6 +56,7 @@ class ShareLocationConfig:
     closest_location_group_custom_code_function_name: str | None = None
     invalid_text_template: str | None = DEFAULT_LOCATION_INVALID
     require_finish_current_command: bool = False
+    finish_current_command_text_template: str | None = None
     require_live_location: bool = False
     find_closest_saved_location: bool = False
     match_closest_saved_location: bool = False
@@ -95,6 +96,7 @@ class PendingLocationRequest:
     closest_location_group_callback_key: str | None = None
     closest_location_group_custom_code_function_name: str | None = None
     require_finish_current_command: bool = False
+    finish_current_command_text_template: str | None = None
     require_live_location: bool = False
     find_closest_saved_location: bool = False
     match_closest_saved_location: bool = False
@@ -276,6 +278,7 @@ class ShareLocationModule:
                 or None,
                 invalid_text_template=self._config.invalid_text_template,
                 require_finish_current_command=bool(self._config.require_finish_current_command),
+                finish_current_command_text_template=self._config.finish_current_command_text_template,
                 require_live_location=self._config.require_live_location,
                 find_closest_saved_location=bool(self._config.find_closest_saved_location),
                 match_closest_saved_location=bool(self._config.match_closest_saved_location),

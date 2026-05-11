@@ -14,6 +14,7 @@ from etrax.core.telegram import (
     AskSelfieConfig,
     BindCodeConfig,
     CartButtonConfig,
+    CheckUsernameConfig,
     CheckoutCartConfig,
     CustomCodeConfig,
     DeleteMessageConfig,
@@ -23,6 +24,7 @@ from etrax.core.telegram import (
     LoadInlineButtonConfig,
     OpenMiniAppConfig,
     PaywayPaymentConfig,
+    ResetCommandMenuConfig,
     RouteConfig,
     SendInlineButtonConfig,
     SendKeyboardButtonConfig,
@@ -230,6 +232,7 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
         SendInlineButtonConfig,
         SendKeyboardButtonConfig,
         WaitKeyboardReplyConfig,
+        CheckUsernameConfig,
         BindCodeConfig,
         SendMessageConfig,
         SendLocationConfig,
@@ -248,6 +251,7 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
         LoadInlineButtonConfig,
         OpenMiniAppConfig,
         ForgetUserDataConfig,
+        ResetCommandMenuConfig,
         UserInfoConfig,
     )
 
@@ -320,6 +324,7 @@ def build_runtime_step_module(
     selfie_request_store: object | None = None,
     location_request_store: object | None = None,
     keyboard_reply_request_store: object | None = None,
+    inline_action_request_store: object | None = None,
     cart_configs: dict[str, object] | None = None,
     checkout_modules: dict[str, object] | None = None,
     continuation_modules: list[FlowModule] | None = None,
@@ -337,6 +342,7 @@ def build_runtime_step_module(
         "selfie_request_store": selfie_request_store,
         "location_request_store": location_request_store,
         "keyboard_reply_request_store": keyboard_reply_request_store,
+        "inline_action_request_store": inline_action_request_store,
         "cart_configs": cart_configs,
         "checkout_modules": checkout_modules,
     }

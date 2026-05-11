@@ -9,6 +9,7 @@ from etrax.core.telegram import (
     LoadCommandConfig,
     LoadCommandModule,
     PendingContactRequest,
+    PendingInlineButtonActionRequest,
     PendingLocationRequest,
     LoadInlineButtonConfig,
     LoadInlineButtonModule,
@@ -215,6 +216,21 @@ class FakeSelfieRequestStore:
         return self.pending.pop((bot_id, chat_id, user_id), None)
 
 
+class FakeInlineActionRequestStore:
+    def __init__(self) -> None:
+        self.pending: dict[tuple[str, str, str], object] = {}
+
+    def set_pending(self, request: object) -> None:
+        key = (request.bot_id, request.chat_id, request.user_id)
+        self.pending[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.get((bot_id, chat_id, user_id))
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> object | None:
+        return self.pending.pop((bot_id, chat_id, user_id), None)
+
+
 def test_handle_message_update_adds_rich_sender_context() -> None:
     module = CaptureModule()
 
@@ -309,6 +325,8 @@ def test_handle_message_update_blocks_new_command_when_pending_request_requires_
             success_text_template="Thanks",
             invalid_text_template="Please share your own contact",
             require_finish_current_command=True,
+            finish_current_command_text_template="Finish first, {user_first_name}.",
+            context_snapshot={"user_first_name": "Alice"},
         )
     )
 
@@ -328,10 +346,192 @@ def test_handle_message_update_blocks_new_command_when_pending_request_requires_
         contact_request_store=contact_request_store,
     )
 
-    assert sent == 1
+    assert sent == 2
     assert not module.contexts
-    assert gateway.message_calls[-1]["text"] == "Please finish the current command before starting a new one."
+    assert [call["text"] for call in gateway.message_calls[-2:]] == [
+        "Finish first, Alice.",
+        "Please share your contact",
+    ]
+    assert gateway.message_calls[-1]["reply_markup"]["keyboard"][0][0]["request_contact"] is True
     assert contact_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
+
+
+def test_handle_update_blocks_non_command_message_when_pending_request_requires_finish() -> None:
+    gateway = FakeGateway()
+    location_request_store = FakeLocationRequestStore()
+    location_request_store.set_pending(
+        PendingLocationRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            button_text="Share My Location",
+            parse_mode=None,
+            prompt_text_template="Share location now",
+            success_text_template="Thanks",
+            closest_location_group_text_template=None,
+            invalid_text_template=None,
+            require_finish_current_command=True,
+        )
+    )
+
+    sent = handle_update(
+        {
+            "message": {
+                "photo": [{"file_id": "photo-1", "file_unique_id": "unique-1"}],
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="token-1234",
+        location_request_store=location_request_store,
+    )
+
+    assert sent == 2
+    assert [call["text"] for call in gateway.message_calls[-2:]] == [
+        "Please finish the current command before starting a new one.",
+        "Share location now",
+    ]
+    assert gateway.message_calls[-1]["reply_markup"]["keyboard"][0][0]["request_location"] is True
+
+
+def test_handle_message_update_allows_restart_when_pending_request_requires_finish() -> None:
+    restart_module = CaptureModule()
+    gateway = FakeGateway()
+    contact_request_store = FakeContactRequestStore()
+    contact_request_store.set_pending(
+        PendingContactRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            button_text="Share My Contact",
+            parse_mode=None,
+            prompt_text_template="Please share your contact",
+            success_text_template="Thanks",
+            invalid_text_template="Please share your own contact",
+            require_finish_current_command=True,
+        )
+    )
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/restart",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"restart": [restart_module]},
+        start_returning_user=False,
+        gateway=gateway,
+        bot_token="token-1234",
+        contact_request_store=contact_request_store,
+    )
+
+    assert sent == 1
+    assert restart_module.contexts
+    assert gateway.message_calls == []
+    assert contact_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
+
+
+def test_inline_button_require_finish_blocks_new_command_until_clicked() -> None:
+    gateway = FakeGateway()
+    inline_store = FakeInlineActionRequestStore()
+    inline_module = SendTelegramInlineButtonModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        inline_action_request_store=inline_store,
+        config=SendInlineButtonConfig(
+            bot_id="support-bot",
+            text_template="Choose",
+            buttons=[{"text": "Continue", "callback_data": "continue"}],
+            require_finish_current_command=True,
+        ),
+    )
+    other_module = CaptureModule()
+
+    started = handle_message_update(
+        {
+            "message": {
+                "text": "/start",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [inline_module], "other": [other_module]},
+        start_returning_user=False,
+    )
+    blocked = handle_message_update(
+        {
+            "message": {
+                "text": "/other",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"start": [inline_module], "other": [other_module]},
+        start_returning_user=False,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        inline_action_request_store=inline_store,
+    )
+
+    assert started == 1
+    assert blocked == 2
+    assert not other_module.contexts
+    assert [call["text"] for call in gateway.message_calls[-2:]] == [
+        "Please finish the current command before starting a new one.",
+        "Choose",
+    ]
+    assert gateway.message_calls[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "continue"
+    assert inline_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
+
+
+def test_inline_button_require_finish_clears_after_matching_callback() -> None:
+    gateway = FakeGateway()
+    inline_store = FakeInlineActionRequestStore()
+    inline_store.set_pending(
+        PendingInlineButtonActionRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            callback_data_keys=("continue",),
+            parse_mode=None,
+            require_finish_current_command=True,
+        )
+    )
+    callback_module = CaptureModule()
+
+    sent = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-continue",
+                "data": "continue",
+                "from": {"id": 77, "first_name": "Alice"},
+                "message": {
+                    "message_id": 55,
+                    "chat": {"id": 12345},
+                    "text": "Choose",
+                },
+            }
+        },
+        bot_id="support-bot",
+        callback_modules={"continue": [callback_module]},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        inline_action_request_store=inline_store,
+    )
+
+    assert sent == 1
+    assert callback_module.contexts
+    assert inline_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
 
 
 def test_handle_message_update_replacing_breadcrumb_request_closes_active_profile_session() -> None:

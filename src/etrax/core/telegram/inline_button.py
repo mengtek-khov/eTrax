@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Protocol, Sequence
 
 from ..flow import FlowModule, ModuleOutcome
 from .context_conditions import context_rule_matches
@@ -32,6 +32,37 @@ class SendInlineButtonConfig:
     save_callback_data_to_key: str = ""
     remove_inline_buttons_on_click: bool = False
     click_timestamp_format: str = "%Y-%m-%d %H:%M:%S"
+    require_finish_current_command: bool = False
+    finish_current_command_text_template: str | None = None
+
+
+@dataclass(slots=True)
+class PendingInlineButtonActionRequest:
+    """Pending inline-button request waiting for one configured callback click."""
+
+    bot_id: str
+    chat_id: str
+    user_id: str
+    callback_data_keys: tuple[str, ...]
+    parse_mode: str | None
+    require_finish_current_command: bool = False
+    finish_current_command_text_template: str | None = None
+    prompt_text_template: str | None = None
+    buttons: object | None = None
+    context_snapshot: dict[str, Any] = field(default_factory=dict)
+
+
+class InlineButtonActionRequestStore(Protocol):
+    """State store for inline-button actions that must be clicked before replacement."""
+
+    def set_pending(self, request: PendingInlineButtonActionRequest) -> None:
+        """Persist or replace a pending inline-button action request."""
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingInlineButtonActionRequest | None:
+        """Return pending request for bot/chat/user if present."""
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingInlineButtonActionRequest | None:
+        """Remove and return pending request for bot/chat/user if present."""
 
 
 class SendTelegramInlineButtonModule:
@@ -42,11 +73,13 @@ class SendTelegramInlineButtonModule:
         token_resolver: BotTokenResolver,
         gateway: TelegramMessageGateway,
         config: SendInlineButtonConfig | None = None,
+        inline_action_request_store: InlineButtonActionRequestStore | None = None,
         continuation_modules: Sequence[FlowModule] | None = None,
     ) -> None:
         self._token_resolver = token_resolver
         self._gateway = gateway
         self._config = config or SendInlineButtonConfig()
+        self._inline_action_request_store = inline_action_request_store
         self._continuation_modules = tuple(continuation_modules or ())
 
     def execute(self, context: dict[str, Any]) -> ModuleOutcome:
@@ -103,7 +136,9 @@ class SendTelegramInlineButtonModule:
                 context_result_key=self._config.context_result_key,
             ),
         )
-        return message_module.execute(context)
+        outcome = message_module.execute(context)
+        self._set_pending_action_request(context=context, outcome=outcome, raw_buttons=raw_buttons)
+        return outcome
 
     @property
     def continuation_modules(self) -> tuple[FlowModule, ...]:
@@ -154,12 +189,51 @@ class SendTelegramInlineButtonModule:
                 save_callback_data_to_key=save_callback_data_to_key,
                 remove_inline_buttons_on_click=next_config.remove_inline_buttons_on_click,
                 click_timestamp_format=next_config.click_timestamp_format,
+                require_finish_current_command=next_config.require_finish_current_command,
+                finish_current_command_text_template=next_config.finish_current_command_text_template,
             )
         return SendTelegramInlineButtonModule(
             token_resolver=self._token_resolver,
             gateway=self._gateway,
             config=next_config,
+            inline_action_request_store=self._inline_action_request_store,
             continuation_modules=self._continuation_modules,
+        )
+
+    def _set_pending_action_request(
+        self,
+        *,
+        context: dict[str, Any],
+        outcome: ModuleOutcome,
+        raw_buttons: object,
+    ) -> None:
+        if self._inline_action_request_store is None:
+            return
+        if not bool(self._config.require_finish_current_command):
+            return
+        if outcome.reason in {"missing_required_context", "skip_context_present"}:
+            return
+        callback_data_keys = self.callback_data_keys
+        if not callback_data_keys:
+            return
+        bot_id = str(self._config.bot_id or context.get(self._config.context_bot_id_key, "")).strip()
+        chat_id = str(self._config.chat_id or context.get(self._config.context_chat_id_key, "")).strip()
+        user_id = str(context.get("user_id", "")).strip()
+        if not bot_id or not chat_id or not user_id:
+            return
+        self._inline_action_request_store.set_pending(
+            PendingInlineButtonActionRequest(
+                bot_id=bot_id,
+                chat_id=chat_id,
+                user_id=user_id,
+                callback_data_keys=callback_data_keys,
+                parse_mode=self._config.parse_mode,
+                require_finish_current_command=True,
+                finish_current_command_text_template=self._config.finish_current_command_text_template,
+                prompt_text_template=self._config.text_template,
+                buttons=raw_buttons,
+                context_snapshot=dict(context),
+            )
         )
 
 

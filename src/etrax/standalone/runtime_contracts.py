@@ -17,6 +17,7 @@ from etrax.core.telegram import (
     LoadInlineButtonConfig,
     OpenMiniAppConfig,
     PaywayPaymentConfig,
+    ResetCommandMenuConfig,
     RouteConfig,
     SendInlineButtonConfig,
     SendKeyboardButtonConfig,
@@ -47,6 +48,7 @@ RuntimeStepConfig = (
     | SendKeyboardButtonConfig
     | OpenMiniAppConfig
     | ForgetUserDataConfig
+    | ResetCommandMenuConfig
     | UserInfoConfig
 )
 
