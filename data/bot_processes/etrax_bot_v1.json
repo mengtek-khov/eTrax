@@ -3,24 +3,11 @@
   "command_menu": {
     "callback_modules": {
       "Clock_In": {
-        "button_text": "Share My Location",
-        "module_type": "share_location",
-        "parse_mode": null,
+        "module_type": "callback_module",
         "pipeline": [
           {
-            "button_text": "Share My Location",
-            "module_type": "share_location",
-            "parse_mode": null,
-            "require_live_location": true,
-            "success_text_template": "Thanks, your location was received.",
-            "text_template": "\ud83d\uddfa Please share your LIVE location to clock in."
-          },
-          {
-            "invalid_text_template": "Please send a selfie photo.",
-            "module_type": "ask_selfie",
-            "parse_mode": null,
-            "success_text_template": "Thanks, your selfie was received.",
-            "text_template": "\ud83d\udcf7 Please share a selfie to complete clock-in."
+            "module_type": "callback_module",
+            "target_callback_key": "etrex_process"
           },
           {
             "module_type": "send_message",
@@ -28,8 +15,7 @@
             "text_template": "\u2705 Clock-in received at {keyboard_reply_clicked_at}."
           }
         ],
-        "require_live_location": true,
-        "success_text_template": "Thanks, your location was received.",
+        "target_callback_key": "etrex_process",
         "temporary_command_modules": {
           "clock_out": {
             "buttons": [
@@ -111,8 +97,7 @@
             "description": "Command",
             "restore_original_menu": false
           }
-        ],
-        "text_template": "\ud83d\uddfa Please share your LIVE location to clock in."
+        ]
       },
       "age verify": {
         "buttons": [
@@ -173,24 +158,11 @@
         "text_template": "\u274e Clock-Out process canceled. Thank you!"
       },
       "clock_out_now": {
-        "button_text": "Share My Location",
-        "module_type": "share_location",
-        "parse_mode": null,
+        "module_type": "callback_module",
         "pipeline": [
           {
-            "button_text": "Share My Location",
-            "module_type": "share_location",
-            "parse_mode": null,
-            "require_live_location": true,
-            "success_text_template": "Thanks, your location was received.",
-            "text_template": "\ud83d\uddfa Please share your LIVE location to clock out."
-          },
-          {
-            "invalid_text_template": "Please send a selfie photo.",
-            "module_type": "ask_selfie",
-            "parse_mode": null,
-            "success_text_template": "Thanks, your selfie was received.",
-            "text_template": "\ud83d\udcf7 Please share a selfie to complete clock-out."
+            "module_type": "callback_module",
+            "target_callback_key": "etrex_process"
           },
           {
             "module_type": "send_message",
@@ -201,9 +173,40 @@
             "module_type": "reset_command_menu"
           }
         ],
+        "target_callback_key": "etrex_process"
+      },
+      "etrex_process": {
+        "button_text": "Share My Location",
+        "finish_current_command_text_template": "\u274c Incorrect response!",
+        "module_type": "share_location",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "button_text": "Share My Location",
+            "finish_current_command_text_template": "\u274c Incorrect response!",
+            "module_type": "share_location",
+            "parse_mode": null,
+            "require_finish_current_command": true,
+            "require_live_location": true,
+            "success_text_template": "Thanks, your location was received.",
+            "text_template": "\ud83d\uddfa Please share your LIVE location to clock in."
+          },
+          {
+            "finish_current_command_text_template": "\u274c Incorrect response!",
+            "invalid_text_template": "Please send a selfie photo.",
+            "module_type": "ask_selfie",
+            "original_capture_invalid_text_template": "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
+            "parse_mode": null,
+            "require_finish_current_command": true,
+            "require_original_capture_date": true,
+            "success_text_template": "Thanks, your selfie was received.",
+            "text_template": "\ud83d\udcf7 Please share a selfie to complete clock-in."
+          }
+        ],
+        "require_finish_current_command": true,
         "require_live_location": true,
         "success_text_template": "Thanks, your location was received.",
-        "text_template": "\ud83d\uddfa Please share your LIVE location to clock out."
+        "text_template": "\ud83d\uddfa Please share your LIVE location to clock in."
       },
       "i_am_18": {
         "module_type": "send_message",
@@ -446,6 +449,6 @@
   "token_ref": {
     "bot_id": "eTrax Bot V1"
   },
-  "updated_at": "2026-05-11T04:49:09.331794+00:00",
+  "updated_at": "2026-05-13T08:36:08.985824+00:00",
   "version": 1
 }

@@ -468,6 +468,10 @@
   <input type="hidden" name="start_inline_remove_buttons_on_click" :value="startPrimary.remove_inline_buttons_on_click ? '1' : ''">
   <input type="hidden" name="start_require_finish_current_command" :value="startPrimary.require_finish_current_command ? '1' : ''">
   <input type="hidden" name="start_finish_current_command_text_template" :value="startPrimary.finish_current_command_text_template || ''">
+  <input type="hidden" name="start_require_original_capture_date" :value="startPrimary.require_original_capture_date ? '1' : ''">
+  <input type="hidden" name="start_original_capture_max_age_minutes" :value="startPrimary.original_capture_max_age_minutes || ''">
+  <input type="hidden" name="start_require_original_capture_same_day" :value="startPrimary.require_original_capture_same_day === false ? '' : '1'">
+  <input type="hidden" name="start_original_capture_invalid_text_template" :value="startPrimary.original_capture_invalid_text_template || ''">
   <input type="hidden" name="start_callback_target_key" :value="startPrimary.target_callback_key">
   <input type="hidden" name="start_command_target_key" :value="startPrimary.target_command_key">
   <input type="hidden" name="start_photo_url" :value="startPrimary.photo_url">
@@ -588,6 +592,10 @@
 	      <input type="hidden" name="command_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
 	      <input type="hidden" name="command_require_finish_current_command" :value="primaryStep(entry.editor).require_finish_current_command ? '1' : ''">
 	      <input type="hidden" name="command_finish_current_command_text_template" :value="primaryStep(entry.editor).finish_current_command_text_template || ''">
+	      <input type="hidden" name="command_require_original_capture_date" :value="primaryStep(entry.editor).require_original_capture_date ? '1' : ''">
+	      <input type="hidden" name="command_original_capture_max_age_minutes" :value="primaryStep(entry.editor).original_capture_max_age_minutes || ''">
+	      <input type="hidden" name="command_require_original_capture_same_day" :value="primaryStep(entry.editor).require_original_capture_same_day === false ? '' : '1'">
+	      <input type="hidden" name="command_original_capture_invalid_text_template" :value="primaryStep(entry.editor).original_capture_invalid_text_template || ''">
 	      <input type="hidden" name="command_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 		      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
@@ -786,6 +794,10 @@
       <input type="hidden" name="callback_inline_remove_buttons_on_click" :value="primaryStep(entry.editor).remove_inline_buttons_on_click ? '1' : ''">
       <input type="hidden" name="callback_require_finish_current_command" :value="primaryStep(entry.editor).require_finish_current_command ? '1' : ''">
       <input type="hidden" name="callback_finish_current_command_text_template" :value="primaryStep(entry.editor).finish_current_command_text_template || ''">
+      <input type="hidden" name="callback_require_original_capture_date" :value="primaryStep(entry.editor).require_original_capture_date ? '1' : ''">
+      <input type="hidden" name="callback_original_capture_max_age_minutes" :value="primaryStep(entry.editor).original_capture_max_age_minutes || ''">
+      <input type="hidden" name="callback_require_original_capture_same_day" :value="primaryStep(entry.editor).require_original_capture_same_day === false ? '' : '1'">
+      <input type="hidden" name="callback_original_capture_invalid_text_template" :value="primaryStep(entry.editor).original_capture_invalid_text_template || ''">
       <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 		      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
@@ -1621,6 +1633,10 @@
             inline_remove_buttons_on_click: primary.remove_inline_buttons_on_click ? "1" : "",
             require_finish_current_command: primary.require_finish_current_command ? "1" : "",
             finish_current_command_text_template: primary.finish_current_command_text_template || "",
+            require_original_capture_date: primary.require_original_capture_date ? "1" : "",
+            original_capture_max_age_minutes: primary.original_capture_max_age_minutes || "",
+            require_original_capture_same_day: primary.require_original_capture_same_day === false ? "" : "1",
+            original_capture_invalid_text_template: primary.original_capture_invalid_text_template || "",
             callback_target_key: primary.target_callback_key,
             command_target_key: primary.target_command_key,
             photo_url: primary.photo_url,

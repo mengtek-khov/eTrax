@@ -28,10 +28,10 @@ def build_runtime_modules(
     contact_request_store: ContactRequestStore,
     selfie_request_store: SelfieRequestStore,
     location_request_store: LocationRequestStore,
-    keyboard_reply_request_store: KeyboardReplyRequestStore,
+    keyboard_reply_request_store: KeyboardReplyRequestStore | None = None,
     inline_action_request_store: InlineButtonActionRequestStore | None = None,
-    cart_configs: dict[str, CartButtonConfig],
-    checkout_modules: dict[str, CheckoutCartModule],
+    cart_configs: dict[str, CartButtonConfig] | None = None,
+    checkout_modules: dict[str, CheckoutCartModule] | None = None,
 ) -> list[FlowModule]:
     """Instantiate executable flow modules from resolved configs."""
     modules: list[FlowModule] = []
@@ -49,8 +49,8 @@ def build_runtime_modules(
             "location_request_store": location_request_store,
             "keyboard_reply_request_store": keyboard_reply_request_store,
             "inline_action_request_store": inline_action_request_store,
-            "cart_configs": cart_configs,
-            "checkout_modules": checkout_modules,
+            "cart_configs": cart_configs or {},
+            "checkout_modules": checkout_modules or {},
         }
         if spec.requires_continuation:
             continuation_modules = build_runtime_modules(
@@ -65,8 +65,8 @@ def build_runtime_modules(
                 location_request_store=location_request_store,
                 keyboard_reply_request_store=keyboard_reply_request_store,
                 inline_action_request_store=inline_action_request_store,
-                cart_configs=cart_configs,
-                checkout_modules=checkout_modules,
+                cart_configs=cart_configs or {},
+                checkout_modules=checkout_modules or {},
             )
             modules.append(
                 build_runtime_step_module(

@@ -1540,6 +1540,10 @@ def test_build_command_module_entry_persists_ask_selfie_templates() -> None:
         mini_app_button_text="",
         contact_success_text="Saved {selfie_file_id}",
         contact_invalid_text="Please send a selfie photo.",
+        require_original_capture_date="1",
+        original_capture_max_age_minutes="60",
+        require_original_capture_same_day="1",
+        original_capture_invalid_text="Send a fresh selfie as a file.",
         checkout_empty_text="",
         checkout_pay_button_text="",
         checkout_pay_callback_data="",
@@ -1566,7 +1570,63 @@ def test_build_command_module_entry_persists_ask_selfie_templates() -> None:
     assert entry["module_type"] == "ask_selfie"
     assert entry["success_text_template"] == "Saved {selfie_file_id}"
     assert entry["invalid_text_template"] == "Please send a selfie photo."
+    assert entry["require_original_capture_date"] is True
+    assert entry["original_capture_invalid_text_template"] == "Send a fresh selfie as a file."
     assert entry["pipeline"][0]["module_type"] == "ask_selfie"
+    assert entry["pipeline"][0]["require_original_capture_date"] is True
+
+
+def test_build_callback_module_entry_persists_ask_selfie_original_date_config() -> None:
+    entry = _build_callback_module_entry(
+        callback_key="Clock_In",
+        module_type="ask_selfie",
+        text_template="Send a selfie.",
+        hide_caption="",
+        parse_mode="HTML",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="",
+        mini_app_button_text="",
+        contact_success_text="Saved {selfie_file_id}",
+        contact_invalid_text="Please send a selfie photo.",
+        require_original_capture_date="1",
+        original_capture_max_age_minutes="60",
+        require_original_capture_same_day="1",
+        original_capture_invalid_text="Send a fresh selfie as a file.",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "ask_selfie"
+    assert entry["require_original_capture_date"] is True
+    assert entry["original_capture_invalid_text_template"] == "Send a fresh selfie as a file."
+    assert entry["pipeline"][0]["require_original_capture_date"] is True
 
 
 def test_build_command_module_entry_persists_custom_code_function() -> None:
@@ -2193,6 +2253,10 @@ def test_extract_command_module_form_values_supports_ask_selfie() -> None:
             "parse_mode": "HTML",
             "success_text_template": "Saved {selfie_file_id}",
             "invalid_text_template": "Please send a selfie photo.",
+            "require_original_capture_date": True,
+            "original_capture_max_age_minutes": 45,
+            "require_original_capture_same_day": False,
+            "original_capture_invalid_text_template": "Send a fresh selfie.",
         },
         default_text_template="Command /verify_selfie received.",
         default_menu_title="Verify Selfie Menu",
@@ -2203,6 +2267,90 @@ def test_extract_command_module_form_values_supports_ask_selfie() -> None:
     assert values["parse_mode"] == "HTML"
     assert values["contact_success_text"] == "Saved {selfie_file_id}"
     assert values["contact_invalid_text"] == "Please send a selfie photo."
+    assert values["require_original_capture_date"] == "1"
+    assert values["original_capture_max_age_minutes"] == "45"
+    assert values["require_original_capture_same_day"] == ""
+    assert values["original_capture_invalid_text_template"] == "Send a fresh selfie."
+
+
+def test_extract_command_rows_keeps_ask_selfie_original_date_flags() -> None:
+    rows = _extract_command_rows(
+        [{"command": "verify_selfie", "description": "Verify selfie"}],
+        command_modules={
+            "verify_selfie": {
+                "module_type": "ask_selfie",
+                "text_template": "Send a selfie.",
+                "success_text_template": "Saved {selfie_file_id}",
+                "invalid_text_template": "Please send a selfie photo.",
+                "require_original_capture_date": True,
+                "original_capture_max_age_minutes": 45,
+                "require_original_capture_same_day": False,
+                "original_capture_invalid_text_template": "Send a fresh selfie.",
+                "require_finish_current_command": True,
+                "finish_current_command_text_template": "Finish selfie first.",
+                "pipeline": [
+                    {
+                        "module_type": "ask_selfie",
+                        "text_template": "Send a selfie.",
+                        "success_text_template": "Saved {selfie_file_id}",
+                        "invalid_text_template": "Please send a selfie photo.",
+                        "require_original_capture_date": True,
+                        "original_capture_max_age_minutes": 45,
+                        "require_original_capture_same_day": False,
+                        "original_capture_invalid_text_template": "Send a fresh selfie.",
+                        "require_finish_current_command": True,
+                        "finish_current_command_text_template": "Finish selfie first.",
+                    }
+                ],
+            }
+        },
+    )
+
+    assert rows[0]["require_original_capture_date"] == "1"
+    assert rows[0]["original_capture_max_age_minutes"] == "45"
+    assert rows[0]["require_original_capture_same_day"] == ""
+    assert rows[0]["original_capture_invalid_text_template"] == "Send a fresh selfie."
+    assert rows[0]["require_finish_current_command"] == "1"
+
+
+def test_extract_callback_rows_keeps_ask_selfie_original_date_flags() -> None:
+    rows = _extract_callback_rows(
+        {
+            "Clock_In": {
+                "module_type": "ask_selfie",
+                "text_template": "Send a selfie.",
+                "success_text_template": "Saved {selfie_file_id}",
+                "invalid_text_template": "Please send a selfie photo.",
+                "require_original_capture_date": True,
+                "original_capture_max_age_minutes": 45,
+                "require_original_capture_same_day": False,
+                "original_capture_invalid_text_template": "Send a fresh selfie.",
+                "require_finish_current_command": True,
+                "finish_current_command_text_template": "Finish selfie first.",
+                "pipeline": [
+                    {
+                        "module_type": "ask_selfie",
+                        "text_template": "Send a selfie.",
+                        "success_text_template": "Saved {selfie_file_id}",
+                        "invalid_text_template": "Please send a selfie photo.",
+                        "require_original_capture_date": True,
+                        "original_capture_max_age_minutes": 45,
+                        "require_original_capture_same_day": False,
+                        "original_capture_invalid_text_template": "Send a fresh selfie.",
+                        "require_finish_current_command": True,
+                        "finish_current_command_text_template": "Finish selfie first.",
+                    }
+                ],
+            }
+        }
+    )
+
+    assert rows[0]["callback_key"] == "Clock_In"
+    assert rows[0]["require_original_capture_date"] == "1"
+    assert rows[0]["original_capture_max_age_minutes"] == "45"
+    assert rows[0]["require_original_capture_same_day"] == ""
+    assert rows[0]["original_capture_invalid_text_template"] == "Send a fresh selfie."
+    assert rows[0]["require_finish_current_command"] == "1"
 
 
 def test_extract_command_module_form_values_supports_custom_code() -> None:
@@ -2231,6 +2379,8 @@ def test_extract_command_rows_keeps_share_location_live_flags() -> None:
                 "button_text": "Verify Location",
                 "success_text_template": "Saved {location_latitude},{location_longitude}",
                 "invalid_text_template": "Too far from {closest_location_name}",
+                "require_finish_current_command": True,
+                "finish_current_command_text_template": "Finish location first.",
                 "require_live_location": True,
                 "find_closest_saved_location": True,
                 "match_closest_saved_location": True,
@@ -2253,6 +2403,8 @@ def test_extract_command_rows_keeps_share_location_live_flags() -> None:
                         "button_text": "Verify Location",
                         "success_text_template": "Saved {location_latitude},{location_longitude}",
                         "invalid_text_template": "Too far from {closest_location_name}",
+                        "require_finish_current_command": True,
+                        "finish_current_command_text_template": "Finish location first.",
                         "require_live_location": True,
                         "find_closest_saved_location": True,
                         "match_closest_saved_location": True,
@@ -2290,6 +2442,8 @@ def test_extract_command_rows_keeps_share_location_live_flags() -> None:
     assert rows[0]["breadcrumb_interrupted_text_template"] == "Live sharing stopped."
     assert rows[0]["breadcrumb_resumed_text_template"] == "Breadcrumb resumed."
     assert rows[0]["breadcrumb_ended_text_template"] == "Breadcrumb saved."
+    assert rows[0]["require_finish_current_command"] == "1"
+    assert rows[0]["finish_current_command_text_template"] == "Finish location first."
 
 
 def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
@@ -2301,6 +2455,8 @@ def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
                 "button_text": "Verify Location",
                 "success_text_template": "Saved {location_latitude},{location_longitude}",
                 "invalid_text_template": "Too far from {closest_location_name}",
+                "require_finish_current_command": True,
+                "finish_current_command_text_template": "Finish location first.",
                 "require_live_location": True,
                 "find_closest_saved_location": True,
                 "match_closest_saved_location": True,
@@ -2323,6 +2479,8 @@ def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
                         "button_text": "Verify Location",
                         "success_text_template": "Saved {location_latitude},{location_longitude}",
                         "invalid_text_template": "Too far from {closest_location_name}",
+                        "require_finish_current_command": True,
+                        "finish_current_command_text_template": "Finish location first.",
                         "require_live_location": True,
                         "find_closest_saved_location": True,
                         "match_closest_saved_location": True,
@@ -2360,6 +2518,8 @@ def test_extract_callback_rows_keeps_share_location_live_flags() -> None:
     assert rows[0]["breadcrumb_interrupted_text_template"] == "Live sharing stopped."
     assert rows[0]["breadcrumb_resumed_text_template"] == "Breadcrumb resumed."
     assert rows[0]["breadcrumb_ended_text_template"] == "Breadcrumb saved."
+    assert rows[0]["require_finish_current_command"] == "1"
+    assert rows[0]["finish_current_command_text_template"] == "Finish location first."
 
 
 def test_build_command_module_entry_persists_route_fields() -> None:

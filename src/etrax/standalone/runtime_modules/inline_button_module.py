@@ -9,6 +9,7 @@ from etrax.core.flow import FlowModule
 from etrax.core.telegram import (
     SendInlineButtonConfig,
     SendTelegramInlineButtonModule,
+    build_inline_keyboard_reply_markup,
 )
 from etrax.core.token import BotTokenService
 
@@ -22,7 +23,10 @@ def resolve_inline_button_step_config(
     default_text_template: str,
     step: dict[str, Any],
 ) -> SendInlineButtonConfig:
-    del route_label
+    build_inline_keyboard_reply_markup(
+        step.get("buttons"),
+        context_label=f"{route_label} inline_button",
+    )
     return SendInlineButtonConfig(
         bot_id=bot_id,
         text_template=str(step.get("text_template", default_text_template)),

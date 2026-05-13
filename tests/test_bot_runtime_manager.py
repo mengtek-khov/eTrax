@@ -69,6 +69,7 @@ class FakeCallbackGateway:
         self.photos: list[dict[str, Any]] = []
         self.locations: list[dict[str, Any]] = []
         self.edited_reply_markups: list[dict[str, Any]] = []
+        self.file_bytes_by_id: dict[str, bytes] = {}
 
     def answer_callback_query(
         self,
@@ -161,6 +162,15 @@ class FakeCallbackGateway:
         self.edited_reply_markups.append(payload)
         return payload
 
+    def download_file_bytes(
+        self,
+        *,
+        bot_token: str,
+        file_id: str,
+    ) -> bytes:
+        del bot_token
+        return self.file_bytes_by_id[file_id]
+
 
 class FakeCartModule:
     def __init__(self) -> None:
@@ -184,6 +194,33 @@ class FakeTokenResolver:
 
     def get_token(self, bot_id: str) -> str | None:
         return self._tokens.get(bot_id)
+
+
+def _jpeg_with_original_capture_date(value: str) -> bytes:
+    encoded_value = value.encode("ascii") + b"\x00"
+    exif_ifd_offset = 26
+    value_offset = 44
+    tiff = (
+        b"II"
+        + (42).to_bytes(2, "little")
+        + (8).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + (0x8769).to_bytes(2, "little")
+        + (4).to_bytes(2, "little")
+        + (1).to_bytes(4, "little")
+        + exif_ifd_offset.to_bytes(4, "little")
+        + (0).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + (0x9003).to_bytes(2, "little")
+        + (2).to_bytes(2, "little")
+        + len(encoded_value).to_bytes(4, "little")
+        + value_offset.to_bytes(4, "little")
+        + (0).to_bytes(4, "little")
+        + encoded_value
+    )
+    app1_payload = b"Exif\x00\x00" + tiff
+    app1 = b"\xff\xe1" + (len(app1_payload) + 2).to_bytes(2, "big") + app1_payload
+    return b"\xff\xd8" + app1 + b"\xff\xd9"
 
 
 class FakeContactRequestStore:
@@ -987,6 +1024,10 @@ def test_resolve_command_send_configs_supports_ask_selfie_steps() -> None:
                     "text_template": "Send a selfie, {user_first_name}.",
                     "success_text_template": "Saved {selfie_file_id}",
                     "invalid_text_template": "Please send a selfie photo.",
+                    "require_original_capture_date": True,
+                    "original_capture_max_age_minutes": 60,
+                    "require_original_capture_same_day": True,
+                    "original_capture_invalid_text_template": "Take a fresh selfie.",
                 }
             },
         }
@@ -1000,6 +1041,10 @@ def test_resolve_command_send_configs_supports_ask_selfie_steps() -> None:
     assert isinstance(selfie_pipeline[0], AskSelfieConfig)
     assert selfie_pipeline[0].success_text_template == "Saved {selfie_file_id}"
     assert selfie_pipeline[0].invalid_text_template == "Please send a selfie photo."
+    assert selfie_pipeline[0].require_original_capture_date is True
+    assert selfie_pipeline[0].original_capture_max_age_minutes == 60
+    assert selfie_pipeline[0].require_original_capture_same_day is True
+    assert selfie_pipeline[0].original_capture_invalid_text_template == "Take a fresh selfie."
 
 
 def test_resolve_command_send_configs_supports_custom_code_steps() -> None:
@@ -1827,6 +1872,7 @@ def test_handle_update_validates_selfie_and_runs_continuation() -> None:
             "message": {
                 "chat": {"id": 12345},
                 "message_id": 901,
+                "date": 1704067200,
                 "caption": "At the office",
                 "from": {
                     "id": 77,
@@ -1861,38 +1907,238 @@ def test_handle_update_validates_selfie_and_runs_continuation() -> None:
 
     assert valid_count == 2
     assert gateway.messages[2]["text"] == "Saved full-file-id"
-    assert continuation.calls == [
+    assert len(continuation.calls) == 1
+    selfie_context = continuation.calls[0]
+    assert selfie_context["selfie_file_id"] == "full-file-id"
+    assert selfie_context["selfie_file_unique_id"] == "full-unique-id"
+    assert selfie_context["selfie_width"] == 1080
+    assert selfie_context["selfie_height"] == 1350
+    assert selfie_context["selfie_file_size"] == 54321
+    assert selfie_context["selfie_caption"] == "At the office"
+    assert selfie_context["selfie_message_id"] == 901
+    assert selfie_context["selfie_message_date"] == 1704067200
+    assert selfie_context["selfie_message_date_iso"] == "2024-01-01T00:00:00+00:00"
+    assert selfie_context["selfie_photo_count"] == 2
+    assert selfie_context["ask_selfie_result"] == {
+        "bot_id": "support-bot",
+        "chat_id": "12345",
+        "user_id": "77",
+        "file_id": "full-file-id",
+        "file_unique_id": "full-unique-id",
+        "source_type": "photo",
+        "caption": "At the office",
+        "message_id": 901,
+        "message_date": 1704067200,
+        "message_date_iso": "2024-01-01T00:00:00+00:00",
+        "original_capture_date": "",
+        "original_capture_date_iso": "",
+        "photo_count": 2,
+    }
+
+
+def test_handle_update_accepts_selfie_document_with_fresh_original_capture_date() -> None:
+    gateway = FakeCallbackGateway()
+    gateway.file_bytes_by_id["document-selfie-id"] = _jpeg_with_original_capture_date("2024:01:01 07:30:00")
+    store = FakeSelfieRequestStore()
+    continuation = FakeRuntimeModule()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie as a file.",
+            success_text_template="Saved {selfie_original_capture_date}",
+            require_original_capture_date=True,
+            original_capture_max_age_minutes=60,
+        ),
+        continuation_modules=[continuation],
+    )
+
+    _handle_update(
         {
-            "bot_id": "support-bot",
-            "bot_name": "support-bot",
-            "chat_id": "12345",
-            "user_id": "77",
-            "user_first_name": "Alice",
-            "user_username": "alice_user",
-            "start_payload": "",
-            "menu_payload": "",
-            "command_name": "verify_selfie",
-            "command_payload": "",
-            "selfie_file_id": "full-file-id",
-            "selfie_file_unique_id": "full-unique-id",
-            "selfie_width": 1080,
-            "selfie_height": 1350,
-            "selfie_file_size": 54321,
-            "selfie_caption": "At the office",
-            "selfie_message_id": 901,
-            "selfie_photo_count": 2,
-            "ask_selfie_result": {
-                "bot_id": "support-bot",
-                "chat_id": "12345",
-                "user_id": "77",
-                "file_id": "full-file-id",
-                "file_unique_id": "full-unique-id",
-                "caption": "At the office",
-                "message_id": 901,
-                "photo_count": 2,
-            },
-        }
-    ]
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    valid_count = _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 902,
+                "date": 1704069000,
+                "from": {"id": 77, "first_name": "Alice"},
+                "document": {
+                    "file_id": "document-selfie-id",
+                    "file_unique_id": "document-selfie-unique",
+                    "file_name": "selfie.jpg",
+                    "mime_type": "image/jpeg",
+                    "file_size": 1234,
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    assert valid_count == 2
+    assert gateway.messages[-1]["text"] == "Saved 2024-01-01 07:30:00"
+    assert len(continuation.calls) == 1
+    selfie_context = continuation.calls[0]
+    assert selfie_context["selfie_source_type"] == "document"
+    assert selfie_context["selfie_original_capture_date_valid"] is True
+    assert selfie_context["selfie_original_capture_date"] == "2024-01-01 07:30:00"
+    assert selfie_context["ask_selfie_result"]["original_capture_date"] == "2024-01-01 07:30:00"
+
+
+def test_handle_update_accepts_fresh_telegram_photo_when_original_capture_date_is_stripped() -> None:
+    gateway = FakeCallbackGateway()
+    gateway.file_bytes_by_id["full-file-id"] = b"\xff\xd8\xff\xd9"
+    store = FakeSelfieRequestStore()
+    continuation = FakeRuntimeModule()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie.",
+            success_text_template="Saved {selfie_file_id}",
+            require_original_capture_date=True,
+            original_capture_invalid_text_template="Take a new selfie.",
+        ),
+        continuation_modules=[continuation],
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    valid_count = _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 904,
+                "date": 1704069000,
+                "from": {"id": 77, "first_name": "Alice"},
+                "photo": [
+                    {
+                        "file_id": "full-file-id",
+                        "file_unique_id": "full-unique",
+                        "width": 1080,
+                        "height": 1350,
+                    }
+                ],
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    assert valid_count == 2
+    assert gateway.messages[-1]["text"] == "Saved full-file-id"
+    assert len(continuation.calls) == 1
+    selfie_context = continuation.calls[0]
+    assert selfie_context["selfie_source_type"] == "photo"
+    assert selfie_context["selfie_original_capture_date_valid"] is True
+    assert selfie_context["selfie_original_capture_date_check"] == "telegram_photo_without_exif"
+    assert selfie_context["selfie_original_capture_date_fallback"] == "message_date"
+
+
+def test_handle_update_rejects_selfie_when_original_capture_date_is_too_old() -> None:
+    gateway = FakeCallbackGateway()
+    gateway.file_bytes_by_id["old-selfie-id"] = _jpeg_with_original_capture_date("2023:12:31 22:00:00")
+    store = FakeSelfieRequestStore()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie as a file.",
+            require_original_capture_date=True,
+            original_capture_invalid_text_template="Take a new selfie.",
+        ),
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    invalid_count = _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 903,
+                "date": 1704069000,
+                "from": {"id": 77, "first_name": "Alice"},
+                "document": {
+                    "file_id": "old-selfie-id",
+                    "file_unique_id": "old-selfie-unique",
+                    "file_name": "selfie.jpg",
+                    "mime_type": "image/jpeg",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    assert invalid_count == 1
+    assert gateway.messages[-1]["text"] == "Take a new selfie."
+    assert store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
 
 
 def test_handle_update_validates_shared_location_and_runs_continuation() -> None:

@@ -85,6 +85,7 @@ from .share_contact import (
 from .ask_selfie import (
     AskSelfieConfig,
     AskSelfieModule,
+    DEFAULT_SELFIE_ORIGINAL_DATE_INVALID,
     PendingSelfieRequest,
     SelfieRequestStore,
     extract_selfie_context,
@@ -156,6 +157,7 @@ __all__ = [
     "PendingContactRequest",
     "AskSelfieConfig",
     "AskSelfieModule",
+    "DEFAULT_SELFIE_ORIGINAL_DATE_INVALID",
     "SelfieRequestStore",
     "PendingSelfieRequest",
     "ShareLocationConfig",

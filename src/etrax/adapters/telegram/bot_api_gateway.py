@@ -236,6 +236,30 @@ class TelegramBotApiGateway:
         }
         return self._request_json(bot_token=bot_token, method="getFile", payload=payload)
 
+    def download_file_bytes(
+        self,
+        *,
+        bot_token: str,
+        file_id: str,
+    ) -> bytes:
+        file_response = self.get_file(bot_token=bot_token, file_id=file_id)
+        file_result = file_response.get("result")
+        if not isinstance(file_result, dict):
+            raise RuntimeError("telegram getFile returned no file result")
+        file_path = str(file_result.get("file_path", "")).strip()
+        if not file_path:
+            raise RuntimeError("telegram getFile returned no file_path")
+
+        file_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+        try:
+            with request.urlopen(file_url, timeout=self._timeout_seconds) as response:
+                return response.read()
+        except error.HTTPError as exc:
+            response_body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"telegram file download failed with HTTP {exc.code}: {response_body}") from exc
+        except error.URLError as exc:
+            raise RuntimeError(f"telegram file download network error: {exc.reason}") from exc
+
     def get_user_profile_photo_url(
         self,
         *,

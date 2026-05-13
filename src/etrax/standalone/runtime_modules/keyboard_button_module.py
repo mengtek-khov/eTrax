@@ -6,7 +6,11 @@ from typing import Any, Callable
 
 from etrax.adapters.telegram import TelegramBotApiGateway
 from etrax.core.flow import FlowModule
-from etrax.core.telegram import SendKeyboardButtonConfig, SendTelegramKeyboardButtonModule
+from etrax.core.telegram import (
+    SendKeyboardButtonConfig,
+    SendTelegramKeyboardButtonModule,
+    build_reply_keyboard_reply_markup,
+)
 from etrax.core.token import BotTokenService
 
 from .utils import normalize_parse_mode
@@ -20,7 +24,11 @@ def resolve_keyboard_button_step_config(
     default_text_template: str,
     step: dict[str, Any],
 ) -> SendKeyboardButtonConfig:
-    del route_label
+    build_reply_keyboard_reply_markup(
+        step.get("buttons"),
+        context_label=f"{route_label} keyboard_button",
+        one_time_keyboard=step.get("one_time_keyboard", True) is not False,
+    )
     return SendKeyboardButtonConfig(
         bot_id=bot_id,
         text_template=str(step.get("text_template", default_text_template)),

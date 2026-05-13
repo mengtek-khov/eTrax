@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from string import Formatter
 from typing import Any, Protocol, Sequence
 
@@ -10,6 +11,10 @@ from .contracts import BotTokenResolver, TelegramMessageGateway
 DEFAULT_SELFIE_PROMPT = "Please send a selfie photo."
 DEFAULT_SELFIE_SUCCESS = "Thanks, your selfie was received."
 DEFAULT_SELFIE_INVALID = "Please send a selfie photo."
+DEFAULT_SELFIE_ORIGINAL_DATE_INVALID = (
+    "Please send a selfie taken today within the last hour. "
+    "If Telegram removes the original date, send the image as a file."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +27,10 @@ class AskSelfieConfig:
     parse_mode: str | None = None
     success_text_template: str | None = DEFAULT_SELFIE_SUCCESS
     invalid_text_template: str | None = DEFAULT_SELFIE_INVALID
+    require_original_capture_date: bool = False
+    original_capture_max_age_minutes: int = 60
+    require_original_capture_same_day: bool = True
+    original_capture_invalid_text_template: str | None = DEFAULT_SELFIE_ORIGINAL_DATE_INVALID
     require_finish_current_command: bool = False
     finish_current_command_text_template: str | None = None
     context_bot_id_key: str = "bot_id"
@@ -42,6 +51,10 @@ class PendingSelfieRequest:
     success_text_template: str | None
     invalid_text_template: str | None
     context_result_key: str
+    require_original_capture_date: bool = False
+    original_capture_max_age_minutes: int = 60
+    require_original_capture_same_day: bool = True
+    original_capture_invalid_text_template: str | None = DEFAULT_SELFIE_ORIGINAL_DATE_INVALID
     require_finish_current_command: bool = False
     finish_current_command_text_template: str | None = None
     context_snapshot: dict[str, Any] = field(default_factory=dict)
@@ -126,6 +139,10 @@ class AskSelfieModule:
                 prompt_text_template=self._config.text_template,
                 success_text_template=self._config.success_text_template,
                 invalid_text_template=self._config.invalid_text_template,
+                require_original_capture_date=bool(self._config.require_original_capture_date),
+                original_capture_max_age_minutes=max(0, int(self._config.original_capture_max_age_minutes)),
+                require_original_capture_same_day=bool(self._config.require_original_capture_same_day),
+                original_capture_invalid_text_template=self._config.original_capture_invalid_text_template,
                 context_result_key=self._config.context_result_key,
                 require_finish_current_command=bool(self._config.require_finish_current_command),
                 finish_current_command_text_template=self._config.finish_current_command_text_template,
@@ -174,12 +191,14 @@ def extract_selfie_context(
     *,
     caption: object = "",
     message_id: object = "",
+    message_date: object = "",
 ) -> dict[str, Any]:
     """Extract the largest Telegram photo payload into selfie context fields."""
 
     photo_entries = raw_photos if isinstance(raw_photos, list) else []
     valid_entries = [entry for entry in photo_entries if isinstance(entry, dict)]
     chosen = valid_entries[-1] if valid_entries else {}
+    message_timestamp = _normalize_telegram_timestamp(message_date)
 
     return {
         "selfie_file_id": str(chosen.get("file_id", "")).strip(),
@@ -189,6 +208,8 @@ def extract_selfie_context(
         "selfie_file_size": int(chosen.get("file_size", 0) or 0),
         "selfie_caption": str(caption or "").strip(),
         "selfie_message_id": int(message_id or 0),
+        "selfie_message_date": message_timestamp,
+        "selfie_message_date_iso": _format_telegram_timestamp(message_timestamp),
         "selfie_photo_count": len(valid_entries),
     }
 
@@ -219,3 +240,26 @@ def render_ask_selfie_text(
         if rendered.strip():
             return rendered
     return default_text
+
+
+def _normalize_telegram_timestamp(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value if value > 0 else 0
+    if isinstance(value, float):
+        return int(value) if value > 0 else 0
+    candidate = str(value or "").strip()
+    if not candidate:
+        return 0
+    try:
+        parsed = int(float(candidate))
+    except ValueError:
+        return 0
+    return parsed if parsed > 0 else 0
+
+
+def _format_telegram_timestamp(timestamp: int) -> str:
+    if timestamp <= 0:
+        return ""
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()

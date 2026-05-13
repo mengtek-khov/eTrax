@@ -118,7 +118,9 @@ def _parse_command_line(raw_item: str) -> tuple[str, str] | None:
     normalized_command = _normalize_command(command)
     if not normalized_command:
         return None
-    description = description_part.strip() or _command_label_from_name(normalized_command)
+    description = description_part.strip()
+    if not description:
+        description = item if command_part == item and not item.startswith("/") else _command_label_from_name(normalized_command)
     return normalized_command, description
 
 

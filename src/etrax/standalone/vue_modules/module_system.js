@@ -327,6 +327,12 @@
     const trackBreadcrumb = requireLiveLocation && normalizeCheckboxValue(source.track_breadcrumb);
     const storeHistoryByDay = normalizeCheckboxValue(source.store_history_by_day);
     const removeInlineButtonsOnClick = normalizeCheckboxValue(source.remove_inline_buttons_on_click);
+    const requireOriginalCaptureDate = normalizeCheckboxValue(source.require_original_capture_date);
+    const requireOriginalCaptureSameDay =
+      source.require_original_capture_same_day === undefined
+        ? true
+        : normalizeCheckboxValue(source.require_original_capture_same_day);
+    const requireFinishCurrentCommand = normalizeCheckboxValue(source.require_finish_current_command);
     let buttons = normalizeInlineButtons(source.buttons || []);
     if (moduleType === "keyboard_button") {
       buttons = normalizeKeyboardButtons(source.buttons || []);
@@ -361,6 +367,19 @@
       click_timestamp_format:
         source.click_timestamp_format == null ? "%Y-%m-%d %H:%M:%S" : String(source.click_timestamp_format),
       remove_inline_buttons_on_click: removeInlineButtonsOnClick,
+      require_original_capture_date: requireOriginalCaptureDate,
+      original_capture_max_age_minutes:
+        source.original_capture_max_age_minutes == null ? "60" : String(source.original_capture_max_age_minutes),
+      require_original_capture_same_day: requireOriginalCaptureSameDay,
+      original_capture_invalid_text_template:
+        source.original_capture_invalid_text_template == null
+          ? ""
+          : String(source.original_capture_invalid_text_template),
+      require_finish_current_command: requireFinishCurrentCommand,
+      finish_current_command_text_template:
+        source.finish_current_command_text_template == null
+          ? ""
+          : String(source.finish_current_command_text_template),
       target_callback_key: source.target_callback_key == null ? "" : String(source.target_callback_key),
       target_command_key: source.target_command_key == null ? "" : String(source.target_command_key),
       photo_url: source.photo_url == null ? "" : String(source.photo_url),

@@ -35,6 +35,10 @@ class SendInlineButtonConfig:
     require_finish_current_command: bool = False
     finish_current_command_text_template: str | None = None
 
+    @property
+    def static_reply_markup(self) -> dict[str, object]:
+        return build_inline_keyboard_reply_markup(self.buttons, context_label="inline_button config")
+
 
 @dataclass(slots=True)
 class PendingInlineButtonActionRequest:

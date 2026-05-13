@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
 import time
 from datetime import datetime, timezone
@@ -42,8 +43,10 @@ from .runtime_contracts import TemporaryCommandMenuStateStore, UserProfileLogSto
 from .runtime_support import print_runtime_step
 
 CALLBACK_QUERY_DEDUPE_TTL_SECONDS = 120.0
+PENDING_ACTION_REMINDER_THROTTLE_SECONDS = 8.0
 DEFAULT_FINISH_CURRENT_COMMAND_TEXT = "Please finish the current command before starting a new one."
 DEFAULT_BUTTON_CLICK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+_PENDING_ACTION_REMINDER_LAST_SENT: dict[tuple[object, ...], float] = {}
 
 
 def handle_update(
@@ -75,6 +78,9 @@ def handle_update(
     locations_file: Path | None = None,
 ) -> int:
     """Route one Telegram update through profile logging, cart, checkout, and pipeline handlers."""
+    if _message_update_sender_is_bot(update):
+        return 0
+
     is_returning_user = _is_returning_user(
         update=update,
         bot_id=bot_id,
@@ -292,6 +298,17 @@ def log_user_profile(
     existing = profile_log_store.get_profile(bot_id=bot_id, user_id=user_id)
     merged = merge_profile_log_update(existing, updates)
     profile_log_store.upsert_profile(bot_id=bot_id, user_id=user_id, profile_updates=merged)
+
+
+def _message_update_sender_is_bot(update: dict[str, Any]) -> bool:
+    for message_key in ("message", "edited_message"):
+        message = update.get(message_key)
+        if not isinstance(message, dict):
+            continue
+        sender = message.get("from")
+        if isinstance(sender, dict) and sender.get("is_bot") is True:
+            return True
+    return False
 
 
 def _is_returning_user(
@@ -954,11 +971,13 @@ def _send_finish_current_command_notice(
 ) -> int:
     sent_count = 0
     if gateway is not None and bot_token:
+        if _pending_action_reminder_is_throttled(blocking_request):
+            return 0
         context = dict(getattr(blocking_request, "context_snapshot", {}) or {})
         notice_text = _render_pending_request_text(
             getattr(blocking_request, "finish_current_command_text_template", None),
             context,
-            default_text=DEFAULT_FINISH_CURRENT_COMMAND_TEXT,
+            default_text=_default_finish_current_command_text(blocking_request),
             field_label="finish_current_command_text_template",
         )
         gateway.send_message(
@@ -975,6 +994,29 @@ def _send_finish_current_command_notice(
             blocking_request=blocking_request,
         )
     return sent_count
+
+
+def _default_finish_current_command_text(blocking_request: object) -> str:
+    action_text = _pending_action_description(blocking_request)
+    if action_text:
+        return f"Please finish the current command first: {action_text}."
+    return DEFAULT_FINISH_CURRENT_COMMAND_TEXT
+
+
+def _pending_action_description(blocking_request: object) -> str:
+    if hasattr(blocking_request, "callback_data_keys"):
+        return "tap one of the buttons from the previous message"
+    if hasattr(blocking_request, "buttons") and hasattr(blocking_request, "save_reply_to_key"):
+        return "choose one of the keyboard options"
+    if hasattr(blocking_request, "button_text") and hasattr(blocking_request, "require_live_location"):
+        if bool(getattr(blocking_request, "require_live_location", False)):
+            return "share your live location"
+        return "share your location"
+    if hasattr(blocking_request, "button_text"):
+        return "share your contact"
+    if hasattr(blocking_request, "context_result_key"):
+        return "send the requested selfie"
+    return ""
 
 
 def _repeat_pending_request_prompt(
@@ -1091,6 +1133,37 @@ def _repeat_pending_request_prompt(
     return 0
 
 
+def _pending_action_reminder_is_throttled(blocking_request: object) -> bool:
+    """Suppress rapid duplicate finish-current-command notices for the same pending object."""
+    now = time.monotonic()
+    stale_before = now - (PENDING_ACTION_REMINDER_THROTTLE_SECONDS * 4)
+    for key, sent_at in list(_PENDING_ACTION_REMINDER_LAST_SENT.items()):
+        if sent_at < stale_before:
+            _PENDING_ACTION_REMINDER_LAST_SENT.pop(key, None)
+
+    key = _pending_action_reminder_key(blocking_request)
+    last_sent = _PENDING_ACTION_REMINDER_LAST_SENT.get(key)
+    if last_sent is not None and now - last_sent < PENDING_ACTION_REMINDER_THROTTLE_SECONDS:
+        return True
+    _PENDING_ACTION_REMINDER_LAST_SENT[key] = now
+    return False
+
+
+def _pending_action_reminder_key(blocking_request: object) -> tuple[object, ...]:
+    bot_id = str(getattr(blocking_request, "bot_id", "") or "").strip()
+    chat_id = str(getattr(blocking_request, "chat_id", "") or "").strip()
+    user_id = str(getattr(blocking_request, "user_id", "") or "").strip()
+    if bot_id or chat_id or user_id:
+        return (
+            type(blocking_request).__name__,
+            bot_id,
+            chat_id,
+            user_id,
+            str(getattr(blocking_request, "context_result_key", "") or "").strip(),
+        )
+    return (type(blocking_request).__name__, id(blocking_request))
+
+
 def _render_pending_request_text(
     template: object,
     context: dict[str, Any],
@@ -1184,8 +1257,6 @@ def _block_pending_action_message_update(
 ) -> int | None:
     """Block non-command messages while a require-finish request is active."""
     message = update.get("message")
-    if not isinstance(message, dict):
-        message = update.get("edited_message")
     if not isinstance(message, dict):
         return None
     text = str(message.get("text", "")).strip()
@@ -1599,9 +1670,11 @@ def execute_pipeline(
             )
         target_callback_key = _target_callback_key_for_outcome(module, outcome)
         if target_callback_key:
+            parent_continuation_modules = list(pipeline[idx:])
             sent_count += _execute_loaded_callback_pipeline(
                 source_module=module,
                 target_callback_key=target_callback_key,
+                parent_continuation_modules=parent_continuation_modules,
                 command_menu=command_menu,
                 command_modules=command_modules,
                 callback_modules=callback_modules,
@@ -1617,6 +1690,7 @@ def execute_pipeline(
                 gateway=gateway,
                 bot_token=bot_token,
             )
+            return sent_count
         target_command_key = _target_command_key_for_outcome(module, outcome)
         if target_command_key:
             sent_count += _execute_loaded_command_pipeline(
@@ -1797,6 +1871,7 @@ def _execute_loaded_callback_pipeline(
     *,
     source_module: FlowModule,
     target_callback_key: str,
+    parent_continuation_modules: list[FlowModule] | None = None,
     command_menu: list[dict[str, str]] | None,
     command_modules: dict[str, list[FlowModule]] | None,
     callback_modules: dict[str, list[FlowModule]] | None,
@@ -1825,11 +1900,20 @@ def _execute_loaded_callback_pipeline(
         pipeline=target_pipeline,
         save_callback_data_to_key=str(getattr(source_module, "save_callback_data_to_key", "") or "").strip(),
     )
+    parent_continuation_modules = list(parent_continuation_modules or [])
+    if parent_continuation_modules:
+        target_pipeline = _clone_pipeline_with_tail_continuation(
+            target_pipeline,
+            parent_continuation_modules,
+        )
+    execution_pipeline = list(target_pipeline)
+    if parent_continuation_modules:
+        execution_pipeline.extend(parent_continuation_modules)
     profile = context.get("profile")
     if isinstance(profile, dict):
         profile["last_callback_data"] = target_callback_key
     sent_count = execute_pipeline(
-        target_pipeline,
+        execution_pipeline,
         context,
         command_menu=command_menu,
         command_modules=command_modules,
@@ -1856,6 +1940,49 @@ def _execute_loaded_callback_pipeline(
         bot_token=bot_token,
     )
     return sent_count
+
+
+def _clone_pipeline_with_tail_continuation(
+    pipeline: list[FlowModule],
+    continuation_modules: list[FlowModule],
+) -> list[FlowModule]:
+    """Clone a continuation chain and append parent modules to the cloned tail."""
+    if not pipeline or not continuation_modules:
+        return list(pipeline)
+    return [
+        _clone_module_with_tail_continuation(
+            module,
+            continuation_modules,
+            visited=set(),
+        )
+        for module in pipeline
+    ]
+
+
+def _clone_module_with_tail_continuation(
+    module: FlowModule,
+    continuation_modules: list[FlowModule],
+    *,
+    visited: set[int],
+) -> FlowModule:
+    if id(module) in visited or not hasattr(module, "_continuation_modules"):
+        return module
+    visited.add(id(module))
+    cloned_module = copy.copy(module)
+    original_continuation = tuple(getattr(module, "_continuation_modules", ()) or ())
+    if original_continuation:
+        cloned_continuation = tuple(
+            _clone_module_with_tail_continuation(
+                continuation_module,
+                continuation_modules,
+                visited=visited,
+            )
+            for continuation_module in original_continuation
+        )
+    else:
+        cloned_continuation = tuple(continuation_modules)
+    setattr(cloned_module, "_continuation_modules", cloned_continuation)
+    return cloned_module
 
 
 def _execute_loaded_inline_button_module(

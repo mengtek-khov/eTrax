@@ -4,6 +4,8 @@ from typing import Any
 
 from etrax.core.flow import ModuleOutcome
 from etrax.core.telegram import (
+    AskSelfieConfig,
+    AskSelfieModule,
     LoadCallbackConfig,
     LoadCallbackModule,
     LoadCommandConfig,
@@ -11,12 +13,15 @@ from etrax.core.telegram import (
     PendingContactRequest,
     PendingInlineButtonActionRequest,
     PendingLocationRequest,
+    PendingSelfieRequest,
     LoadInlineButtonConfig,
     LoadInlineButtonModule,
     SendInlineButtonConfig,
     SendKeyboardButtonConfig,
+    SendMessageConfig,
     SendTelegramInlineButtonModule,
     SendTelegramKeyboardButtonModule,
+    SendTelegramMessageModule,
     ShareContactConfig,
     ShareContactModule,
     ShareLocationConfig,
@@ -348,7 +353,7 @@ def test_handle_message_update_blocks_new_command_when_pending_request_requires_
 
     assert sent == 2
     assert not module.contexts
-    assert [call["text"] for call in gateway.message_calls[-2:]] == [
+    assert [call["text"] for call in gateway.message_calls] == [
         "Finish first, Alice.",
         "Please share your contact",
     ]
@@ -392,11 +397,318 @@ def test_handle_update_blocks_non_command_message_when_pending_request_requires_
     )
 
     assert sent == 2
-    assert [call["text"] for call in gateway.message_calls[-2:]] == [
-        "Please finish the current command before starting a new one.",
+    assert [call["text"] for call in gateway.message_calls] == [
+        "Please finish the current command first: share your location.",
         "Share location now",
     ]
     assert gateway.message_calls[-1]["reply_markup"]["keyboard"][0][0]["request_location"] is True
+
+
+def test_handle_update_throttles_duplicate_pending_selfie_reminders() -> None:
+    gateway = FakeGateway()
+    selfie_request_store = FakeSelfieRequestStore()
+    selfie_request_store.set_pending(
+        PendingSelfieRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            parse_mode=None,
+            prompt_text_template="Share selfie now",
+            success_text_template="Thanks",
+            invalid_text_template="Please send a selfie",
+            context_result_key="ask_selfie_result",
+            require_finish_current_command=True,
+        )
+    )
+    update = {
+        "message": {
+            "text": "hello",
+            "chat": {"id": 12345},
+            "from": {"id": 77, "first_name": "Alice"},
+        }
+    }
+
+    first_count = handle_update(
+        update,
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="token-1234",
+        selfie_request_store=selfie_request_store,
+    )
+    second_count = handle_update(
+        update,
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="token-1234",
+        selfie_request_store=selfie_request_store,
+    )
+
+    assert first_count == 2
+    assert second_count == 0
+    assert [call["text"] for call in gateway.message_calls] == [
+        "Please finish the current command first: send the requested selfie.",
+        "Share selfie now",
+    ]
+
+
+def test_handle_update_ignores_bot_authored_message_while_selfie_is_pending() -> None:
+    gateway = FakeGateway()
+    module = CaptureModule()
+    selfie_request_store = FakeSelfieRequestStore()
+    selfie_request_store.set_pending(
+        PendingSelfieRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            parse_mode=None,
+            prompt_text_template="Share selfie now",
+            success_text_template="Thanks",
+            invalid_text_template="Please send a selfie",
+            context_result_key="ask_selfie_result",
+            require_finish_current_command=True,
+        )
+    )
+
+    sent = handle_update(
+        {
+            "message": {
+                "message_id": 9001,
+                "text": "Share selfie now",
+                "chat": {"id": 12345},
+                "from": {"id": 999, "first_name": "eTrax", "is_bot": True},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"share_selfie": [module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="token-1234",
+        selfie_request_store=selfie_request_store,
+    )
+
+    assert sent == 0
+    assert gateway.message_calls == []
+    assert not module.contexts
+    assert selfie_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
+
+
+def test_handle_update_ignores_edited_live_location_while_selfie_is_pending() -> None:
+    gateway = FakeGateway()
+    selfie_request_store = FakeSelfieRequestStore()
+    selfie_request_store.set_pending(
+        PendingSelfieRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            parse_mode=None,
+            prompt_text_template="Share selfie now",
+            success_text_template="Thanks",
+            invalid_text_template="Please send a selfie",
+            context_result_key="ask_selfie_result",
+            require_finish_current_command=True,
+        )
+    )
+
+    sent = handle_update(
+        {
+            "edited_message": {
+                "message_id": 8801,
+                "date": 1778640180,
+                "edit_date": 1778640240,
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice", "is_bot": False},
+                "location": {
+                    "latitude": 11.5564,
+                    "longitude": 104.9282,
+                    "live_period": 900,
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="token-1234",
+        selfie_request_store=selfie_request_store,
+    )
+
+    assert sent == 0
+    assert gateway.message_calls == []
+    assert selfie_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
+
+
+def test_handle_update_starting_ask_selfie_does_not_send_finish_notice() -> None:
+    gateway = FakeGateway()
+    selfie_request_store = FakeSelfieRequestStore()
+    ask_selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=selfie_request_store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Share selfie now",
+            success_text_template="Thanks",
+            invalid_text_template="Please send a selfie",
+            require_finish_current_command=True,
+        ),
+    )
+
+    sent = handle_update(
+        {
+            "message": {
+                "text": "/clock_out",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"clock_out": [ask_selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=selfie_request_store,
+    )
+
+    assert sent == 1
+    assert [call["text"] for call in gateway.message_calls] == ["Share selfie now"]
+    assert selfie_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is not None
+
+
+def test_callback_module_parent_pipeline_resumes_after_reusable_pending_flow() -> None:
+    gateway = FakeGateway()
+    token_resolver = FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"})
+    location_request_store = FakeLocationRequestStore()
+    selfie_request_store = FakeSelfieRequestStore()
+    completion_module = SendTelegramMessageModule(
+        token_resolver,
+        gateway,
+        SendMessageConfig(text_template="Clock-in received."),
+    )
+    ask_selfie_module = AskSelfieModule(
+        token_resolver=token_resolver,
+        gateway=gateway,
+        selfie_request_store=selfie_request_store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Share selfie.",
+            success_text_template=" ",
+            invalid_text_template="Please send a selfie.",
+            require_finish_current_command=True,
+        ),
+    )
+    share_location_module = ShareLocationModule(
+        token_resolver=token_resolver,
+        gateway=gateway,
+        location_request_store=location_request_store,
+        config=ShareLocationConfig(
+            bot_id="support-bot",
+            text_template="Share live location.",
+            button_text="Share Live Location",
+            success_text_template=" ",
+            require_live_location=True,
+            require_finish_current_command=True,
+        ),
+        continuation_modules=[ask_selfie_module],
+    )
+    callback_loader = LoadCallbackModule(LoadCallbackConfig(target_callback_key="etrex_process"))
+
+    started = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-clock-in",
+                "data": "Clock_In",
+                "from": {"id": 77, "first_name": "Alice"},
+                "message": {"message_id": 777, "chat": {"id": 12345}, "text": "Clock In"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={
+            "Clock_In": [callback_loader, completion_module],
+            "etrex_process": [share_location_module],
+        },
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=location_request_store,
+        selfie_request_store=selfie_request_store,
+    )
+    assert started == 2
+    assert [call["text"] for call in gateway.message_calls] == ["Share live location."]
+
+    location_received = handle_update(
+        {
+            "message": {
+                "message_id": 1001,
+                "date": 1778640180,
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+                "location": {"latitude": 11.5564, "longitude": 104.9282, "live_period": 900},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={
+            "Clock_In": [callback_loader, completion_module],
+            "etrex_process": [share_location_module],
+        },
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=location_request_store,
+        selfie_request_store=selfie_request_store,
+    )
+    assert location_received == 2
+    assert [call["text"] for call in gateway.message_calls] == [
+        "Share live location.",
+        "Thanks, your location was received.",
+        "Share selfie.",
+    ]
+
+    selfie_received = handle_update(
+        {
+            "message": {
+                "message_id": 1002,
+                "date": 1778640240,
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+                "photo": [
+                    {"file_id": "small", "file_unique_id": "small-u", "width": 90, "height": 90},
+                    {"file_id": "large", "file_unique_id": "large-u", "width": 640, "height": 640},
+                ],
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={
+            "Clock_In": [callback_loader, completion_module],
+            "etrex_process": [share_location_module],
+        },
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        location_request_store=location_request_store,
+        selfie_request_store=selfie_request_store,
+    )
+    assert selfie_received == 3
+    assert [call["text"] for call in gateway.message_calls] == [
+        "Share live location.",
+        "Thanks, your location was received.",
+        "Share selfie.",
+        "Thanks, your selfie was received.",
+        "Clock-in received.",
+    ]
+    assert location_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
+    assert selfie_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
+    assert getattr(ask_selfie_module, "_continuation_modules") == ()
 
 
 def test_handle_message_update_allows_restart_when_pending_request_requires_finish() -> None:
@@ -487,7 +799,7 @@ def test_inline_button_require_finish_blocks_new_command_until_clicked() -> None
     assert blocked == 2
     assert not other_module.contexts
     assert [call["text"] for call in gateway.message_calls[-2:]] == [
-        "Please finish the current command before starting a new one.",
+        "Please finish the current command first: tap one of the buttons from the previous message.",
         "Choose",
     ]
     assert gateway.message_calls[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "continue"

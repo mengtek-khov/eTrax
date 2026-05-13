@@ -31,6 +31,13 @@ class SendKeyboardButtonConfig:
     remove_keyboard_on_click: bool = True
     click_timestamp_format: str = "%Y-%m-%d %H:%M:%S"
 
+    @property
+    def static_reply_markup(self) -> dict[str, object]:
+        return build_reply_keyboard_reply_markup(
+            self.buttons,
+            context_label="keyboard_button config",
+        )
+
 
 class SendTelegramKeyboardButtonModule:
     """Flow module that sends a Telegram reply keyboard message."""

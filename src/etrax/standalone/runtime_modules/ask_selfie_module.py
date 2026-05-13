@@ -6,9 +6,11 @@ from typing import Any, Callable
 
 from etrax.adapters.telegram import TelegramBotApiGateway
 from etrax.core.flow import FlowModule
+from etrax.core.image_metadata import validate_jpeg_original_capture_date
 from etrax.core.telegram import (
     AskSelfieConfig,
     AskSelfieModule,
+    DEFAULT_SELFIE_ORIGINAL_DATE_INVALID,
     SelfieRequestStore,
     extract_selfie_context,
     render_ask_selfie_text,
@@ -32,6 +34,13 @@ def resolve_ask_selfie_step_config(
         parse_mode=normalize_parse_mode(step.get("parse_mode")),
         success_text_template=str(step.get("success_text_template", "")).strip() or None,
         invalid_text_template=str(step.get("invalid_text_template", "")).strip() or None,
+        require_original_capture_date=str(step.get("require_original_capture_date", "")).strip().lower()
+        in {"1", "true", "yes", "on"},
+        original_capture_max_age_minutes=_positive_int(step.get("original_capture_max_age_minutes"), default=60),
+        require_original_capture_same_day=str(step.get("require_original_capture_same_day", "1")).strip().lower()
+        not in {"0", "false", "no", "off"},
+        original_capture_invalid_text_template=str(step.get("original_capture_invalid_text_template", "")).strip()
+        or DEFAULT_SELFIE_ORIGINAL_DATE_INVALID,
         require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()
         in {"1", "true", "yes", "on"},
         finish_current_command_text_template=str(step.get("finish_current_command_text_template", "")).strip()
@@ -100,8 +109,8 @@ def handle_selfie_message_update(
     if pending_request is None:
         return 0
 
-    photo = message.get("photo")
-    if not selfie_photo_present(photo):
+    selfie_payload = _extract_selfie_payload(message)
+    if selfie_payload is None:
         raw_text = str(message.get("text", "")).strip()
         if raw_text.startswith("/"):
             return 0
@@ -134,6 +143,13 @@ def handle_selfie_message_update(
         return 1
 
     context: dict[str, Any] = dict(pending_request.context_snapshot)
+    context_updates = extract_selfie_context(
+        selfie_payload["photos"],
+        caption=message.get("caption", ""),
+        message_id=message.get("message_id", ""),
+        message_date=message.get("date", ""),
+    )
+    context_updates.update(selfie_payload["extra_context"])
     context.update(
         {
             "bot_id": bot_id,
@@ -142,21 +158,34 @@ def handle_selfie_message_update(
             "user_id": user_id,
             "user_first_name": str(sender.get("first_name", "")).strip() or "there",
             "user_username": str(sender.get("username", "")).strip(),
-            **extract_selfie_context(
-                photo,
-                caption=message.get("caption", ""),
-                message_id=message.get("message_id", ""),
-            ),
+            **context_updates,
         }
     )
+
+    if bool(getattr(pending_request, "require_original_capture_date", False)):
+        validation_count = _validate_original_capture_date(
+            context,
+            pending_request=pending_request,
+            gateway=gateway,
+            bot_token=bot_token,
+            chat_id=chat_id,
+        )
+        if validation_count:
+            return validation_count
+
     context[pending_request.context_result_key] = {
         "bot_id": bot_id,
         "chat_id": chat_id,
         "user_id": user_id,
         "file_id": context.get("selfie_file_id", ""),
         "file_unique_id": context.get("selfie_file_unique_id", ""),
+        "source_type": context.get("selfie_source_type", "photo"),
         "caption": context.get("selfie_caption", ""),
         "message_id": context.get("selfie_message_id", 0),
+        "message_date": context.get("selfie_message_date", 0),
+        "message_date_iso": context.get("selfie_message_date_iso", ""),
+        "original_capture_date": context.get("selfie_original_capture_date", ""),
+        "original_capture_date_iso": context.get("selfie_original_capture_date_iso", ""),
         "photo_count": context.get("selfie_photo_count", 0),
     }
 
@@ -198,6 +227,113 @@ def handle_selfie_message_update(
             bot_token=bot_token,
         )
     return sent_count
+
+
+def _extract_selfie_payload(message: dict[str, Any]) -> dict[str, Any] | None:
+    photo = message.get("photo")
+    if selfie_photo_present(photo):
+        return {
+            "photos": photo,
+            "extra_context": {"selfie_source_type": "photo"},
+        }
+
+    document = message.get("document")
+    if not isinstance(document, dict):
+        return None
+    mime_type = str(document.get("mime_type", "")).strip().lower()
+    file_name = str(document.get("file_name", "")).strip()
+    if not (mime_type.startswith("image/") or file_name.lower().endswith((".jpg", ".jpeg"))):
+        return None
+    file_id = str(document.get("file_id", "")).strip()
+    if not file_id:
+        return None
+    return {
+        "photos": [
+            {
+                "file_id": file_id,
+                "file_unique_id": str(document.get("file_unique_id", "")).strip(),
+                "file_size": int(document.get("file_size", 0) or 0),
+                "width": 0,
+                "height": 0,
+            }
+        ],
+        "extra_context": {
+            "selfie_source_type": "document",
+            "selfie_file_name": file_name,
+            "selfie_mime_type": mime_type,
+        },
+    }
+
+
+def _validate_original_capture_date(
+    context: dict[str, Any],
+    *,
+    pending_request: object,
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    chat_id: str,
+) -> int:
+    file_id = str(context.get("selfie_file_id", "")).strip()
+    reference_timestamp = int(context.get("selfie_message_date", 0) or 0)
+    try:
+        image_bytes = gateway.download_file_bytes(bot_token=bot_token, file_id=file_id)
+        validation = validate_jpeg_original_capture_date(
+            image_bytes,
+            reference_timestamp=reference_timestamp,
+            max_age_minutes=int(getattr(pending_request, "original_capture_max_age_minutes", 60) or 60),
+            require_same_day=bool(getattr(pending_request, "require_original_capture_same_day", True)),
+        )
+    except Exception:
+        validation = validate_jpeg_original_capture_date(
+            b"",
+            reference_timestamp=reference_timestamp,
+            max_age_minutes=int(getattr(pending_request, "original_capture_max_age_minutes", 60) or 60),
+            require_same_day=bool(getattr(pending_request, "require_original_capture_same_day", True)),
+        )
+
+    context["selfie_original_capture_date_check"] = validation.reason
+    context["selfie_original_capture_date_valid"] = bool(validation.is_valid)
+    if validation.captured_at is not None:
+        context["selfie_original_capture_date"] = validation.captured_at.strftime("%Y-%m-%d %H:%M:%S")
+        context["selfie_original_capture_date_iso"] = validation.captured_at.isoformat()
+    else:
+        context["selfie_original_capture_date"] = ""
+        context["selfie_original_capture_date_iso"] = ""
+
+    if validation.is_valid:
+        return 0
+    if (
+        validation.reason == "missing_original_capture_date"
+        and str(context.get("selfie_source_type", "")).strip() == "photo"
+        and reference_timestamp > 0
+    ):
+        context["selfie_original_capture_date_check"] = "telegram_photo_without_exif"
+        context["selfie_original_capture_date_valid"] = True
+        context["selfie_original_capture_date_fallback"] = "message_date"
+        return 0
+
+    invalid_text = render_ask_selfie_text(
+        getattr(pending_request, "original_capture_invalid_text_template", None),
+        context,
+        default_text=DEFAULT_SELFIE_ORIGINAL_DATE_INVALID,
+        field_label="ask_selfie original_capture_invalid_text_template",
+    )
+    gateway.send_message(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=invalid_text,
+        parse_mode=getattr(pending_request, "parse_mode", None),
+        reply_markup=None,
+    )
+    return 1
+
+
+def _positive_int(value: object, *, default: int) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
 
 
 RUNTIME_MODULE_SPEC = {

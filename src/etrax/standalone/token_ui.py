@@ -561,6 +561,12 @@ def _build_handler(
             command_inline_remove_buttons_on_click_values = form.get("command_inline_remove_buttons_on_click", [])
             command_require_finish_current_commands = form.get("command_require_finish_current_command", [])
             command_finish_current_command_texts = form.get("command_finish_current_command_text_template", [])
+            command_require_original_capture_dates = form.get("command_require_original_capture_date", [])
+            command_original_capture_max_age_minutes = form.get("command_original_capture_max_age_minutes", [])
+            command_require_original_capture_same_days = form.get("command_require_original_capture_same_day", [])
+            command_original_capture_invalid_texts = form.get(
+                "command_original_capture_invalid_text_template", []
+            )
             command_callback_target_keys = form.get("command_callback_target_key", [])
             command_command_target_keys = form.get("command_command_target_key", [])
             command_photo_urls = form.get("command_photo_url", [])
@@ -640,6 +646,12 @@ def _build_handler(
             callback_inline_remove_buttons_on_click_values = form.get("callback_inline_remove_buttons_on_click", [])
             callback_require_finish_current_commands = form.get("callback_require_finish_current_command", [])
             callback_finish_current_command_texts = form.get("callback_finish_current_command_text_template", [])
+            callback_require_original_capture_dates = form.get("callback_require_original_capture_date", [])
+            callback_original_capture_max_age_minutes = form.get("callback_original_capture_max_age_minutes", [])
+            callback_require_original_capture_same_days = form.get("callback_require_original_capture_same_day", [])
+            callback_original_capture_invalid_texts = form.get(
+                "callback_original_capture_invalid_text_template", []
+            )
             callback_callback_target_keys = form.get("callback_callback_target_key", [])
             callback_command_target_keys = form.get("callback_command_target_key", [])
             callback_photo_urls = form.get("callback_photo_url", [])
@@ -720,6 +732,16 @@ def _build_handler(
             start_inline_remove_buttons_on_click = form.get("start_inline_remove_buttons_on_click", [""])[0].strip()
             start_require_finish_current_command = form.get("start_require_finish_current_command", [""])[0].strip()
             start_finish_current_command_text = form.get("start_finish_current_command_text_template", [""])[0].strip()
+            start_require_original_capture_date = form.get("start_require_original_capture_date", [""])[0].strip()
+            start_original_capture_max_age_minutes = form.get(
+                "start_original_capture_max_age_minutes", [""]
+            )[0].strip()
+            start_require_original_capture_same_day = form.get(
+                "start_require_original_capture_same_day", ["1"]
+            )[0].strip()
+            start_original_capture_invalid_text = form.get(
+                "start_original_capture_invalid_text_template", [""]
+            )[0].strip()
             start_callback_target_key = form.get("start_callback_target_key", [""])[0].strip()
             start_command_target_key = form.get("start_command_target_key", [""])[0].strip()
             start_photo_url = form.get("start_photo_url", [""])[0].strip()
@@ -821,6 +843,10 @@ def _build_handler(
                     command_inline_remove_buttons_on_click_values=command_inline_remove_buttons_on_click_values,
                     command_require_finish_current_commands=command_require_finish_current_commands,
                     command_finish_current_command_texts=command_finish_current_command_texts,
+                    command_require_original_capture_dates=command_require_original_capture_dates,
+                    command_original_capture_max_age_minutes=command_original_capture_max_age_minutes,
+                    command_require_original_capture_same_days=command_require_original_capture_same_days,
+                    command_original_capture_invalid_texts=command_original_capture_invalid_texts,
                     command_callback_target_keys=command_callback_target_keys,
                     command_command_target_keys=command_command_target_keys,
                     command_photo_urls=command_photo_urls,
@@ -900,6 +926,10 @@ def _build_handler(
                         inline_remove_buttons_on_click_text=start_inline_remove_buttons_on_click,
                         require_finish_current_command_text=start_require_finish_current_command,
                         finish_current_command_text=start_finish_current_command_text,
+                        require_original_capture_date=start_require_original_capture_date,
+                        original_capture_max_age_minutes=start_original_capture_max_age_minutes,
+                        require_original_capture_same_day=start_require_original_capture_same_day,
+                        original_capture_invalid_text=start_original_capture_invalid_text,
                         callback_target_key=start_callback_target_key,
                         command_target_key=start_command_target_key,
                         photo_url=start_photo_url,
@@ -979,6 +1009,10 @@ def _build_handler(
                     callback_inline_remove_buttons_on_click_values=callback_inline_remove_buttons_on_click_values,
                     callback_require_finish_current_commands=callback_require_finish_current_commands,
                     callback_finish_current_command_texts=callback_finish_current_command_texts,
+                    callback_require_original_capture_dates=callback_require_original_capture_dates,
+                    callback_original_capture_max_age_minutes=callback_original_capture_max_age_minutes,
+                    callback_require_original_capture_same_days=callback_require_original_capture_same_days,
+                    callback_original_capture_invalid_texts=callback_original_capture_invalid_texts,
                     callback_callback_target_keys=callback_callback_target_keys,
                     callback_command_target_keys=callback_command_target_keys,
                     callback_photo_urls=callback_photo_urls,
@@ -4262,6 +4296,10 @@ def _build_command_modules_from_form(
     command_inline_remove_buttons_on_click_values: list[str],
     command_require_finish_current_commands: list[str],
     command_finish_current_command_texts: list[str],
+    command_require_original_capture_dates: list[str],
+    command_original_capture_max_age_minutes: list[str],
+    command_require_original_capture_same_days: list[str],
+    command_original_capture_invalid_texts: list[str],
     command_callback_target_keys: list[str],
     command_command_target_keys: list[str],
     command_photo_urls: list[str],
@@ -4340,6 +4378,10 @@ def _build_command_modules_from_form(
         len(command_inline_remove_buttons_on_click_values),
         len(command_require_finish_current_commands),
         len(command_finish_current_command_texts),
+        len(command_require_original_capture_dates),
+        len(command_original_capture_max_age_minutes),
+        len(command_require_original_capture_same_days),
+        len(command_original_capture_invalid_texts),
         len(command_callback_target_keys),
         len(command_command_target_keys),
         len(command_photo_urls),
@@ -4437,6 +4479,26 @@ def _build_command_modules_from_form(
         finish_current_command_text = (
             command_finish_current_command_texts[idx].strip()
             if idx < len(command_finish_current_command_texts)
+            else ""
+        )
+        require_original_capture_date = (
+            command_require_original_capture_dates[idx].strip()
+            if idx < len(command_require_original_capture_dates)
+            else ""
+        )
+        original_capture_max_age_minutes = (
+            command_original_capture_max_age_minutes[idx].strip()
+            if idx < len(command_original_capture_max_age_minutes)
+            else ""
+        )
+        require_original_capture_same_day = (
+            command_require_original_capture_same_days[idx].strip()
+            if idx < len(command_require_original_capture_same_days)
+            else "1"
+        )
+        original_capture_invalid_text = (
+            command_original_capture_invalid_texts[idx].strip()
+            if idx < len(command_original_capture_invalid_texts)
             else ""
         )
         callback_target_key = command_callback_target_keys[idx].strip() if idx < len(command_callback_target_keys) else ""
@@ -4599,6 +4661,10 @@ def _build_command_modules_from_form(
             inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
             require_finish_current_command_text=require_finish_current_command_text,
             finish_current_command_text=finish_current_command_text,
+            require_original_capture_date=require_original_capture_date,
+            original_capture_max_age_minutes=original_capture_max_age_minutes,
+            require_original_capture_same_day=require_original_capture_same_day,
+            original_capture_invalid_text=original_capture_invalid_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
@@ -4678,6 +4744,10 @@ def _build_callback_modules_from_form(
     callback_inline_remove_buttons_on_click_values: list[str],
     callback_require_finish_current_commands: list[str],
     callback_finish_current_command_texts: list[str],
+    callback_require_original_capture_dates: list[str],
+    callback_original_capture_max_age_minutes: list[str],
+    callback_require_original_capture_same_days: list[str],
+    callback_original_capture_invalid_texts: list[str],
     callback_callback_target_keys: list[str],
     callback_command_target_keys: list[str],
     callback_photo_urls: list[str],
@@ -4757,6 +4827,10 @@ def _build_callback_modules_from_form(
         len(callback_inline_remove_buttons_on_click_values),
         len(callback_require_finish_current_commands),
         len(callback_finish_current_command_texts),
+        len(callback_require_original_capture_dates),
+        len(callback_original_capture_max_age_minutes),
+        len(callback_require_original_capture_same_days),
+        len(callback_original_capture_invalid_texts),
         len(callback_callback_target_keys),
         len(callback_command_target_keys),
         len(callback_photo_urls),
@@ -4854,6 +4928,26 @@ def _build_callback_modules_from_form(
         finish_current_command_text = (
             callback_finish_current_command_texts[idx].strip()
             if idx < len(callback_finish_current_command_texts)
+            else ""
+        )
+        require_original_capture_date = (
+            callback_require_original_capture_dates[idx].strip()
+            if idx < len(callback_require_original_capture_dates)
+            else ""
+        )
+        original_capture_max_age_minutes = (
+            callback_original_capture_max_age_minutes[idx].strip()
+            if idx < len(callback_original_capture_max_age_minutes)
+            else ""
+        )
+        require_original_capture_same_day = (
+            callback_require_original_capture_same_days[idx].strip()
+            if idx < len(callback_require_original_capture_same_days)
+            else "1"
+        )
+        original_capture_invalid_text = (
+            callback_original_capture_invalid_texts[idx].strip()
+            if idx < len(callback_original_capture_invalid_texts)
             else ""
         )
         callback_target_key = callback_callback_target_keys[idx].strip() if idx < len(callback_callback_target_keys) else ""
@@ -5021,6 +5115,10 @@ def _build_callback_modules_from_form(
             inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
             require_finish_current_command_text=require_finish_current_command_text,
             finish_current_command_text=finish_current_command_text,
+            require_original_capture_date=require_original_capture_date,
+            original_capture_max_age_minutes=original_capture_max_age_minutes,
+            require_original_capture_same_day=require_original_capture_same_day,
+            original_capture_invalid_text=original_capture_invalid_text,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
@@ -5234,6 +5332,10 @@ def _build_command_module_entry(
     inline_remove_buttons_on_click_text: str = "",
     require_finish_current_command_text: str = "",
     finish_current_command_text: str = "",
+    require_original_capture_date: str = "",
+    original_capture_max_age_minutes: str = "",
+    require_original_capture_same_day: str = "1",
+    original_capture_invalid_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -5315,6 +5417,10 @@ def _build_command_module_entry(
         inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
         require_finish_current_command_text=require_finish_current_command_text,
         finish_current_command_text=finish_current_command_text,
+        require_original_capture_date=require_original_capture_date,
+        original_capture_max_age_minutes=original_capture_max_age_minutes,
+        require_original_capture_same_day=require_original_capture_same_day,
+        original_capture_invalid_text=original_capture_invalid_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
@@ -5396,6 +5502,10 @@ def _build_callback_module_entry(
     inline_remove_buttons_on_click_text: str = "",
     require_finish_current_command_text: str = "",
     finish_current_command_text: str = "",
+    require_original_capture_date: str = "",
+    original_capture_max_age_minutes: str = "",
+    require_original_capture_same_day: str = "1",
+    original_capture_invalid_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -5476,6 +5586,10 @@ def _build_callback_module_entry(
         inline_remove_buttons_on_click_text=inline_remove_buttons_on_click_text,
         require_finish_current_command_text=require_finish_current_command_text,
         finish_current_command_text=finish_current_command_text,
+        require_original_capture_date=require_original_capture_date,
+        original_capture_max_age_minutes=original_capture_max_age_minutes,
+        require_original_capture_same_day=require_original_capture_same_day,
+        original_capture_invalid_text=original_capture_invalid_text,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
@@ -5565,6 +5679,10 @@ def _build_module_step(
     inline_remove_buttons_on_click_text: str = "",
     require_finish_current_command_text: str = "",
     finish_current_command_text: str = "",
+    require_original_capture_date: str = "",
+    original_capture_max_age_minutes: str = "",
+    require_original_capture_same_day: str = "1",
+    original_capture_invalid_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -5803,6 +5921,10 @@ def _build_module_step(
             parse_mode_value=parse_mode_value,
             success_text=contact_success_text,
             invalid_text=contact_invalid_text,
+            require_original_capture_date=require_original_capture_date,
+            original_capture_max_age_minutes=original_capture_max_age_minutes,
+            require_original_capture_same_day=require_original_capture_same_day,
+            original_capture_invalid_text=original_capture_invalid_text,
             require_finish_current_command=require_finish_current_command_text,
             finish_current_command_text=finish_current_command_text,
         )
@@ -5977,6 +6099,10 @@ def _build_callback_module_step(
     inline_remove_buttons_on_click_text: str = "",
     require_finish_current_command_text: str = "",
     finish_current_command_text: str = "",
+    require_original_capture_date: str = "",
+    original_capture_max_age_minutes: str = "",
+    require_original_capture_same_day: str = "1",
+    original_capture_invalid_text: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -6215,6 +6341,10 @@ def _build_callback_module_step(
             parse_mode_value=parse_mode_value,
             success_text=contact_success_text,
             invalid_text=contact_invalid_text,
+            require_original_capture_date=require_original_capture_date,
+            original_capture_max_age_minutes=original_capture_max_age_minutes,
+            require_original_capture_same_day=require_original_capture_same_day,
+            original_capture_invalid_text=original_capture_invalid_text,
             require_finish_current_command=require_finish_current_command_text,
             finish_current_command_text=finish_current_command_text,
         )
@@ -6399,6 +6529,10 @@ def _build_ask_selfie_step(
     parse_mode_value: str | None,
     success_text: str,
     invalid_text: str,
+    require_original_capture_date: object = "",
+    original_capture_max_age_minutes: object = "",
+    require_original_capture_same_day: object = "1",
+    original_capture_invalid_text: object = "",
     require_finish_current_command: object = "",
     finish_current_command_text: object = "",
 ) -> dict[str, object]:
@@ -6410,6 +6544,16 @@ def _build_ask_selfie_step(
         "success_text_template": success_text.strip() or "Thanks, your selfie was received.",
         "invalid_text_template": invalid_text.strip() or "Please send a selfie photo.",
     }
+    if _is_truthy_text(require_original_capture_date):
+        step["require_original_capture_date"] = True
+    max_age = _positive_int_text(original_capture_max_age_minutes, default=60)
+    if max_age != 60:
+        step["original_capture_max_age_minutes"] = max_age
+    if not _is_truthy_text(require_original_capture_same_day):
+        step["require_original_capture_same_day"] = False
+    normalized_original_invalid_text = str(original_capture_invalid_text or "").strip()
+    if normalized_original_invalid_text:
+        step["original_capture_invalid_text_template"] = normalized_original_invalid_text
     _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
     return step
 
@@ -6989,6 +7133,19 @@ def _extract_command_module_form_values(
     bind_code_start_number = _format_numeric_text(module.get("start_number", module.get("bind_code_start_number", 1)))
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
+    require_original_capture_date = "1" if bool(module.get("require_original_capture_date", False)) else ""
+    original_capture_max_age_minutes = _format_numeric_text(
+        module.get(
+            "original_capture_max_age_minutes",
+            60 if bool(module.get("require_original_capture_date", False)) else "",
+        )
+    )
+    require_original_capture_same_day = (
+        ""
+        if module.get("require_original_capture_same_day") is False
+        else "1"
+    )
+    original_capture_invalid_text = str(module.get("original_capture_invalid_text_template", "")).strip()
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
     find_closest_saved_location = "1" if bool(module.get("find_closest_saved_location", False)) else ""
     match_closest_saved_location = "1" if bool(module.get("match_closest_saved_location", False)) else ""
@@ -7090,6 +7247,10 @@ def _extract_command_module_form_values(
         "bind_code_start_number": bind_code_start_number,
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
+        "require_original_capture_date": require_original_capture_date,
+        "original_capture_max_age_minutes": original_capture_max_age_minutes,
+        "require_original_capture_same_day": require_original_capture_same_day,
+        "original_capture_invalid_text_template": original_capture_invalid_text,
         "require_live_location": require_live_location,
         "find_closest_saved_location": find_closest_saved_location,
         "match_closest_saved_location": match_closest_saved_location,
@@ -7231,6 +7392,7 @@ def _extract_callback_module_form_values(
     click_timestamp_format = _normalize_click_timestamp_format(module.get("click_timestamp_format", ""))
     inline_remove_buttons_on_click = "1" if bool(module.get("remove_inline_buttons_on_click", False)) else ""
     require_finish_current_command = "1" if bool(module.get("require_finish_current_command", False)) else ""
+    finish_current_command_text = str(module.get("finish_current_command_text_template", "")).strip()
     callback_target_key = str(module.get("target_callback_key", "")).strip()
     command_target_key = str(module.get("target_command_key", "")).strip()
     photo_url = str(module.get("photo_url", module.get("photo", ""))).strip()
@@ -7250,6 +7412,19 @@ def _extract_callback_module_form_values(
     bind_code_start_number = _format_numeric_text(module.get("start_number", module.get("bind_code_start_number", 1)))
     contact_success_text = str(module.get("success_text_template", "")).strip()
     contact_invalid_text = str(module.get("invalid_text_template", "")).strip()
+    require_original_capture_date = "1" if bool(module.get("require_original_capture_date", False)) else ""
+    original_capture_max_age_minutes = _format_numeric_text(
+        module.get(
+            "original_capture_max_age_minutes",
+            60 if bool(module.get("require_original_capture_date", False)) else "",
+        )
+    )
+    require_original_capture_same_day = (
+        ""
+        if module.get("require_original_capture_same_day") is False
+        else "1"
+    )
+    original_capture_invalid_text = str(module.get("original_capture_invalid_text_template", "")).strip()
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
     find_closest_saved_location = "1" if bool(module.get("find_closest_saved_location", False)) else ""
     match_closest_saved_location = "1" if bool(module.get("match_closest_saved_location", False)) else ""
@@ -7333,6 +7508,7 @@ def _extract_callback_module_form_values(
         "click_timestamp_format": click_timestamp_format,
         "inline_remove_buttons_on_click": inline_remove_buttons_on_click,
         "require_finish_current_command": require_finish_current_command,
+        "finish_current_command_text_template": finish_current_command_text,
         "callback_target_key": callback_target_key,
         "command_target_key": command_target_key,
         "photo_url": photo_url,
@@ -7349,6 +7525,10 @@ def _extract_callback_module_form_values(
         "bind_code_start_number": bind_code_start_number,
         "contact_success_text": contact_success_text,
         "contact_invalid_text": contact_invalid_text,
+        "require_original_capture_date": require_original_capture_date,
+        "original_capture_max_age_minutes": original_capture_max_age_minutes,
+        "require_original_capture_same_day": require_original_capture_same_day,
+        "original_capture_invalid_text_template": original_capture_invalid_text,
         "require_live_location": require_live_location,
         "find_closest_saved_location": find_closest_saved_location,
         "match_closest_saved_location": match_closest_saved_location,
@@ -7437,6 +7617,9 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "click_timestamp_format": module_values["click_timestamp_format"],
                     "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
                     "require_finish_current_command": module_values["require_finish_current_command"],
+                    "finish_current_command_text_template": module_values[
+                        "finish_current_command_text_template"
+                    ],
                     "callback_target_key": module_values["callback_target_key"],
                     "command_target_key": module_values["command_target_key"],
                     "photo_url": module_values["photo_url"],
@@ -7449,6 +7632,12 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "bind_code_start_number": module_values["bind_code_start_number"],
                     "contact_success_text": module_values["contact_success_text"],
                     "contact_invalid_text": module_values["contact_invalid_text"],
+                    "require_original_capture_date": module_values["require_original_capture_date"],
+                    "original_capture_max_age_minutes": module_values["original_capture_max_age_minutes"],
+                    "require_original_capture_same_day": module_values["require_original_capture_same_day"],
+                    "original_capture_invalid_text_template": module_values[
+                        "original_capture_invalid_text_template"
+                    ],
                     "require_live_location": module_values["require_live_location"],
                     "find_closest_saved_location": module_values["find_closest_saved_location"],
                     "match_closest_saved_location": module_values["match_closest_saved_location"],
@@ -7513,6 +7702,7 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                 "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
                 "inline_remove_buttons_on_click": "",
                 "require_finish_current_command": "",
+                "finish_current_command_text_template": "",
                 "callback_target_key": "",
                 "command_target_key": "",
                 "photo_url": "",
@@ -7602,6 +7792,9 @@ def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
                 "click_timestamp_format": module_values["click_timestamp_format"],
                 "inline_remove_buttons_on_click": module_values["inline_remove_buttons_on_click"],
                 "require_finish_current_command": module_values["require_finish_current_command"],
+                "finish_current_command_text_template": module_values[
+                    "finish_current_command_text_template"
+                ],
                 "callback_target_key": module_values["callback_target_key"],
                 "command_target_key": module_values["command_target_key"],
                 "photo_url": module_values["photo_url"],
@@ -7614,6 +7807,12 @@ def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
                 "bind_code_start_number": module_values["bind_code_start_number"],
                 "contact_success_text": module_values["contact_success_text"],
                 "contact_invalid_text": module_values["contact_invalid_text"],
+                "require_original_capture_date": module_values["require_original_capture_date"],
+                "original_capture_max_age_minutes": module_values["original_capture_max_age_minutes"],
+                "require_original_capture_same_day": module_values["require_original_capture_same_day"],
+                "original_capture_invalid_text_template": module_values[
+                    "original_capture_invalid_text_template"
+                ],
                 "require_live_location": module_values["require_live_location"],
                 "find_closest_saved_location": module_values["find_closest_saved_location"],
                 "match_closest_saved_location": module_values["match_closest_saved_location"],
@@ -7782,6 +7981,11 @@ def _parse_positive_int_text(raw: str, *, default: int | None, field_label: str)
     if parsed <= 0:
         raise ValueError(f"{field_label} must be greater than zero")
     return parsed
+
+
+def _positive_int_text(raw: object, *, default: int) -> int:
+    parsed = _parse_positive_int_text(str(raw or ""), default=default, field_label="positive integer")
+    return int(parsed or default)
 
 
 def _parse_non_negative_float_text(
@@ -8202,6 +8406,16 @@ def _normalize_click_timestamp_format(raw: object) -> str:
     return str(raw or "").strip() or "%Y-%m-%d %H:%M:%S"
 
 
+def _attach_click_timestamp_format_if_present(
+    step: dict[str, object],
+    raw: object,
+) -> dict[str, object]:
+    value = str(raw or "").strip()
+    if value:
+        step["click_timestamp_format"] = value
+    return step
+
+
 def _command_menu_uses_module_type(command_menu: dict[str, object], module_type: str) -> bool:
     """Check whether any configured command or callback uses the given module type."""
     normalized_module_type = str(module_type).strip().lower()
@@ -8259,14 +8473,17 @@ def _parse_inline_button_chain_step(
         raise ValueError(
             f"{route_label} chain step {step_index}: inline_button requires at least one valid button"
         )
-    return _attach_inline_button_context_rules(
+    step = _attach_click_timestamp_format_if_present(
         {
             "module_type": "inline_button",
             "text_template": text_template or default_text,
             "parse_mode": parse_mode or None,
             "buttons": buttons,
-            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format),
         },
+        click_timestamp_format,
+    )
+    return _attach_inline_button_context_rules(
+        step,
         run_if_context_keys=run_if_context_keys,
         skip_if_context_keys=skip_if_context_keys,
         save_callback_data_to_key=save_callback_data_to_key,
@@ -8293,14 +8510,17 @@ def _parse_keyboard_button_chain_step(
         raise ValueError(
             f"{route_label} chain step {step_index}: keyboard_button requires at least one valid button"
         )
-    return _attach_context_key_rules(
+    step = _attach_click_timestamp_format_if_present(
         {
             "module_type": "keyboard_button",
             "text_template": text_template or "Choose an option.",
             "parse_mode": parse_mode or None,
             "buttons": buttons,
-            "click_timestamp_format": _normalize_click_timestamp_format(click_timestamp_format),
         },
+        click_timestamp_format,
+    )
+    return _attach_context_key_rules(
+        step,
         run_if_context_keys=run_if_context_keys,
         skip_if_context_keys=skip_if_context_keys,
     )
@@ -8374,6 +8594,10 @@ def _parse_ask_selfie_chain_step(
     parse_mode: str,
     success_text_template: str,
     invalid_text_template: str,
+    require_original_capture_date: object = "",
+    original_capture_max_age_minutes: object = "",
+    require_original_capture_same_day: object = "1",
+    original_capture_invalid_text_template: object = "",
     require_finish_current_command: object = "",
     finish_current_command_text: object = "",
 ) -> dict[str, object]:
@@ -8384,6 +8608,10 @@ def _parse_ask_selfie_chain_step(
         parse_mode_value=parse_mode or None,
         success_text=success_text_template,
         invalid_text=invalid_text_template,
+        require_original_capture_date=require_original_capture_date,
+        original_capture_max_age_minutes=original_capture_max_age_minutes,
+        require_original_capture_same_day=require_original_capture_same_day,
+        original_capture_invalid_text=original_capture_invalid_text_template,
         require_finish_current_command=require_finish_current_command,
         finish_current_command_text=finish_current_command_text,
     )
@@ -8777,6 +9005,12 @@ def _parse_route_chain_steps(
                         parse_mode=parse_mode,
                         success_text_template=str(serialized.get("success_text_template", "")),
                         invalid_text_template=str(serialized.get("invalid_text_template", "")),
+                        require_original_capture_date=serialized.get("require_original_capture_date", ""),
+                        original_capture_max_age_minutes=serialized.get("original_capture_max_age_minutes", ""),
+                        require_original_capture_same_day=serialized.get("require_original_capture_same_day", "1"),
+                        original_capture_invalid_text_template=serialized.get(
+                            "original_capture_invalid_text_template", ""
+                        ),
                         require_finish_current_command=serialized.get("require_finish_current_command", ""),
                         finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
                     )
@@ -9425,13 +9659,15 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "parse_mode": parse_mode,
             }
         elif module_type == "inline_button":
-            payload = {
-                "module_type": "inline_button",
-                "text_template": str(step.get("text_template", "")),
-                "parse_mode": parse_mode,
-                "buttons": _normalize_inline_buttons(step.get("buttons", [])),
-                "click_timestamp_format": _normalize_click_timestamp_format(step.get("click_timestamp_format", "")),
-            }
+            payload = _attach_click_timestamp_format_if_present(
+                {
+                    "module_type": "inline_button",
+                    "text_template": str(step.get("text_template", "")),
+                    "parse_mode": parse_mode,
+                    "buttons": _normalize_inline_buttons(step.get("buttons", [])),
+                },
+                step.get("click_timestamp_format", ""),
+            )
             run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
             skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
             save_callback_data_to_key = str(step.get("save_callback_data_to_key", "")).strip()
@@ -9450,13 +9686,15 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                     step.get("finish_current_command_text_template", "")
                 ).strip()
         elif module_type == "keyboard_button":
-            payload = {
-                "module_type": "keyboard_button",
-                "text_template": str(step.get("text_template", "Choose an option.")),
-                "parse_mode": parse_mode,
-                "buttons": _normalize_keyboard_buttons(step.get("buttons", [])),
-                "click_timestamp_format": _normalize_click_timestamp_format(step.get("click_timestamp_format", "")),
-            }
+            payload = _attach_click_timestamp_format_if_present(
+                {
+                    "module_type": "keyboard_button",
+                    "text_template": str(step.get("text_template", "Choose an option.")),
+                    "parse_mode": parse_mode,
+                    "buttons": _normalize_keyboard_buttons(step.get("buttons", [])),
+                },
+                step.get("click_timestamp_format", ""),
+            )
             run_if_context_keys = _parse_context_key_lines(step.get("run_if_context_keys", []))
             skip_if_context_keys = _parse_context_key_lines(step.get("skip_if_context_keys", []))
             if run_if_context_keys:
@@ -9547,6 +9785,17 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 "success_text_template": str(step.get("success_text_template", "")),
                 "invalid_text_template": str(step.get("invalid_text_template", "")),
             }
+            if bool(step.get("require_original_capture_date", False)):
+                payload["require_original_capture_date"] = True
+            original_max_age = _positive_int_text(step.get("original_capture_max_age_minutes", 60), default=60)
+            if original_max_age != 60:
+                payload["original_capture_max_age_minutes"] = original_max_age
+            if step.get("require_original_capture_same_day") is False:
+                payload["require_original_capture_same_day"] = False
+            if str(step.get("original_capture_invalid_text_template", "")).strip():
+                payload["original_capture_invalid_text_template"] = str(
+                    step.get("original_capture_invalid_text_template", "")
+                ).strip()
             if bool(step.get("require_finish_current_command", False)):
                 payload["require_finish_current_command"] = True
             if str(step.get("finish_current_command_text_template", "")).strip():
