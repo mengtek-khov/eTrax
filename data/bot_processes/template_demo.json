@@ -1,5 +1,5 @@
 {
-  "bot_id": "Register Demo",
+  "bot_id": "template demo",
   "command_menu": {
     "callback_modules": {
       "age verify": {
@@ -95,33 +95,6 @@
       }
     },
     "command_modules": {
-      "getinfo": {
-        "empty_text_template": "No user information has been gathered yet.",
-        "module_type": "userinfo",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "empty_text_template": "No user information has been gathered yet.",
-            "module_type": "userinfo",
-            "parse_mode": null,
-            "title": "Current User Information"
-          }
-        ],
-        "title": "Current User Information"
-      },
-      "reset": {
-        "module_type": "forget_user_data",
-        "pipeline": [
-          {
-            "module_type": "forget_user_data"
-          },
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "Your Data has been removed please click /start to use this system again"
-          }
-        ]
-      },
       "start": {
         "module_type": "send_message",
         "parse_mode": null,
@@ -129,9 +102,9 @@
           {
             "module_type": "send_message",
             "parse_mode": null,
-            "start_returning_text_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
+            "start_returning_text_template": "Welcome back, {user_first_name}.",
             "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}",
-            "welcome_back_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}"
+            "welcome_back_template": "Welcome back, {user_first_name}."
           },
           {
             "buttons": [
@@ -193,23 +166,13 @@
             "target_callback_key": "i_am_18"
           }
         ],
-        "start_returning_text_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
+        "start_returning_text_template": "Welcome back, {user_first_name}.",
         "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}",
-        "welcome_back_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}"
+        "welcome_back_template": "Welcome back, {user_first_name}."
       }
-    },
-    "commands": [
-      {
-        "command": "reset",
-        "description": "forgot user"
-      },
-      {
-        "command": "getinfo",
-        "description": "Getinfo"
-      }
-    ]
+    }
   },
-  "created_at": "2026-04-27T02:19:28.368755+00:00",
+  "created_at": "2026-05-25T09:17:16.248562+00:00",
   "flows": {
     "main": {
       "start_module": null,
@@ -245,8 +208,8 @@
     }
   },
   "token_ref": {
-    "bot_id": "Register Demo"
+    "bot_id": "template demo"
   },
-  "updated_at": "2026-05-25T09:36:11.091150+00:00",
+  "updated_at": "2026-05-25T09:26:30.467958+00:00",
   "version": 1
 }

@@ -100,11 +100,31 @@
   function createEditor(values) {
     // Wrap one module/pipeline payload in the editor state tracked by Vue.
     const source = normalizeEditorSeed(values);
+    const editorSteps = Array.isArray(source.editor_steps)
+      ? source.editor_steps
+        .filter((step) => step && typeof step === "object")
+        .map((step) => moduleSystem.parsePrimary(
+          step.module_type || moduleSystem.defaultType(),
+          step
+        ))
+      : [];
+    if (editorSteps.length > 0) {
+      return {
+        add_type: editorSteps[0].module_type || moduleSystem.defaultType(),
+        selected_template_id: "",
+        collapsed: false,
+        visible: false,
+        editing_index: null,
+        steps: editorSteps,
+      };
+    }
     const moduleType = moduleSystem.normalizeType(source.module_type || moduleSystem.defaultType());
     const primary = moduleSystem.parsePrimary(moduleType, source);
     const chain = parseChainSteps(source.chain_steps || "");
     return {
       add_type: moduleType,
+      selected_template_id: "",
+      collapsed: false,
       visible: false,
       editing_index: null,
       steps: [primary, ...chain],
@@ -371,6 +391,7 @@
   function parseState(rawState) {
     // Convert the server-provided JSON blob into the reactive Vue state shape.
     const parsed = rawState && typeof rawState === "object" ? rawState : {};
+    const editorMode = parsed.mode === "template" ? "template" : "bot";
     const start = parsed.start && typeof parsed.start === "object" ? parsed.start : {};
     const commandRows = Array.isArray(parsed.commands) ? parsed.commands : [];
     const callbackRows = Array.isArray(parsed.callbacks) ? parsed.callbacks : [];
@@ -388,9 +409,16 @@
       ? start.start_returning_text_template
       : "Welcome back, {user_first_name}.";
     return {
+      editorMode,
+      botId: parsed.bot_id ? String(parsed.bot_id) : "",
       moduleOptions: moduleSystem.optionList(),
+      templateOptions: Array.isArray(parsed.templates)
+        ? parsed.templates.filter((entry) => entry && typeof entry === "object")
+        : [],
       profileLogContextKeys,
       customCodeFunctionOptions,
+      templateSaveMessage: "",
+      templateSaveError: "",
       startDescription: start.description ? String(start.description) : "",
       startReturningTextTemplate: String(startReturningTextTemplate || "Welcome back, {user_first_name}."),
       startEditor: createEditor(start.module_values || defaultStartValues()),
@@ -411,21 +439,34 @@
   function appTemplate() {
     // Main HTML template for the standalone config editor.
     return `
+<div class="status success" v-if="templateSaveMessage">[[ templateSaveMessage ]]</div>
+<div class="status error" v-if="templateSaveError">[[ templateSaveError ]]</div>
 <div class="module-block" id="start-module-setup">
-  <p class="module-title">/start Command Setup</p>
-  <div class="command-row no-action">
-    <input value="/start" readonly>
-    <input id="start_command_description" name="start_command_description" placeholder="Start bot" v-model="startDescription">
-  </div>
-  <label for="start_returning_text_template">Welcome Back Message</label>
-  <textarea id="start_returning_text_template" rows="3" v-model="startReturningTextTemplate"></textarea>
-  <div class="module-list-tools">
+  <div v-if="!isTemplateMode">
+	  <div class="pipeline-title-row">
+	    <p class="module-title">/start Command Setup</p>
+	    <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(startEditor)">[[ editorCollapsed(startEditor) ? 'Expand' : 'Collapse' ]]</button>
+	  </div>
+  <div v-if="!editorCollapsed(startEditor)">
+	  <div class="command-row no-action">
+	    <input value="/start" readonly>
+	    <input id="start_command_description" name="start_command_description" placeholder="Start bot" v-model="startDescription">
+	  </div>
+	  <label for="start_returning_text_template">Welcome Back Message</label>
+	  <textarea id="start_returning_text_template" rows="3" v-model="startReturningTextTemplate"></textarea>
+	  <div class="module-list-tools">
     <select v-model="startEditor.add_type">
       <option v-for="option in availableModuleOptions" :key="'start-opt-' + option.type" :value="option.type">[[ option.label ]]</option>
     </select>
     <button type="button" class="secondary" @click="addModule(startEditor)">Add Module</button>
+    <button type="button" class="secondary" @click="saveEditorAsTemplate(startEditor, '/start Pipeline', 'start', '/start')">Save As Template</button>
+    <select v-if="!isTemplateMode" v-model="startEditor.selected_template_id">
+      <option value="">Select Template</option>
+      <option v-for="template in templateOptions" :key="'start-template-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
+    </select>
+    <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!startEditor.selected_template_id" @click="loadTemplateIntoEditor(startEditor)">Load Template</button>
   </div>
-  <div class="module-list">
+	  <div class="module-list">
     <div v-for="(step, moduleIndex) in startEditor.steps" :key="'start-' + moduleIndex" :class="moduleRowClass(startEditor, moduleIndex)">
       <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(startEditor, moduleIndex)) ]]</div>
       <div class="module-list-actions">
@@ -436,8 +477,8 @@
       </div>
     </div>
   </div>
-  <p class="module-editor-placeholder" v-if="!startEditor.visible">Click Edit on a module row to load Module Setup.</p>
-  <div class="module-editor" v-if="startEditor.visible">
+	  <p class="module-editor-placeholder" v-if="!startEditor.visible">Click Edit on a module row to load Module Setup.</p>
+	  <div class="module-editor" v-if="startEditor.visible">
     <div class="module-grid">
       <div>
         <label for="start_module_type_display">Module Type (locked)</label>
@@ -452,9 +493,10 @@
         <button type="button" class="secondary" @click="resetCurrentModule(startEditor)">Reset To Default</button>
       </div>
     </div>
-    ${renderModuleEditorSections("startEditor", "start_")}
+	    ${renderModuleEditorSections("startEditor", "start_")}
+	  </div>
   </div>
-  <input type="hidden" name="start_module_type" :value="startPrimary.module_type">
+	  <input type="hidden" name="start_module_type" :value="startPrimary.module_type">
   <input type="hidden" name="start_text_template" :value="startPrimary.text_template">
   <input type="hidden" name="start_parse_mode" :value="startPrimary.parse_mode">
   <input type="hidden" name="start_hide_caption" :value="startPrimary.hide_caption ? '1' : ''">
@@ -530,22 +572,33 @@
   <input type="hidden" name="start_cart_max_qty" :value="startPrimary.max_qty">
   <input type="hidden" name="start_chain_steps" :value="formatChainSteps(startEditor.steps.slice(1))">
   <input type="hidden" name="start_returning_text_template" :value="startReturningTextTemplate">
+  </div>
 
-	  <label>Custom Commands</label>
-	  <p class="hint">Each command has its own process module setup panel.</p>
+	  <label>[[ isTemplateMode ? 'Process Pipeline' : 'Custom Commands' ]]</label>
+	  <p class="hint">[[ isTemplateMode ? 'One reusable pipeline. It is not attached to a command until you load it into a bot command.' : 'Each command has its own process module setup panel.' ]]</p>
 	  <div id="command-list" class="command-list">
 	    <div class="command-entry" v-for="(entry, commandIndex) in commandEntries" :key="'cmd-' + entry._entry_id">
-      <p class="command-panel-title">[[ commandPanelTitle(entry.command) ]]</p>
-      <div class="command-row">
-        <input placeholder="/help" v-model="entry.command">
-        <input placeholder="Get help" v-model="entry.description">
-        <button type="button" @click="removeCommand(commandIndex)">Remove</button>
+      <div class="pipeline-title-row">
+        <p class="command-panel-title">[[ commandPanelTitle(entry.command) ]]</p>
+        <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(entry.editor)">[[ editorCollapsed(entry.editor) ? 'Expand' : 'Collapse' ]]</button>
+      </div>
+      <div v-if="!editorCollapsed(entry.editor)">
+      <div :class="isTemplateMode ? 'command-row no-action' : 'command-row'">
+        <input placeholder="/help" v-model="entry.command" :readonly="isTemplateMode">
+        <input placeholder="Get help" v-model="entry.description" :readonly="isTemplateMode">
+        <button type="button" v-if="!isTemplateMode" @click="removeCommand(commandIndex)">Remove</button>
       </div>
       <div class="module-list-tools">
         <select v-model="entry.editor.add_type">
           <option v-for="option in availableModuleOptions" :key="'cmd-opt-' + commandIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
         </select>
         <button type="button" class="secondary" @click="addModule(entry.editor)">Add Module</button>
+        <button type="button" class="secondary" v-if="!isTemplateMode" @click="saveEditorAsTemplate(entry.editor, (entry.command || 'Command') + ' Pipeline', 'command', entry.command)">Save As Template</button>
+        <select v-if="!isTemplateMode" v-model="entry.editor.selected_template_id">
+          <option value="">Select Template</option>
+          <option v-for="template in templateOptions" :key="'cmd-template-' + commandIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
+        </select>
+        <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
       </div>
       <div class="module-list">
         <div v-for="(step, moduleIndex) in entry.editor.steps" :key="'cmd-' + commandIndex + '-' + moduleIndex" :class="moduleRowClass(entry.editor, moduleIndex)">
@@ -574,9 +627,10 @@
             <button type="button" class="secondary" @click="resetCurrentModule(entry.editor)">Reset To Default</button>
           </div>
         </div>
-        ${renderModuleEditorSections("entry.editor", "")}
+	        ${renderModuleEditorSections("entry.editor", "")}
+	      </div>
       </div>
-      <input type="hidden" name="command_name" :value="entry.command">
+	      <input type="hidden" name="command_name" :value="entry.command">
       <input type="hidden" name="command_description" :value="entry.description">
       <input type="hidden" name="command_module_type" :value="primaryStep(entry.editor).module_type">
       <input type="hidden" name="command_text_template" :value="primaryStep(entry.editor).text_template">
@@ -656,8 +710,13 @@
 	    </div>
 	  </div>
 	  <div class="actions">
-	    <button type="button" class="secondary" @click="addCommand">Add Command</button>
-	    <button type="button" class="secondary" @click="addModuleWithTempCommandExample">Add command with temp command</button>
+	    <button type="button" class="secondary" v-if="!isTemplateMode" @click="addCommand">Add Command</button>
+	    <button type="button" class="secondary" v-if="!isTemplateMode" @click="addModuleWithTempCommandExample">Add command with temp command</button>
+	  </div>
+	  <div v-if="isTemplateMode">
+	    <input type="hidden" name="process_pipeline" :value="templateProcessPipeline">
+	    <input type="hidden" name="callback_modules" :value="serializeTemplateCallbacks(callbackEntries)">
+	    <input type="hidden" name="temporary_commands" :value="serializeTemplateTemporaryCommands(callbackEntries)">
 	  </div>
 
 		  <label>Callback Modules</label>
@@ -671,24 +730,34 @@
 		  <datalist id="callback-data-options">
 		    <option v-for="callbackKey in callbackOptions" :key="'callback-data-opt-' + callbackKey" :value="callbackKey">[[ callbackKey ]]</option>
 		  </datalist>
-		  <div id="callback-list" class="command-list">
-	    <div class="command-entry" v-for="(entry, callbackIndex) in callbackEntries" :key="'callback-' + entry._entry_id">
-	      <p class="command-panel-title">[[ callbackPanelTitle(entry.callback_key) ]]</p>
-	      <div class="command-row">
-	        <input placeholder="Driver" list="callback-key-options" v-model="entry.callback_key">
-	        <select class="inline-button-input" :value="entry.callback_key" @change="applyCallbackSuggestion(entry, $event.target.value)">
-	          <option value="">Select callback_data from current module setup</option>
-	          <option v-for="callbackKey in callbackOptions" :key="'callback-select-' + callbackIndex + '-' + callbackKey" :value="callbackKey">[[ callbackKey ]]</option>
-	        </select>
-	        <button type="button" @click="removeCallback(callbackIndex)">Remove</button>
-	      </div>
-	      <div class="module-list-tools">
-	        <select v-model="entry.editor.add_type">
-	          <option v-for="option in availableModuleOptions" :key="'callback-module-opt-' + callbackIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
-	        </select>
-	        <button type="button" class="secondary" @click="addModule(entry.editor)">Add Module</button>
-	      </div>
-	      <div class="module-list">
+			  <div id="callback-list" class="command-list">
+		    <div class="command-entry" v-for="(entry, callbackIndex) in callbackEntries" :key="'callback-' + entry._entry_id">
+			      <div class="pipeline-title-row">
+			        <p class="command-panel-title">[[ callbackPanelTitle(entry.callback_key) ]]</p>
+			        <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(entry.editor)">[[ editorCollapsed(entry.editor) ? 'Expand' : 'Collapse' ]]</button>
+			      </div>
+      <div v-if="!editorCollapsed(entry.editor)">
+			      <div class="command-row">
+			        <input placeholder="Driver" list="callback-key-options" v-model="entry.callback_key">
+		        <select class="inline-button-input" :value="entry.callback_key" @change="applyCallbackSuggestion(entry, $event.target.value)">
+		          <option value="">Select callback_data from current module setup</option>
+		          <option v-for="callbackKey in callbackOptions" :key="'callback-select-' + callbackIndex + '-' + callbackKey" :value="callbackKey">[[ callbackKey ]]</option>
+			        </select>
+			        <button type="button" @click="removeCallback(callbackIndex)">Remove</button>
+			      </div>
+			      <div class="module-list-tools">
+        <select v-model="entry.editor.add_type">
+          <option v-for="option in availableModuleOptions" :key="'callback-module-opt-' + callbackIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
+        </select>
+        <button type="button" class="secondary" @click="addModule(entry.editor)">Add Module</button>
+        <button type="button" class="secondary" @click="saveEditorAsTemplate(entry.editor, (entry.callback_key || 'Callback') + ' Pipeline', 'callback', entry.callback_key)">Save As Template</button>
+        <select v-if="!isTemplateMode" v-model="entry.editor.selected_template_id">
+          <option value="">Select Template</option>
+          <option v-for="template in templateOptions" :key="'callback-template-' + callbackIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
+        </select>
+        <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
+      </div>
+			      <div class="module-list">
 	        <div v-for="(step, moduleIndex) in entry.editor.steps" :key="'callback-' + callbackIndex + '-' + moduleIndex" :class="moduleRowClass(entry.editor, moduleIndex)">
 	          <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(entry.editor, moduleIndex)) ]]</div>
 	          <div class="module-list-actions">
@@ -699,8 +768,8 @@
 	          </div>
 	        </div>
 	      </div>
-	      <p class="module-editor-placeholder" v-if="!entry.editor.visible">Click Edit on a module row to load Callback Module Setup.</p>
-	      <div class="module-editor" v-if="entry.editor.visible">
+			      <p class="module-editor-placeholder" v-if="!entry.editor.visible">Click Edit on a module row to load Callback Module Setup.</p>
+			      <div class="module-editor" v-if="entry.editor.visible">
 	        <div class="module-grid">
 	          <div>
 	            <label>Module Type (locked)</label>
@@ -723,25 +792,35 @@
         <div class="actions">
           <button type="button" class="secondary" @click="clearTemporaryCommands(entry)">Clear Temporary Commands</button>
         </div>
-        <div class="command-list">
-          <div class="command-entry" v-for="(tempEntry, tempCommandIndex) in entry.temporaryCommandEntries" :key="'callback-temp-' + tempEntry._entry_id">
-            <p class="command-panel-title">[[ commandPanelTitle(tempEntry.command) ]]</p>
-            <div class="command-row">
-              <input placeholder="/next" v-model="tempEntry.command">
-              <input placeholder="Next step" v-model="tempEntry.description">
-              <button type="button" @click="removeTemporaryCommand(entry, tempCommandIndex)">Remove</button>
-            </div>
-            <label class="checkbox">
-              <input type="checkbox" v-model="tempEntry.restore_original_menu">
-              Reset to original command menu after this temp command runs
-            </label>
-            <div class="module-list-tools">
+	        <div class="command-list">
+	          <div class="command-entry" v-for="(tempEntry, tempCommandIndex) in entry.temporaryCommandEntries" :key="'callback-temp-' + tempEntry._entry_id">
+		            <div class="pipeline-title-row">
+		              <p class="command-panel-title">[[ commandPanelTitle(tempEntry.command) ]]</p>
+		              <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(tempEntry.editor)">[[ editorCollapsed(tempEntry.editor) ? 'Expand' : 'Collapse' ]]</button>
+		            </div>
+            <div v-if="!editorCollapsed(tempEntry.editor)">
+		            <div class="command-row">
+		              <input placeholder="/next" v-model="tempEntry.command">
+	              <input placeholder="Next step" v-model="tempEntry.description">
+	              <button type="button" @click="removeTemporaryCommand(entry, tempCommandIndex)">Remove</button>
+	            </div>
+	            <label class="checkbox">
+		              <input type="checkbox" v-model="tempEntry.restore_original_menu">
+		              Reset to original command menu after this temp command runs
+		            </label>
+		            <div class="module-list-tools">
               <select v-model="tempEntry.editor.add_type">
                 <option v-for="option in availableModuleOptions" :key="'callback-temp-opt-' + callbackIndex + '-' + tempCommandIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
               </select>
               <button type="button" class="secondary" @click="addModule(tempEntry.editor)">Add Module</button>
+              <button type="button" class="secondary" @click="saveEditorAsTemplate(tempEntry.editor, (tempEntry.command || 'Temporary Command') + ' Pipeline', 'temporary_command', tempEntry.command)">Save As Template</button>
+              <select v-if="!isTemplateMode" v-model="tempEntry.editor.selected_template_id">
+                <option value="">Select Template</option>
+                <option v-for="template in templateOptions" :key="'temp-template-' + callbackIndex + '-' + tempCommandIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
+              </select>
+              <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!tempEntry.editor.selected_template_id" @click="loadTemplateIntoEditor(tempEntry.editor)">Load Template</button>
             </div>
-            <div class="module-list">
+		            <div class="module-list">
               <div v-for="(step, moduleIndex) in tempEntry.editor.steps" :key="'callback-temp-step-' + callbackIndex + '-' + tempCommandIndex + '-' + moduleIndex" :class="moduleRowClass(tempEntry.editor, moduleIndex)">
                 <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(tempEntry.editor, moduleIndex)) ]]</div>
                 <div class="module-list-actions">
@@ -752,8 +831,8 @@
                 </div>
               </div>
             </div>
-            <p class="module-editor-placeholder" v-if="!tempEntry.editor.visible">Click Edit on a module row to load Temporary Command Module Setup.</p>
-            <div class="module-editor" v-if="tempEntry.editor.visible">
+		            <p class="module-editor-placeholder" v-if="!tempEntry.editor.visible">Click Edit on a module row to load Temporary Command Module Setup.</p>
+		            <div class="module-editor" v-if="tempEntry.editor.visible">
               <div class="module-grid">
                 <div>
                   <label>Module Type (locked)</label>
@@ -768,18 +847,20 @@
                   <button type="button" class="secondary" @click="resetCurrentModule(tempEntry.editor)">Reset To Default</button>
                 </div>
               </div>
-              ${renderModuleEditorSections("tempEntry.editor", "")}
+	              ${renderModuleEditorSections("tempEntry.editor", "")}
+	            </div>
             </div>
-          </div>
+	          </div>
         </div>
       </div>
-	      <div class="actions">
-	        <button type="button" class="secondary" @click="addTemporaryCommand(entry)">
-            [[ temporaryCommandsButtonLabel(entry) ]]
-          </button>
-	      </div>
-
-      <input type="hidden" name="callback_key" :value="entry.callback_key">
+		      <div class="actions">
+		        <button type="button" class="secondary" @click="addTemporaryCommand(entry)">
+	            [[ temporaryCommandsButtonLabel(entry) ]]
+	          </button>
+		      </div>
+      </div>
+	
+	      <input type="hidden" name="callback_key" :value="entry.callback_key">
       <input type="hidden" name="callback_module_type" :value="primaryStep(entry.editor).module_type">
       <input type="hidden" name="callback_text_template" :value="primaryStep(entry.editor).text_template">
       <input type="hidden" name="callback_hide_caption" :value="primaryStep(entry.editor).hide_caption ? '1' : ''">
@@ -861,7 +942,7 @@
   <div class="actions">
     <button type="button" class="secondary" @click="addCallback">Add Callback Module</button>
   </div>
-  <div class="actions">
+  <div class="actions" v-if="!isTemplateMode">
     <button type="button" class="secondary" @click="resetAllToStartDefault">Reset Everything To /start Default</button>
   </div>
 </div>
@@ -884,8 +965,24 @@
         return parseState(initialState);
       },
       computed: {
+        isTemplateMode() {
+          return this.editorMode === "template";
+        },
         startPrimary() {
           return this.primaryStep(this.startEditor);
+        },
+        templatePrimaryEntry() {
+          if (!Array.isArray(this.commandEntries) || !this.commandEntries.length) {
+            return null;
+          }
+          return this.commandEntries[0];
+        },
+        templateProcessPipeline() {
+          const entry = this.templatePrimaryEntry;
+          if (!entry || !entry.editor) {
+            return "";
+          }
+          return this.formatChainSteps(entry.editor.steps);
         },
         hasCartModuleConfigured() {
           const editors = [this.startEditor];
@@ -1392,17 +1489,243 @@
           const baseLabel = moduleSystem.rowLabel(step, index);
           return editing ? `Editing - ${baseLabel}` : baseLabel;
         },
+        editorCollapsed(editor) {
+          return Boolean(editor && editor.collapsed);
+        },
+        toggleEditorCollapsed(editor) {
+          if (!editor) {
+            return;
+          }
+          editor.collapsed = !editor.collapsed;
+        },
         editModule(editor, index) {
           if (index < 0 || index >= editor.steps.length) {
             return;
           }
+          editor.collapsed = false;
           editor.visible = true;
           editor.editing_index = index;
         },
         addModule(editor) {
+          editor.collapsed = false;
           editor.steps.push(moduleSystem.defaultStep(editor.add_type));
           editor.visible = true;
           editor.editing_index = editor.steps.length - 1;
+        },
+        templateOptionLabel(template) {
+          const name = String(template && template.name ? template.name : "").trim() || "Unnamed Template";
+          const category = String(template && template.category ? template.category : "").trim();
+          return category ? `${name} (${category})` : name;
+        },
+        findTemplateOption(templateId) {
+          const normalizedId = String(templateId || "").trim();
+          if (!normalizedId || !Array.isArray(this.templateOptions)) {
+            return null;
+          }
+          return this.templateOptions.find(
+            (template) => String(template && template.id ? template.id : "").trim() === normalizedId
+          ) || null;
+        },
+        mergeTemplateCallbacks(callbackRows) {
+          if (!Array.isArray(callbackRows) || !callbackRows.length) {
+            return 0;
+          }
+          let mergedCount = 0;
+          for (const callbackRow of callbackRows) {
+            const callbackKey = String(callbackRow && callbackRow.callback_key ? callbackRow.callback_key : "").trim();
+            if (!callbackKey) {
+              continue;
+            }
+            const nextEntry = createCallbackEntry(callbackRow);
+            const existingIndex = this.callbackEntries.findIndex(
+              (entry) => String(entry && entry.callback_key ? entry.callback_key : "").trim() === callbackKey
+            );
+            if (existingIndex >= 0) {
+              this.callbackEntries.splice(existingIndex, 1, nextEntry);
+            } else {
+              this.callbackEntries.push(nextEntry);
+            }
+            mergedCount += 1;
+          }
+          return mergedCount;
+        },
+        loadTemplateIntoEditor(editor) {
+          const targetEditor = editor && typeof editor === "object" ? editor : null;
+          if (!targetEditor) {
+            return;
+          }
+          this.templateSaveMessage = "";
+          this.templateSaveError = "";
+          const selectedTemplateId = String(targetEditor.selected_template_id || "").trim();
+          const template = this.findTemplateOption(selectedTemplateId);
+          if (!template) {
+            this.templateSaveError = "Select a template to load.";
+            return;
+          }
+          const steps = Array.isArray(template.editor_steps)
+            ? template.editor_steps
+              .filter((step) => step && typeof step === "object")
+              .map((step) => moduleSystem.parsePrimary(
+                step.module_type || moduleSystem.defaultType(),
+                step
+              ))
+            : [];
+          if (!steps.length) {
+            this.templateSaveError = "Selected template has no process pipeline.";
+            return;
+          }
+          targetEditor.steps = steps;
+          targetEditor.add_type = steps[0].module_type || moduleSystem.defaultType();
+          targetEditor.collapsed = false;
+          targetEditor.visible = true;
+          targetEditor.editing_index = 0;
+          targetEditor.selected_template_id = selectedTemplateId;
+          const mergedCallbacks = this.mergeTemplateCallbacks(template.callbacks || []);
+          const templateName = String(template.name || "Template").trim() || "Template";
+          this.templateSaveMessage = mergedCallbacks > 0
+            ? `Template loaded: ${templateName} (${mergedCallbacks} callback modules included)`
+            : `Template loaded: ${templateName}`;
+        },
+        collectCallbackKeysFromSteps(steps) {
+          const callbackKeys = [];
+          const seen = new Set();
+          const addKey = (rawValue) => {
+            const callbackKey = String(rawValue || "").trim();
+            if (!callbackKey || seen.has(callbackKey)) {
+              return;
+            }
+            seen.add(callbackKey);
+            callbackKeys.push(callbackKey);
+          };
+          if (!Array.isArray(steps)) {
+            return callbackKeys;
+          }
+          for (const step of steps) {
+            if (!step || typeof step !== "object") {
+              continue;
+            }
+            addKey(step.target_callback_key);
+            addKey(step.pay_callback_data);
+            addKey(step.closest_location_group_callback_key);
+            const buttons = helpers.normalizeInlineButtons(step.buttons || []);
+            for (const button of buttons) {
+              addKey(button && button.callback_data ? button.callback_data : "");
+            }
+          }
+          return callbackKeys;
+        },
+        findCallbackEntry(callbackKey) {
+          const normalizedKey = String(callbackKey || "").trim();
+          if (!normalizedKey || !Array.isArray(this.callbackEntries)) {
+            return null;
+          }
+          return this.callbackEntries.find(
+            (entry) => String(entry && entry.callback_key ? entry.callback_key : "").trim() === normalizedKey
+          ) || null;
+        },
+        serializeTemporaryCommandPayload(entries) {
+          if (!Array.isArray(entries) || !entries.length) {
+            return [];
+          }
+          return entries
+            .map((entry) => this.serializeCommandEntry(entry))
+            .filter((entry) => Boolean(entry.command));
+        },
+        collectRelatedTemplateParts(editor, sourceType, sourceKey) {
+          const callbackPayload = {};
+          const flatTemporaryCommands = [];
+          const queue = this.collectCallbackKeysFromSteps(editor && editor.steps ? editor.steps : []);
+          const sourceCallbackKey = sourceType === "callback" ? String(sourceKey || "").trim() : "";
+          if (sourceCallbackKey && !queue.includes(sourceCallbackKey)) {
+            queue.unshift(sourceCallbackKey);
+          }
+          const seen = new Set();
+          while (queue.length) {
+            const callbackKey = String(queue.shift() || "").trim();
+            if (!callbackKey || seen.has(callbackKey)) {
+              continue;
+            }
+            seen.add(callbackKey);
+            const callbackEntry = this.findCallbackEntry(callbackKey);
+            if (!callbackEntry) {
+              continue;
+            }
+            const temporaryCommands = this.serializeTemporaryCommandPayload(
+              callbackEntry.temporaryCommandEntries
+            );
+            callbackPayload[callbackKey] = {
+              pipeline: this.normalizedEditorSteps(callbackEntry.editor),
+              temporary_commands: temporaryCommands,
+            };
+            for (const tempCommand of temporaryCommands) {
+              flatTemporaryCommands.push({
+                ...tempCommand,
+                parent_callback_key: callbackKey,
+              });
+            }
+            for (const relatedKey of this.collectCallbackKeysFromSteps(
+              callbackEntry.editor && callbackEntry.editor.steps ? callbackEntry.editor.steps : []
+            )) {
+              if (!seen.has(relatedKey)) {
+                queue.push(relatedKey);
+              }
+            }
+            if (Array.isArray(callbackEntry.temporaryCommandEntries)) {
+              for (const tempEntry of callbackEntry.temporaryCommandEntries) {
+                const tempEditor = tempEntry && tempEntry.editor ? tempEntry.editor : null;
+                for (const relatedKey of this.collectCallbackKeysFromSteps(
+                  tempEditor && tempEditor.steps ? tempEditor.steps : []
+                )) {
+                  if (!seen.has(relatedKey)) {
+                    queue.push(relatedKey);
+                  }
+                }
+              }
+            }
+          }
+          return {
+            callback_modules: Object.keys(callbackPayload).length ? JSON.stringify(callbackPayload) : "",
+            temporary_commands: flatTemporaryCommands.length ? JSON.stringify(flatTemporaryCommands) : "",
+          };
+        },
+        async saveEditorAsTemplate(editor, defaultName, sourceType, sourceKey) {
+          const sourceEditor = editor && typeof editor === "object" ? editor : createEditor({});
+          const steps = Array.isArray(sourceEditor.steps) ? sourceEditor.steps : [];
+          const pipeline = this.formatChainSteps(steps);
+          const templateName = String(defaultName || "Saved Pipeline").trim() || "Saved Pipeline";
+          this.templateSaveMessage = "";
+          this.templateSaveError = "";
+          if (!pipeline.trim()) {
+            this.templateSaveError = "Process pipeline is empty.";
+            return;
+          }
+          try {
+            const relatedParts = this.collectRelatedTemplateParts(sourceEditor, sourceType, sourceKey);
+            const response = await fetch("/ui/templates/save-pipeline", {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                name: templateName,
+                category: "Bot Config",
+                bot_id: this.botId || "",
+                source_type: sourceType || "bot_config",
+                source_key: sourceKey || "",
+                process_pipeline: pipeline,
+                callback_modules: relatedParts.callback_modules,
+                temporary_commands: relatedParts.temporary_commands,
+              }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.ok) {
+              throw new Error(result.error || `Template save failed (${response.status})`);
+            }
+            this.templateSaveMessage = result.message || `Template saved: ${templateName}`;
+          } catch (error) {
+            this.templateSaveError = error && error.message ? error.message : "Template save failed.";
+          }
         },
         moveModuleUp(editor, index) {
           if (index <= 0 || index >= editor.steps.length) {
@@ -1612,6 +1935,35 @@
           }
           return lines.join("\n");
         },
+        normalizedEditorSteps(editor) {
+          const sourceEditor = editor && typeof editor === "object" ? editor : createEditor({});
+          const steps = Array.isArray(sourceEditor.steps) ? sourceEditor.steps : [];
+          return steps.map((step) => moduleSystem.parsePrimary(
+            step && step.module_type ? step.module_type : moduleSystem.defaultType(),
+            step || {}
+          ));
+        },
+        serializeTemplateCallbacks(entries) {
+          if (!Array.isArray(entries) || !entries.length) {
+            return "";
+          }
+          const payload = {};
+          for (const entry of entries) {
+            const callbackKey = String(entry && entry.callback_key ? entry.callback_key : "").trim();
+            if (!callbackKey) {
+              continue;
+            }
+            const temporaryCommands = this.serializeTemporaryCommandPayload(entry.temporaryCommandEntries);
+            payload[callbackKey] = {
+              pipeline: this.normalizedEditorSteps(entry.editor),
+              temporary_commands: temporaryCommands,
+            };
+          }
+          return Object.keys(payload).length ? JSON.stringify(payload) : "";
+        },
+        serializeTemplateTemporaryCommands(entries) {
+          return "";
+        },
         serializeCommandEntry(entry) {
           const source = entry && typeof entry === "object" ? entry : {};
           const editor = source.editor && typeof source.editor === "object" ? source.editor : createEditor({});
@@ -1726,6 +2078,19 @@
     }
 
     const vueApp = global.Vue.createApp(buildVueOptions(state)).mount(root);
+    const fallbackNode = document.querySelector("#template-module-fallback");
+    if (fallbackNode) {
+      const hideFallbackIfRendered = () => {
+        if (root.querySelector(".module-list-row")) {
+          fallbackNode.hidden = true;
+        }
+      };
+      if (vueApp && typeof vueApp.$nextTick === "function") {
+        vueApp.$nextTick(hideFallbackIfRendered);
+      } else {
+        hideFallbackIfRendered();
+      }
+    }
     const form = root.closest("form");
     if (form) {
       setupAutosave(form, vueApp);

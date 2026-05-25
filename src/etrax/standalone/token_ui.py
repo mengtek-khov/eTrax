@@ -64,6 +64,8 @@ def run_token_config_ui(
     scaffold_store = JsonBotProcessScaffoldStore(bot_config_dir)
     resolved_profile_log_file = profile_log_file or state_file.with_name("profile_log.json")
     working_hours_file = state_file.with_name("working_hours_ui.json")
+    schedules_file = state_file.with_name("schedules_ui.json")
+    templates_file = state_file.with_name("templates_ui.json")
     locations_file = state_file.with_name("locations_ui.json")
     runtime_manager = BotRuntimeManager(
         token_service=service,
@@ -79,6 +81,8 @@ def run_token_config_ui(
         bot_config_dir,
         resolved_profile_log_file,
         working_hours_file,
+        schedules_file,
+        templates_file,
         locations_file,
     )
     server = ThreadingHTTPServer((host, port), handler_class)
@@ -139,6 +143,8 @@ def _build_handler(
     bot_config_dir: Path,
     profile_log_file: Path,
     working_hours_file: Path,
+    schedules_file: Path,
+    templates_file: Path,
     locations_file: Path,
 ):
     """Build the request handler class bound to the current service/runtime instances."""
@@ -165,6 +171,67 @@ def _build_handler(
                 self._send_html(
                     HTTPStatus.OK,
                     _render_working_hours_demo_page(entries=entries, message=message, level=level),
+                )
+                return
+            if parsed.path == "/ui/templates":
+                params = parse_qs(parsed.query)
+                message = params.get("message", [""])[0]
+                level = params.get("level", ["info"])[0]
+                template_id = params.get("template_id", [""])[0].strip()
+                entries = _load_standalone_ui_entries(templates_file)
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_template_list_page(
+                        entries=entries,
+                        selected_template_id=template_id,
+                        message=message,
+                        level=level,
+                    ),
+                )
+                return
+            if parsed.path == "/ui/templates/config":
+                params = parse_qs(parsed.query)
+                message = params.get("message", [""])[0]
+                level = params.get("level", ["info"])[0]
+                template_id = params.get("template_id", [""])[0].strip()
+                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                template_entry = _find_standalone_ui_entry(entries, template_id)
+                if template_entry is None:
+                    self._redirect(_with_message("/ui/templates", "error", "template entry not found"))
+                    return
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_template_config_page(
+                        template=template_entry,
+                        message=message,
+                        level=level,
+                    ),
+                )
+                return
+            if parsed.path == "/ui/schedules":
+                params = parse_qs(parsed.query)
+                bot_id = params.get("bot_id", [""])[0].strip()
+                if not bot_id:
+                    self._redirect("/?level=error&message=bot_id+is+required+for+Scheduled+Setup")
+                    return
+                message = params.get("message", [""])[0]
+                level = params.get("level", ["info"])[0]
+                schedule_id = params.get("schedule_id", [""])[0].strip()
+                schedules = _filter_schedule_entries_for_bot(
+                    _load_standalone_ui_entries(schedules_file),
+                    bot_id=bot_id,
+                )
+                working_entries = _load_standalone_ui_entries(working_hours_file)
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_scheduled_tasks_demo_page(
+                        bot_id=bot_id,
+                        entries=schedules,
+                        working_hour_entries=working_entries,
+                        selected_schedule_id=schedule_id,
+                        message=message,
+                        level=level,
+                    ),
                 )
                 return
             if parsed.path == "/ui/general-details":
@@ -329,6 +396,30 @@ def _build_handler(
             if parsed.path == "/ui/working-hours/delete":
                 self._handle_working_hours_delete(form)
                 return
+            if parsed.path == "/ui/templates/save":
+                self._handle_templates_save(form)
+                return
+            if parsed.path == "/ui/templates/delete":
+                self._handle_templates_delete(form)
+                return
+            if parsed.path == "/ui/templates/duplicate":
+                self._handle_templates_duplicate(form)
+                return
+            if parsed.path == "/ui/templates/save-pipeline":
+                self._handle_templates_save_pipeline(body)
+                return
+            if parsed.path == "/ui/templates/config/save":
+                self._handle_templates_config_save(form)
+                return
+            if parsed.path == "/ui/schedules/save":
+                self._handle_schedules_save(form)
+                return
+            if parsed.path == "/ui/schedules/delete":
+                self._handle_schedules_delete(form)
+                return
+            if parsed.path == "/ui/schedules/import-working-hours":
+                self._handle_schedules_import_working_hours(form)
+                return
             if parsed.path == "/ui/locations/save":
                 self._handle_locations_save(form)
                 return
@@ -376,6 +467,7 @@ def _build_handler(
                 runtime_status = runtime_manager.status_by_bot_id(bot_id)
                 context_key_options = _load_profile_log_context_keys(profile_log_file, bot_id=bot_id)
                 custom_code_function_options = load_custom_code_function_names()
+                template_entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
                 html_payload = _render_config_page(
                     bot_id=bot_id.strip(),
                     config_path=config_path,
@@ -383,6 +475,7 @@ def _build_handler(
                     runtime_status=runtime_status,
                     context_key_options=context_key_options,
                     custom_code_function_options=custom_code_function_options,
+                    template_entries=template_entries,
                     message=message,
                     level=level,
                 )
@@ -478,6 +571,269 @@ def _build_handler(
             except ValueError as exc:
                 _print_terminal_error("working-hours-delete", str(exc))
                 self._redirect(_with_message("/ui/working-hours", "error", str(exc)))
+
+        def _handle_templates_save(self, form: dict[str, list[str]]) -> None:
+            """Create or update one reusable process template record."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                normalized_entry = _normalize_template_entry(
+                    {
+                        "id": entry_id or _new_standalone_ui_entry_id(prefix="tpl"),
+                        "name": form.get("name", [""])[0],
+                        "template_key": form.get("template_key", [""])[0],
+                        "category": form.get("category", [""])[0],
+                        "status": form.get("status", [""])[0],
+                        "description": form.get("description", [""])[0],
+                        "module_count": form.get("module_count", [""])[0],
+                        "updated_at": datetime.now(tz=timezone.utc).isoformat(),
+                    }
+                )
+                if normalized_entry is None:
+                    raise ValueError("template name is required")
+                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                if _template_key_conflicts(
+                    entries,
+                    template_key=str(normalized_entry.get("template_key", "")),
+                    exclude_entry_id=str(normalized_entry.get("id", "")),
+                ):
+                    raise ValueError(f"template key {normalized_entry['template_key']} already exists")
+                saved_entries = _normalize_template_entries(
+                    _upsert_standalone_ui_entry(entries, normalized_entry)
+                )
+                _save_standalone_ui_entries(templates_file, saved_entries)
+                self._redirect(
+                    _with_message(
+                        "/ui/templates",
+                        "success",
+                        f"Template saved: {normalized_entry['name']}",
+                    )
+                )
+            except ValueError as exc:
+                _print_terminal_error("template-save", str(exc))
+                self._redirect(_with_message("/ui/templates", "error", str(exc)))
+
+        def _handle_templates_delete(self, form: dict[str, list[str]]) -> None:
+            """Delete one reusable process template record."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                if not entry_id:
+                    raise ValueError("template id is required")
+                entries = _load_standalone_ui_entries(templates_file)
+                saved_entries, deleted = _delete_standalone_ui_entry(entries, entry_id)
+                if not deleted:
+                    raise ValueError("template entry not found")
+                _save_standalone_ui_entries(templates_file, _normalize_template_entries(saved_entries))
+                self._redirect(_with_message("/ui/templates", "success", "Template deleted"))
+            except ValueError as exc:
+                _print_terminal_error("template-delete", str(exc))
+                self._redirect(_with_message("/ui/templates", "error", str(exc)))
+
+        def _handle_templates_duplicate(self, form: dict[str, list[str]]) -> None:
+            """Duplicate one template record into a new reusable template."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                source = _find_standalone_ui_entry(entries, entry_id)
+                if source is None:
+                    raise ValueError("template entry not found")
+                copy_name = f"{source['name']} Copy"
+                copied = dict(source)
+                copied["id"] = _new_standalone_ui_entry_id(prefix="tpl")
+                copied["name"] = copy_name
+                copied["template_key"] = _next_template_key(entries, copy_name)
+                copied["status"] = "draft"
+                copied["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
+                saved_entries = _normalize_template_entries(_upsert_standalone_ui_entry(entries, copied))
+                _save_standalone_ui_entries(templates_file, saved_entries)
+                self._redirect(_with_message("/ui/templates", "success", f"Template duplicated: {copy_name}"))
+            except ValueError as exc:
+                _print_terminal_error("template-duplicate", str(exc))
+                self._redirect(_with_message("/ui/templates", "error", str(exc)))
+
+        def _handle_templates_save_pipeline(self, body: str) -> None:
+            """Persist one Bot Config process pipeline as a reusable template."""
+            try:
+                payload = json.loads(body or "{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("template payload must be an object")
+                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                normalized_entry = _build_template_entry_from_pipeline_payload(payload, entries)
+                saved_entries = _normalize_template_entries(
+                    _upsert_standalone_ui_entry(entries, normalized_entry)
+                )
+                _save_standalone_ui_entries(templates_file, saved_entries)
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "template_id": str(normalized_entry.get("id", "")),
+                        "template_key": str(normalized_entry.get("template_key", "")),
+                        "message": f"Template saved: {normalized_entry['name']}",
+                    },
+                )
+            except (json.JSONDecodeError, ValueError) as exc:
+                _print_terminal_error("template-save-pipeline", str(exc))
+                self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+
+        def _handle_templates_config_save(self, form: dict[str, list[str]]) -> None:
+            """Persist the single process pipeline and related template config fields."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                if not entry_id:
+                    raise ValueError("template id is required")
+                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                template_entry = _find_standalone_ui_entry(entries, entry_id)
+                if template_entry is None:
+                    raise ValueError("template entry not found")
+                pipeline_text = form.get("process_pipeline", [""])[0].strip()
+                callback_text = form.get("callback_modules", [""])[0].strip()
+                temporary_command_text = form.get("temporary_commands", [""])[0].strip()
+                load_bot_id = form.get("load_bot_id", [""])[0].strip()
+                load_command = form.get("load_command", [""])[0].strip()
+                updated_entry = dict(template_entry)
+                updated_entry["process_pipeline"] = pipeline_text
+                updated_entry["callback_modules"] = callback_text
+                updated_entry["temporary_commands"] = temporary_command_text
+                updated_entry["load_bot_id"] = load_bot_id
+                updated_entry["load_command"] = load_command
+                updated_entry["module_count"] = str(max(1, _count_template_pipeline_steps(pipeline_text)))
+                updated_entry["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
+                saved_entries = _normalize_template_entries(_upsert_standalone_ui_entry(entries, updated_entry))
+                _save_standalone_ui_entries(templates_file, saved_entries)
+                self._redirect(
+                    _with_message(
+                        f"/ui/templates/config?template_id={quote_plus(entry_id)}",
+                        "success",
+                        "Template config saved",
+                    )
+                )
+            except ValueError as exc:
+                _print_terminal_error("template-config-save", str(exc))
+                path = f"/ui/templates/config?template_id={quote_plus(entry_id)}" if entry_id else "/ui/templates"
+                self._redirect(_with_message(path, "error", str(exc)))
+
+        def _handle_schedules_save(self, form: dict[str, list[str]]) -> None:
+            """Create or update one scheduled task row in the standalone UI."""
+            bot_id = form.get("bot_id", [""])[0].strip()
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                if not bot_id:
+                    raise ValueError("bot_id is required")
+                normalized_entry = _normalize_schedule_form_entry(
+                    {
+                        "id": entry_id or _new_standalone_ui_entry_id(prefix="sch"),
+                        "bot_id": bot_id,
+                        "name": form.get("name", [""])[0],
+                        "enabled": "1" if form.get("enabled", [""])[0].strip() == "1" else "0",
+                        "source_type": form.get("source_type", [""])[0],
+                        "source_id": form.get("source_id", [""])[0],
+                        "source_event": form.get("source_event", [""])[0],
+                        "recurrence": form.get("recurrence", [""])[0],
+                        "weekday": form.get("weekday", [""])[0],
+                        "run_date": form.get("run_date", [""])[0],
+                        "run_time": form.get("run_time", [""])[0],
+                        "timezone": form.get("timezone", [""])[0],
+                        "target_scope": form.get("target_scope", [""])[0],
+                        "target_id": form.get("target_id", [""])[0],
+                        "task_type": form.get("task_type", [""])[0],
+                        "task_key": form.get("task_key", [""])[0],
+                        "offset_minutes": form.get("offset_minutes", [""])[0],
+                        "notes": form.get("notes", [""])[0],
+                    }
+                )
+                if normalized_entry is None:
+                    raise ValueError("schedule name is required")
+                entries = _normalize_schedule_entries(_load_standalone_ui_entries(schedules_file))
+                saved_entries = _normalize_schedule_entries(
+                    _upsert_schedule_entry(entries, normalized_entry)
+                )
+                _save_standalone_ui_entries(schedules_file, saved_entries)
+                self._redirect(
+                    _with_message(
+                        f"/ui/schedules?bot_id={quote_plus(bot_id)}",
+                        "success",
+                        f"Schedule saved: {normalized_entry['name']}",
+                    )
+                )
+            except ValueError as exc:
+                _print_terminal_error("schedule-save", str(exc))
+                path = f"/ui/schedules?bot_id={quote_plus(bot_id)}" if bot_id else "/"
+                self._redirect(_with_message(path, "error", str(exc)))
+
+        def _handle_schedules_delete(self, form: dict[str, list[str]]) -> None:
+            """Delete one scheduled task row from the standalone UI."""
+            bot_id = form.get("bot_id", [""])[0].strip()
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                if not bot_id:
+                    raise ValueError("bot_id is required")
+                if not entry_id:
+                    raise ValueError("schedule id is required")
+                entries = _load_standalone_ui_entries(schedules_file)
+                target = _find_standalone_ui_entry(entries, entry_id)
+                if target is None or str(target.get("bot_id", "")).strip() != bot_id:
+                    raise ValueError("schedule entry not found")
+                saved_entries, deleted = _delete_schedule_entry_for_bot(
+                    entries,
+                    bot_id=bot_id,
+                    entry_id=entry_id,
+                )
+                if not deleted:
+                    raise ValueError("schedule entry not found")
+                _save_standalone_ui_entries(schedules_file, _normalize_schedule_entries(saved_entries))
+                self._redirect(
+                    _with_message(
+                        f"/ui/schedules?bot_id={quote_plus(bot_id)}",
+                        "success",
+                        "Schedule deleted",
+                    )
+                )
+            except ValueError as exc:
+                _print_terminal_error("schedule-delete", str(exc))
+                path = f"/ui/schedules?bot_id={quote_plus(bot_id)}" if bot_id else "/"
+                self._redirect(_with_message(path, "error", str(exc)))
+
+        def _handle_schedules_import_working_hours(self, form: dict[str, list[str]]) -> None:
+            """Generate scheduled task rows from the current working-hours list."""
+            bot_id = form.get("bot_id", [""])[0].strip()
+            task_type = form.get("task_type", ["command"])[0].strip() or "command"
+            clock_in_task_key = form.get("clock_in_task_key", ["clock_in"])[0].strip() or "clock_in"
+            clock_out_task_key = form.get("clock_out_task_key", ["clock_out"])[0].strip() or "clock_out"
+            timezone_name = form.get("timezone", ["Asia/Bangkok"])[0].strip() or "Asia/Bangkok"
+            target_scope = form.get("target_scope", ["all_users"])[0].strip() or "all_users"
+            try:
+                if not bot_id:
+                    raise ValueError("bot_id is required")
+                working_entries = _normalize_working_hour_entries(_load_standalone_ui_entries(working_hours_file))
+                if not working_entries:
+                    raise ValueError("add working hours before importing schedules")
+                all_existing = _normalize_schedule_entries(_load_standalone_ui_entries(schedules_file))
+                existing = _filter_schedule_entries_for_bot(all_existing, bot_id=bot_id)
+                generated = _build_schedule_entries_from_working_hours(
+                    working_entries,
+                    bot_id=bot_id,
+                    existing_entries=existing,
+                    task_type=task_type,
+                    clock_in_task_key=clock_in_task_key,
+                    clock_out_task_key=clock_out_task_key,
+                    timezone_name=timezone_name,
+                    target_scope=target_scope,
+                )
+                saved_entries = _normalize_schedule_entries(
+                    _merge_generated_schedule_entries(all_existing, generated)
+                )
+                _save_standalone_ui_entries(schedules_file, saved_entries)
+                self._redirect(
+                    _with_message(
+                        f"/ui/schedules?bot_id={quote_plus(bot_id)}",
+                        "success",
+                        f"Imported {len(generated)} schedules from working hours",
+                    )
+                )
+            except ValueError as exc:
+                _print_terminal_error("schedule-import-working-hours", str(exc))
+                path = f"/ui/schedules?bot_id={quote_plus(bot_id)}" if bot_id else "/"
+                self._redirect(_with_message(path, "error", str(exc)))
 
         def _handle_locations_save(self, form: dict[str, list[str]]) -> None:
             """Create or update one location entry in the standalone demo page."""
@@ -1303,6 +1659,10 @@ def _render_page(
                 f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
                 "<button class='secondary' type='submit'>Config</button>"
                 "</form>"
+                "<form method='get' action='/ui/schedules'>"
+                f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
+                "<button class='secondary' type='submit'>Schedule</button>"
+                "</form>"
                 "<form method='post' action='/revoke'>"
                 f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
                 "<input type='hidden' name='next' value='/'>"
@@ -1509,12 +1869,15 @@ def _render_page(
       <h1>Telegram Bot Token Config</h1>
       <p>Standalone configuration UI. Tokens are encrypted before saving to local storage.</p>
       <div class="action-row" style="margin-top: 14px;">
-        <form method="get" action="/ui/working-hours">
-          <button class="secondary" type="submit">Working Hours</button>
-        </form>
-        <form method="get" action="/ui/locations">
-          <button class="secondary" type="submit">Locations</button>
-        </form>
+	        <form method="get" action="/ui/working-hours">
+	          <button class="secondary" type="submit">Working Hours</button>
+	        </form>
+	        <form method="get" action="/ui/templates">
+	          <button class="secondary" type="submit">Templates</button>
+	        </form>
+	        <form method="get" action="/ui/locations">
+	          <button class="secondary" type="submit">Locations</button>
+	        </form>
       </div>
     </div>
     {status_html}
@@ -1544,14 +1907,17 @@ def _render_page(
     </div>
     <div class="panel">
       <h1>UI Prototype Routes</h1>
-      <p>Standalone route samples for the requested working-hours and location screens.</p>
-      <div class="action-row" style="margin-top: 14px;">
-        <form method="get" action="/ui/working-hours">
-          <button class="secondary" type="submit">Working Hours Demo</button>
-        </form>
-        <form method="get" action="/ui/locations">
-          <button class="secondary" type="submit">Location Demo</button>
-        </form>
+	      <p>Standalone route samples for setup screens used by the workflow builder.</p>
+	      <div class="action-row" style="margin-top: 14px;">
+	        <form method="get" action="/ui/working-hours">
+	          <button class="secondary" type="submit">Working Hours Demo</button>
+	        </form>
+	        <form method="get" action="/ui/templates">
+	          <button class="secondary" type="submit">Template List</button>
+	        </form>
+	        <form method="get" action="/ui/locations">
+	          <button class="secondary" type="submit">Location Demo</button>
+	        </form>
       </div>
     </div>
   </div>
@@ -1568,11 +1934,20 @@ def _render_demo_page_shell(
     status_html: str = "",
     extra_head: str = "",
     extra_script: str = "",
+    bot_id: str = "",
 ) -> str:
     """Render a shared standalone shell for prototype routes."""
     general_tab_class = "tab-link active" if active_tab == "general-details" else "tab-link"
     working_tab_class = "tab-link active" if active_tab == "working-hours" else "tab-link"
+    template_tab_class = "tab-link active" if active_tab == "templates" else "tab-link"
+    schedule_tab_class = "tab-link active" if active_tab == "schedules" else "tab-link"
     location_tab_class = "tab-link active" if active_tab == "locations" else "tab-link"
+    schedule_tab_html = ""
+    if bot_id.strip():
+        schedule_href = f"/ui/schedules?bot_id={quote_plus(bot_id.strip())}"
+        schedule_tab_html = (
+            f'<a class="{schedule_tab_class}" href="{html.escape(schedule_href)}">Scheduled Setup</a>'
+        )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1734,17 +2109,25 @@ def _render_demo_page_shell(
       font-size: 0.95rem;
       font-weight: 700;
     }}
-    .input, .select {{
-      width: 100%;
-      min-height: 52px;
-      border: 1px solid var(--line-strong);
-      border-radius: 12px;
-      padding: 0 14px;
-      background: #fff;
-      color: var(--text);
-      font-size: 1rem;
-      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
-    }}
+	    .input, .select, .textarea {{
+	      width: 100%;
+	      border: 1px solid var(--line-strong);
+	      border-radius: 12px;
+	      background: #fff;
+	      color: var(--text);
+	      font-size: 1rem;
+	      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+	    }}
+	    .input, .select {{
+	      min-height: 52px;
+	      padding: 0 14px;
+	    }}
+	    .textarea {{
+	      min-height: 104px;
+	      padding: 13px 14px;
+	      resize: vertical;
+	      font-family: inherit;
+	    }}
     .select {{
       appearance: none;
       background-image:
@@ -1883,12 +2266,85 @@ def _render_demo_page_shell(
       border-top: 1px solid #edf1f7;
       padding: 18px 0;
     }}
-    .work-row-form {{
-      display: grid;
-      grid-template-columns: 1.25fr 1fr 1fr 160px 76px;
-      gap: 14px;
-      align-items: center;
-    }}
+	    .work-row-form {{
+	      display: grid;
+	      grid-template-columns: 1.25fr 1fr 1fr 160px 76px;
+	      gap: 14px;
+	      align-items: center;
+	    }}
+	    .schedule-layout {{
+	      display: grid;
+	      grid-template-columns: minmax(360px, 0.92fr) minmax(0, 1.45fr);
+	      gap: 18px;
+	      align-items: start;
+	    }}
+	    .schedule-form-panel {{
+	      border: 1px solid #e5ebf5;
+	      border-radius: 16px;
+	      padding: 16px;
+	      background: #fbfcff;
+	    }}
+	    .schedule-form-panel h3 {{
+	      margin: 0 0 14px;
+	      font-size: 1.12rem;
+	    }}
+	    .schedule-grid {{
+	      display: grid;
+	      grid-template-columns: repeat(2, minmax(0, 1fr));
+	      gap: 14px;
+	    }}
+	    .schedule-grid .wide {{
+	      grid-column: 1 / -1;
+	    }}
+	    .schedule-list {{
+	      display: grid;
+	      gap: 12px;
+	    }}
+	    .schedule-card {{
+	      border: 1px solid #e3eaf5;
+	      border-radius: 14px;
+	      padding: 14px;
+	      background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+	      display: grid;
+	      gap: 10px;
+	    }}
+	    .schedule-card-top {{
+	      display: flex;
+	      align-items: flex-start;
+	      justify-content: space-between;
+	      gap: 12px;
+	    }}
+	    .schedule-card h4 {{
+	      margin: 0;
+	      font-size: 1rem;
+	    }}
+	    .schedule-meta {{
+	      display: flex;
+	      flex-wrap: wrap;
+	      gap: 8px;
+	      color: var(--muted);
+	      font-size: 0.9rem;
+	    }}
+	    .schedule-actions {{
+	      display: flex;
+	      gap: 10px;
+	      flex-wrap: wrap;
+	    }}
+	    .switch-row {{
+	      display: flex;
+	      align-items: center;
+	      gap: 10px;
+	      min-height: 52px;
+	      padding: 0 12px;
+	      border: 1px solid var(--line-strong);
+	      border-radius: 12px;
+	      background: #fff;
+	      font-weight: 700;
+	    }}
+	    .switch-row input {{
+	      width: 18px;
+	      height: 18px;
+	    }}
     .action-stack {{
       display: flex;
       justify-content: center;
@@ -1978,10 +2434,13 @@ def _render_demo_page_shell(
       padding: 20px;
     }}
     @media (max-width: 1100px) {{
-      .grid.three {{
-        grid-template-columns: 1fr 1fr;
-      }}
-    }}
+	      .grid.three {{
+	        grid-template-columns: 1fr 1fr;
+	      }}
+	      .schedule-layout {{
+	        grid-template-columns: 1fr;
+	      }}
+	    }}
     @media (max-width: 820px) {{
       .topbar, .section-header {{
         flex-direction: column;
@@ -1991,9 +2450,12 @@ def _render_demo_page_shell(
         justify-content: flex-start;
         flex-wrap: wrap;
       }}
-      .grid.three {{
-        grid-template-columns: 1fr;
-      }}
+	      .grid.three {{
+	        grid-template-columns: 1fr;
+	      }}
+	      .schedule-grid {{
+	        grid-template-columns: 1fr;
+	      }}
       .table, .table thead, .table tbody, .table tr, .table td {{
         display: block;
       }}
@@ -2030,9 +2492,11 @@ def _render_demo_page_shell(
     {status_html}
     <div class="panel">
       <div class="tabs">
-        <a class="{general_tab_class}" href="/ui/general-details">General Details</a>
-        <a class="{working_tab_class}" href="/ui/working-hours">Working Hours</a>
-        <a class="{location_tab_class}" href="/ui/locations">Locations</a>
+	        <a class="{general_tab_class}" href="/ui/general-details">General Details</a>
+	        <a class="{working_tab_class}" href="/ui/working-hours">Working Hours</a>
+	        <a class="{template_tab_class}" href="/ui/templates">Templates</a>
+	        {schedule_tab_html}
+	        <a class="{location_tab_class}" href="/ui/locations">Locations</a>
       </div>
       {content_html}
     </div>
@@ -2089,6 +2553,990 @@ def _render_working_hours_demo_page(
         content_html=content_html,
         toolbar_html=toolbar_html,
         status_html=_render_status_html(message=message, level=level),
+    )
+
+
+def _render_template_list_page(
+    *,
+    entries: list[dict[str, object]] | None = None,
+    selected_template_id: str = "",
+    message: str = "",
+    level: str = "info",
+) -> str:
+    """Render a dedicated reusable template list page modeled after the token list."""
+    template_entries = _normalize_template_entries(entries or [])
+    selected_entry = _find_standalone_ui_entry(template_entries, selected_template_id)
+    current_entry = _normalize_template_entry(selected_entry or {}) or _default_template_form_entry()
+    rows_html = "".join(_render_template_table_row(item) for item in template_entries)
+    if not rows_html:
+        rows_html = "<tr><td colspan='7' class='empty'>No templates configured yet.</td></tr>"
+
+    status = str(current_entry.get("status", "draft"))
+    status_html = _render_status_html(message=message, level=level)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eTrax Template List</title>
+  <style>
+    :root {{
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #1e2a39;
+      --muted: #5f6f83;
+      --line: #d6deea;
+      --ok: #0a7a4d;
+      --err: #b42318;
+      --info: #0b63c7;
+      --accent: #0f4ea5;
+      --accent-hover: #0b3d81;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at top, #edf3ff 0%, var(--bg) 60%);
+      color: var(--text);
+    }}
+    .container {{
+      width: min(1280px, calc(100% - 32px));
+      margin: 20px auto;
+      padding: 0;
+    }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(15, 32, 62, 0.08);
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 1.25rem;
+    }}
+    p {{
+      margin: 0;
+      color: var(--muted);
+    }}
+    .meta {{
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }}
+    form.template-grid {{
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 0.9fr 0.7fr 0.6fr;
+      gap: 10px;
+      align-items: start;
+    }}
+    .template-description {{
+      grid-column: 1 / -2;
+    }}
+    input, select, textarea {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      width: 100%;
+      font-size: 0.95rem;
+      background: #fff;
+      font-family: inherit;
+    }}
+    textarea {{
+      min-height: 42px;
+      resize: vertical;
+    }}
+    button, .button {{
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
+      font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }}
+    button:hover, .button:hover {{
+      background: var(--accent-hover);
+    }}
+    button.secondary, .button.secondary {{
+      background: #475467;
+    }}
+    button.secondary:hover, .button.secondary:hover {{
+      background: #344054;
+    }}
+    button.danger, .button.delete {{
+      background: #9f1239;
+    }}
+    button.danger:hover, .button.delete:hover {{
+      background: #881337;
+    }}
+    .button.back {{
+      background: #475467;
+    }}
+    .button.back:hover {{
+      background: #344054;
+    }}
+    .button.mini, button.mini {{
+      padding: 8px 10px;
+      font-size: 0.84rem;
+    }}
+    .action-cell {{
+      min-width: 300px;
+    }}
+    .action-row, .action-stack {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }}
+    .action-row form, .action-stack form {{
+      margin: 0;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }}
+    th, td {{
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 10px;
+      vertical-align: middle;
+      font-size: 0.92rem;
+    }}
+    th {{
+      color: var(--muted);
+      font-weight: 600;
+    }}
+    .status {{
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      font-size: 0.98rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      box-shadow: 0 8px 22px rgba(15, 32, 62, 0.12);
+    }}
+    .status.info {{ background: #ebf3ff; color: var(--info); border-color: #a9c9f5; }}
+    .status.error {{ background: #fff1f1; color: var(--err); border-color: #f8b4b4; }}
+    .status.success {{ background: #ebfff4; color: var(--ok); border-color: #96dfbb; }}
+    .empty, .hint {{
+      color: var(--muted);
+    }}
+    .hint {{
+      font-size: 0.86rem;
+      margin-top: 4px;
+    }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: #eef4ff;
+      color: #2c5dde;
+      font-weight: 700;
+      font-size: 0.84rem;
+    }}
+    @media (max-width: 980px) {{
+      form.template-grid {{
+        grid-template-columns: 1fr 1fr;
+      }}
+      .template-description {{
+        grid-column: 1 / -1;
+      }}
+    }}
+    @media (max-width: 760px) {{
+      form.template-grid {{
+        grid-template-columns: 1fr;
+      }}
+      .template-description {{
+        grid-column: auto;
+      }}
+      table, thead, tbody, tr, td {{
+        display: block;
+      }}
+      thead {{
+        display: none;
+      }}
+      tr {{
+        border-bottom: 1px solid var(--line);
+        padding: 10px 0;
+      }}
+      td {{
+        border-bottom: 0;
+        padding: 7px 0;
+      }}
+      td::before {{
+        content: attr(data-label);
+        display: block;
+        color: var(--muted);
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="panel">
+      <h1>Template List</h1>
+      <p>Reusable workflow/process templates. Templates are separate from bot runtime configuration.</p>
+      <div class="meta">{len(template_entries)} template records</div>
+      <div class="action-row" style="margin-top: 14px;">
+        <a class="button back" href="/">Back To Home</a>
+        <a class="button secondary" href="/ui/working-hours">Working Hours</a>
+        <a class="button secondary" href="/ui/locations">Locations</a>
+      </div>
+    </div>
+    {status_html}
+    <div class="panel">
+      <h1>{'Edit Template' if selected_entry else 'Create or Update Template'}</h1>
+      <form class="template-grid" method="post" action="/ui/templates/save">
+          <input type="hidden" name="entry_id" value="{html.escape(str(current_entry.get('id', '')))}">
+        <input name="name" value="{html.escape(str(current_entry.get('name', '')))}" placeholder="Template name" required>
+        <input name="template_key" value="{html.escape(str(current_entry.get('template_key', '')))}" placeholder="template_key">
+        <input name="category" value="{html.escape(str(current_entry.get('category', '')))}" placeholder="Category">
+        <select name="status">{_render_select_options(_TEMPLATE_STATUS_OPTIONS, status)}</select>
+        <input name="module_count" value="{html.escape(str(current_entry.get('module_count', '0')))}" placeholder="Modules">
+        <textarea class="template-description" name="description" placeholder="Description">{html.escape(str(current_entry.get('description', '')))}</textarea>
+        <button type="submit">Save Template</button>
+        <a class="button back" href="/ui/templates">Clear</a>
+      </form>
+    </div>
+    <div class="panel">
+      <h1>Configured Templates</h1>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Key</th>
+            <th>Category</th>
+            <th>Status</th>
+            <th>Modules</th>
+            <th>Updated</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+def _render_template_config_page(
+    *,
+    template: dict[str, object],
+    message: str = "",
+    level: str = "info",
+) -> str:
+    """Render the dedicated one-pipeline template config page."""
+    entry_id = str(template.get("id", "")).strip()
+    name = str(template.get("name", "")).strip()
+    template_key = str(template.get("template_key", "")).strip()
+    pipeline_text = str(template.get("process_pipeline", "")).strip()
+    callback_text = str(template.get("callback_modules", "")).strip()
+    temporary_command_text = str(template.get("temporary_commands", "")).strip()
+    load_bot_id = str(template.get("load_bot_id", "")).strip()
+    load_command = str(template.get("load_command", "")).strip()
+    status_html = _render_status_html(message=message, level=level)
+    if not pipeline_text:
+        pipeline_text = _default_template_pipeline_text()
+    command_row = _template_pipeline_text_to_command_row(
+        raw=pipeline_text,
+        template_name=name,
+        load_command=load_command,
+    )
+    callback_rows = _template_callback_rows_with_temporary_commands(
+        callback_text=callback_text,
+        temporary_command_text=temporary_command_text,
+    )
+    config_state_json = json.dumps(
+        {
+            "mode": "template",
+            "bot_id": load_bot_id,
+            "start": {},
+            "commands": [command_row],
+            "callbacks": callback_rows,
+            "context_key_options": [],
+            "custom_code_function_options": [],
+        },
+        ensure_ascii=False,
+    ).replace("</", "<\\/")
+    asset_version = html.escape(_config_editor_asset_version())
+    fallback_module_list_html = _render_template_pipeline_fallback(command_row)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Template Config - {html.escape(name)}</title>
+  <style>
+    :root {{
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #1e2a39;
+      --muted: #5f6f83;
+      --line: #d6deea;
+      --ok: #0a7a4d;
+      --err: #b42318;
+      --info: #0b63c7;
+      --accent: #0f4ea5;
+      --accent-hover: #0b3d81;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at top, #edf3ff 0%, var(--bg) 60%);
+      color: var(--text);
+    }}
+    .container {{
+      width: min(1280px, calc(100% - 32px));
+      margin: 20px auto;
+      padding: 0;
+    }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(15, 32, 62, 0.08);
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 1.25rem;
+    }}
+    h2 {{
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }}
+    p {{
+      margin: 0;
+      color: var(--muted);
+    }}
+    .meta {{
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }}
+		    .config-grid {{
+		      display: grid;
+	      grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.75fr);
+	      gap: 16px;
+	      align-items: start;
+	    }}
+	    .template-target-grid {{
+	      margin-top: 16px;
+	      grid-template-columns: repeat(2, minmax(0, 1fr));
+	    }}
+	    .field {{
+	      display: flex;
+	      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }}
+	    label {{
+	      display: block;
+	      margin-top: 12px;
+	      margin-bottom: 6px;
+	      font-weight: 600;
+	      font-size: 0.92rem;
+	    }}
+	    input, select, textarea {{
+	      border: 1px solid var(--line);
+	      border-radius: 8px;
+	      padding: 10px 12px;
+	      width: 100%;
+	      font-size: 0.95rem;
+	      font-family: inherit;
+	    }}
+		    textarea {{
+		      min-height: 120px;
+		      resize: vertical;
+		    }}
+    textarea.compact {{
+      min-height: 150px;
+    }}
+	    button, .button, .back {{
+	      border: 0;
+	      border-radius: 8px;
+      padding: 10px 14px;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
+      font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+	      align-items: center;
+	      justify-content: center;
+	      white-space: nowrap;
+	    }}
+		    button:hover, .button:hover, .back:hover {{
+		      background: var(--accent-hover);
+		    }}
+	    button:disabled {{
+	      opacity: 0.58;
+	      cursor: not-allowed;
+	    }}
+	    button:disabled:hover {{
+	      background: #475467;
+	    }}
+	    .secondary {{
+	      background: #475467;
+	    }}
+    .secondary:hover {{
+      background: #344054;
+    }}
+	    .action-row, .actions {{
+	      display: flex;
+	      flex-wrap: wrap;
+	      align-items: center;
+	      gap: 8px;
+	      margin-top: 14px;
+	    }}
+	    .back {{
+	      background: #475467;
+	    }}
+	    .back:hover {{
+	      background: #344054;
+	    }}
+    .status {{
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      font-size: 0.98rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      box-shadow: 0 8px 22px rgba(15, 32, 62, 0.12);
+    }}
+    .status.info {{ background: #ebf3ff; color: var(--info); border-color: #a9c9f5; }}
+    .status.error {{ background: #fff1f1; color: var(--err); border-color: #f8b4b4; }}
+    .status.success {{ background: #ebfff4; color: var(--ok); border-color: #96dfbb; }}
+    .hint {{
+      color: var(--muted);
+      font-size: 0.86rem;
+      margin-top: 4px;
+    }}
+	    @media (max-width: 900px) {{
+	      .config-grid {{
+	        grid-template-columns: 1fr;
+	      }}
+	    }}
+	    .row {{
+	      display: grid;
+	      grid-template-columns: 1fr 1fr;
+	      gap: 12px;
+	    }}
+	    .checkbox {{
+	      margin-top: 14px;
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 10px;
+	      padding: 10px 14px;
+	      border-radius: 12px;
+	      border: 1px solid #d0d5dd;
+	      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+	      color: #111827;
+	      font-weight: 500;
+	      line-height: 1.35;
+	    }}
+	    .checkbox input {{
+	      width: 18px;
+	      height: 18px;
+	      margin: 0;
+	      accent-color: var(--accent);
+	      flex: 0 0 auto;
+	    }}
+			    .template-editor-panel {{
+			      padding: 16px;
+			    }}
+		    #template-module-fallback {{
+		      margin-bottom: 14px;
+		    }}
+			    #command-config-app > .module-block,
+			    .template-fallback {{
+			      margin-top: 0;
+			      border: 1px dashed var(--line);
+			      border-radius: 8px;
+			      padding: 10px;
+			      background: #ffffff;
+			    }}
+			    #command-config-app > .module-block > label {{
+			      display: block;
+			      margin-top: 0;
+			      margin-bottom: 6px;
+			      color: #22314a;
+			      font-size: 0.92rem;
+			    }}
+			    .template-config-page .command-entry {{
+			      border-color: var(--line);
+			      background: #f9fbff;
+			    }}
+		    .template-config-page .command-row.no-action input[readonly] {{
+		      background: #f8fafc;
+		      color: #344054;
+		      font-weight: 600;
+		    }}
+		    .command-list {{
+		      display: flex;
+		      flex-direction: column;
+		      gap: 10px;
+	      margin-top: 8px;
+	    }}
+	    .command-entry {{
+	      border: 1px solid var(--line);
+	      border-radius: 10px;
+	      padding: 10px;
+	      background: #f9fbff;
+	    }}
+	    .command-row {{
+	      display: grid;
+	      grid-template-columns: 1.1fr 1.3fr auto;
+	      gap: 8px;
+	      align-items: center;
+	    }}
+	    .command-row.no-action {{
+	      grid-template-columns: 1.1fr 1.3fr;
+	    }}
+	    .module-grid {{
+	      display: grid;
+	      grid-template-columns: 1fr 1fr;
+	      gap: 10px;
+	      margin-top: 10px;
+	    }}
+		    .module-block {{
+		      margin-top: 10px;
+		      border: 1px dashed var(--line);
+		      border-radius: 8px;
+	      padding: 10px;
+	      background: #fff;
+	    }}
+	    .module-title {{
+	      margin: 0;
+	      font-size: 0.9rem;
+	      color: var(--muted);
+	      font-weight: 700;
+	    }}
+				    .template-config-page .module-list-tools {{
+			      margin-top: 10px;
+			      display: flex;
+			      gap: 8px;
+			      align-items: center;
+			      flex-wrap: wrap;
+			    }}
+			    .template-config-page .module-list-tools select {{
+			      width: auto;
+			      min-width: 150px;
+			    }}
+			    .template-config-page .module-list-tools button {{
+			      padding: 10px 14px;
+			      font-size: 0.95rem;
+			    }}
+			    .template-config-page .module-list-tools .inline-button-input {{
+			      width: auto;
+			      min-width: 180px;
+			      flex: 1 1 220px;
+			    }}
+			    .template-config-page .module-list-tools label.hint {{
+			      margin: 0;
+			      display: inline-flex;
+			      align-items: center;
+			      font-size: 0.82rem;
+			      color: var(--muted);
+			      font-weight: 600;
+			      white-space: nowrap;
+			    }}
+			    .template-config-page .template-editor {{
+			      display: flex;
+			      flex-direction: column;
+			      gap: 8px;
+			    }}
+			    .template-config-page .template-toolbar {{
+			      display: flex;
+			      flex-wrap: wrap;
+			      gap: 6px;
+			    }}
+			    .template-config-page .template-toolbar button {{
+			      padding: 6px 10px;
+			      font-size: 0.82rem;
+			      background: #475467;
+			    }}
+		    .template-config-page .template-toolbar button:hover {{
+		      background: #344054;
+		    }}
+			    .template-config-page .template-toolbar .inline-button-input {{
+			      width: auto;
+			      min-width: 160px;
+			      flex: 1 1 220px;
+			    }}
+		    .module-editor {{
+		      margin-top: 10px;
+		      padding-top: 8px;
+		      border-top: 1px dashed var(--line);
+		    }}
+	    .module-editor-placeholder {{
+	      margin-top: 10px;
+	      border: 1px dashed var(--line);
+	      border-radius: 8px;
+	      padding: 8px 10px;
+	      font-size: 0.85rem;
+	      color: var(--muted);
+	      background: #fff;
+	    }}
+	    .module-list {{
+	      margin-top: 8px;
+	      display: flex;
+	      flex-direction: column;
+	      gap: 8px;
+	    }}
+		    .module-list-row {{
+		      border: 1px solid var(--line);
+		      border-radius: 8px;
+		      background: #f8fbff;
+		      padding: 8px;
+	      display: flex;
+	      gap: 8px;
+	      align-items: center;
+	      justify-content: space-between;
+	      flex-wrap: wrap;
+	    }}
+		    .module-list-row.is-editing {{
+		      border-color: #175cd3;
+		      background: #edf4ff;
+		    }}
+	    .module-list-meta {{
+	      font-size: 0.86rem;
+	      color: #2b3f5f;
+	      font-weight: 600;
+	    }}
+	    .module-list-actions {{
+	      display: flex;
+	      gap: 6px;
+	      flex-wrap: wrap;
+	    }}
+	    .module-list-actions button {{
+	      padding: 6px 10px;
+	      font-size: 0.82rem;
+	      background: #475467;
+	    }}
+	    .callback-submenu-block {{
+	      margin-top: 12px;
+	      border: 1px solid #d6e3f5;
+	      border-radius: 10px;
+	      padding: 12px;
+	      background: #f8fbff;
+	    }}
+	    #template-module-fallback[hidden],
+	    .chain-raw, .module-type-hidden {{
+	      display: none;
+	    }}
+		    .command-panel-title {{
+		      margin: 0 0 8px;
+		      font-size: 0.95rem;
+		      font-weight: 700;
+		      color: #22314a;
+		    }}
+		    .pipeline-title-row {{
+		      display: flex;
+		      align-items: center;
+		      justify-content: space-between;
+		      gap: 10px;
+		      margin-bottom: 8px;
+		    }}
+		    .pipeline-title-row .command-panel-title,
+		    .pipeline-title-row .module-title {{
+		      margin: 0;
+		    }}
+		    .collapse-toggle {{
+		      padding: 6px 10px;
+		      font-size: 0.82rem;
+		      background: #475467;
+		    }}
+		    .collapse-toggle:hover {{
+		      background: #344054;
+		    }}
+				    @media (max-width: 760px) {{
+				      .row, .command-row, .command-row.no-action, .module-grid {{
+				        grid-template-columns: 1fr;
+				      }}
+			    }}
+	  </style>
+</head>
+	<body class="template-config-page">
+	  <div class="container">
+		    <div class="panel">
+		      <h1>Template Config: {html.escape(name)}</h1>
+		      <p>Configure one reusable process pipeline. This template is not attached to a command until it is loaded into a bot command.</p>
+		      <div class="meta">Template key: {html.escape(template_key)}</div>
+		      <div class="actions">
+		        <a class="back" href="/ui/templates">Back To Templates</a>
+		      </div>
+	    </div>
+	    {status_html}
+	    <form id="config-save-form" method="post" action="/ui/templates/config/save" data-autosave-enabled="0">
+	      <input type="hidden" name="entry_id" value="{html.escape(entry_id)}">
+	      <div class="panel template-editor-panel">
+	        <div id="template-module-fallback">{fallback_module_list_html}</div>
+	        <div id="command-config-app"></div>
+	        <div class="config-grid template-target-grid">
+	          <div class="field">
+	            <label>Target Bot ID</label>
+	            <input name="load_bot_id" value="{html.escape(load_bot_id)}" placeholder="attendance-bot">
+	          </div>
+	          <div class="field">
+	            <label>Target Command</label>
+	            <input name="load_command" value="{html.escape(load_command)}" placeholder="clock_in">
+	          </div>
+	        </div>
+		        <div class="actions">
+		          <button class="secondary" type="button" title="Next implementation step">Load Pipeline To Command</button>
+		          <button type="submit">Save Pipeline To Template</button>
+		          <a class="back" href="/ui/templates">Cancel</a>
+		        </div>
+	      </div>
+	    </form>
+	  </div>
+	  <script id="command-config-state" type="application/json">{config_state_json}</script>
+	  <script src="/vue-runtime.js?v={asset_version}"></script>
+	  <script src="/module-system.js?v={asset_version}"></script>
+	  <script src="/module-send-message.js?v={asset_version}"></script>
+	  <script src="/module-send-photo.js?v={asset_version}"></script>
+	  <script src="/module-send-location.js?v={asset_version}"></script>
+	  <script src="/module-menu.js?v={asset_version}"></script>
+	  <script src="/module-inline-button.js?v={asset_version}"></script>
+	  <script src="/module-keyboard-button.js?v={asset_version}"></script>
+	  <script src="/module-wait-keyboard-reply.js?v={asset_version}"></script>
+	  <script src="/module-share-contact.js?v={asset_version}"></script>
+	  <script src="/module-ask-selfie.js?v={asset_version}"></script>
+	  <script src="/module-custom-code.js?v={asset_version}"></script>
+	  <script src="/module-bind-code.js?v={asset_version}"></script>
+	  <script src="/module-check-username.js?v={asset_version}"></script>
+	  <script src="/module-share-location.js?v={asset_version}"></script>
+	  <script src="/module-route.js?v={asset_version}"></script>
+	  <script src="/module-checkout.js?v={asset_version}"></script>
+	  <script src="/module-payway-payment.js?v={asset_version}"></script>
+	  <script src="/module-cart-button.js?v={asset_version}"></script>
+	  <script src="/module-open-mini-app.js?v={asset_version}"></script>
+	  <script src="/module-forget-user-data.js?v={asset_version}"></script>
+	  <script src="/module-reset-command-menu.js?v={asset_version}"></script>
+	  <script src="/module-delete-message.js?v={asset_version}"></script>
+	  <script src="/module-userinfo.js?v={asset_version}"></script>
+	  <script src="/module-callback-module.js?v={asset_version}"></script>
+	  <script src="/module-command-module.js?v={asset_version}"></script>
+	  <script src="/module-inline-button-module.js?v={asset_version}"></script>
+	  <script src="/config-vue.js?v={asset_version}"></script>
+	  <script>
+	    if (window.EtraxConfigVue && typeof window.EtraxConfigVue.mount === "function") {{
+	      window.EtraxConfigVue.mount("#command-config-app", "#command-config-state");
+	    }}
+	  </script>
+</body>
+</html>"""
+
+
+def _render_scheduled_tasks_demo_page(
+    *,
+    bot_id: str,
+    entries: list[dict[str, object]] | None = None,
+    working_hour_entries: list[dict[str, object]] | None = None,
+    selected_schedule_id: str = "",
+    message: str = "",
+    level: str = "info",
+) -> str:
+    """Render the standalone Scheduled Setup page with local JSON persistence."""
+    normalized_bot_id = str(bot_id or "").strip()
+    schedule_entries = _filter_schedule_entries_for_bot(
+        _normalize_schedule_entries(entries or []),
+        bot_id=normalized_bot_id,
+    )
+    working_entries = _normalize_working_hour_entries(working_hour_entries or [])
+    selected_entry = _find_standalone_ui_entry(schedule_entries, selected_schedule_id)
+    current_entry = _normalize_schedule_form_entry(selected_entry or {}) or _default_schedule_form_entry()
+    current_entry["bot_id"] = normalized_bot_id
+    schedule_cards_html = "".join(_render_schedule_card(item) for item in schedule_entries)
+    if not schedule_cards_html:
+        schedule_cards_html = "<div class='empty-note'>No scheduled tasks yet. Create one manually or load from Working Hours.</div>"
+
+    enabled_checked = " checked" if bool(current_entry.get("enabled", True)) else ""
+    source_type = str(current_entry.get("source_type", "manual"))
+    recurrence = str(current_entry.get("recurrence", "weekly"))
+    weekday = str(current_entry.get("weekday", "Monday"))
+    target_scope = str(current_entry.get("target_scope", "all_users"))
+    task_type = str(current_entry.get("task_type", "command"))
+    import_disabled = " disabled" if not working_entries else ""
+    import_note = (
+        f"{len(working_entries)} working-hour rows ready to load."
+        if working_entries
+        else "Add Working Hours before loading generated schedules."
+    )
+
+    content_html = f"""
+      <div class="section-header">
+        <div>
+          <h2>Scheduled Setup</h2>
+          <p>Bot: {html.escape(normalized_bot_id)}. Create manual schedules or load generated schedules from working hours. Schedules can trigger configured commands, processes, or module chains.</p>
+        </div>
+        <div class="toolbar">
+          <div class="toolbar-chip">{len(schedule_entries)} Schedules</div>
+        </div>
+      </div>
+      <div class="schedule-layout">
+        <div class="schedule-form-panel">
+          <h3>{'Edit Schedule' if selected_entry else 'Create Schedule'}</h3>
+          <form method="post" action="/ui/schedules/save">
+            <input type="hidden" name="bot_id" value="{html.escape(normalized_bot_id)}">
+            <input type="hidden" name="entry_id" value="{html.escape(str(current_entry.get('id', '')))}">
+            <div class="schedule-grid">
+              <div class="field wide">
+                <label>Schedule Name</label>
+                <input class="input" name="name" value="{html.escape(str(current_entry.get('name', '')))}" placeholder="Daily clock-in prompt">
+              </div>
+              <div class="field">
+                <label>Status</label>
+                <label class="switch-row"><input type="checkbox" name="enabled" value="1"{enabled_checked}> Enabled</label>
+              </div>
+              <div class="field">
+                <label>Source Type</label>
+                <select class="select" name="source_type">
+                  {_render_select_options(_SCHEDULE_SOURCE_TYPES, source_type)}
+                </select>
+              </div>
+              <div class="field">
+                <label>Source ID</label>
+                <input class="input" name="source_id" value="{html.escape(str(current_entry.get('source_id', '')))}" placeholder="manual or working-hour id">
+              </div>
+              <div class="field">
+                <label>Source Event</label>
+                <input class="input" name="source_event" value="{html.escape(str(current_entry.get('source_event', '')))}" placeholder="shift_start, shift_end, custom">
+              </div>
+              <div class="field">
+                <label>Recurrence</label>
+                <select class="select" name="recurrence">
+                  {_render_select_options(_SCHEDULE_RECURRENCE_OPTIONS, recurrence)}
+                </select>
+              </div>
+              <div class="field">
+                <label>Weekday</label>
+                <select class="select" name="weekday">
+                  {_render_select_options(_WORKING_DAY_OPTIONS, weekday)}
+                </select>
+              </div>
+              <div class="field">
+                <label>Run Date</label>
+                <input class="input" name="run_date" value="{html.escape(str(current_entry.get('run_date', '')))}" placeholder="YYYY-MM-DD for one-time">
+              </div>
+              <div class="field">
+                <label>Run Time</label>
+                <input class="input" name="run_time" value="{html.escape(str(current_entry.get('run_time', '')))}" placeholder="08:00 AM">
+              </div>
+              <div class="field">
+                <label>Timezone</label>
+                <input class="input" name="timezone" value="{html.escape(str(current_entry.get('timezone', 'Asia/Bangkok')))}">
+              </div>
+              <div class="field">
+                <label>Target Scope</label>
+                <select class="select" name="target_scope">
+                  {_render_select_options(_SCHEDULE_TARGET_SCOPE_OPTIONS, target_scope)}
+                </select>
+              </div>
+              <div class="field">
+                <label>Target ID</label>
+                <input class="input" name="target_id" value="{html.escape(str(current_entry.get('target_id', '')))}" placeholder="blank for all users">
+              </div>
+              <div class="field">
+                <label>Task Type</label>
+                <select class="select" name="task_type">
+                  {_render_select_options(_SCHEDULE_TASK_TYPE_OPTIONS, task_type)}
+                </select>
+              </div>
+              <div class="field">
+                <label>Task Key</label>
+                <input class="input" name="task_key" value="{html.escape(str(current_entry.get('task_key', '')))}" placeholder="clock_in, process key, module key">
+              </div>
+              <div class="field">
+                <label>Offset Minutes</label>
+                <input class="input" name="offset_minutes" value="{html.escape(str(current_entry.get('offset_minutes', '0')))}" placeholder="0">
+              </div>
+              <div class="field wide">
+                <label>Notes</label>
+                <textarea class="textarea" name="notes" placeholder="Optional internal note">{html.escape(str(current_entry.get('notes', '')))}</textarea>
+              </div>
+            </div>
+            <div class="toolbar" style="margin-top: 16px;">
+              <button class="button save" type="submit">Save Schedule</button>
+              <a class="button back" href="/ui/schedules?bot_id={quote_plus(normalized_bot_id)}">Clear</a>
+            </div>
+          </form>
+        </div>
+        <div>
+          <div class="schedule-form-panel">
+            <h3>Load From Working Hours</h3>
+            <form method="post" action="/ui/schedules/import-working-hours">
+              <input type="hidden" name="bot_id" value="{html.escape(normalized_bot_id)}">
+              <div class="schedule-grid">
+                <div class="field">
+                  <label>Task Type</label>
+                  <select class="select" name="task_type">
+                    {_render_select_options(_SCHEDULE_TASK_TYPE_OPTIONS, 'command')}
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Target Scope</label>
+                  <select class="select" name="target_scope">
+                    {_render_select_options(_SCHEDULE_TARGET_SCOPE_OPTIONS, 'all_users')}
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Clock-In Task Key</label>
+                  <input class="input" name="clock_in_task_key" value="clock_in">
+                </div>
+                <div class="field">
+                  <label>Clock-Out Task Key</label>
+                  <input class="input" name="clock_out_task_key" value="clock_out">
+                </div>
+                <div class="field wide">
+                  <label>Timezone</label>
+                  <input class="input" name="timezone" value="Asia/Bangkok">
+                </div>
+              </div>
+              <div class="toolbar" style="margin-top: 16px;">
+                <button class="button secondary" type="submit"{import_disabled}>Load Working Hours</button>
+                <div class="toolbar-chip">{html.escape(import_note)}</div>
+              </div>
+            </form>
+          </div>
+          <div class="list-panel">
+            <h3>Saved Scheduled Tasks</h3>
+            <p>Generated schedules keep source metadata so they can update from Working Hours without overwriting manual schedules.</p>
+            <div class="schedule-list">{schedule_cards_html}</div>
+          </div>
+        </div>
+      </div>
+    """
+    toolbar_html = (
+        '<a class="button back" href="/">Back To Home</a>'
+        f'<a class="button save" href="/config?bot_id={quote_plus(normalized_bot_id)}">Bot Config</a>'
+        '<a class="button secondary" href="/ui/working-hours">Working Hours</a>'
+        '<a class="button secondary" href="/ui/locations">Locations</a>'
+    )
+    return _render_demo_page_shell(
+        title="Scheduled Setup",
+        active_tab="schedules",
+        content_html=content_html,
+        toolbar_html=toolbar_html,
+        status_html=_render_status_html(message=message, level=level),
+        bot_id=normalized_bot_id,
     )
 
 
@@ -2704,6 +4152,819 @@ def _find_standalone_ui_entry(
     return None
 
 
+_TEMPLATE_STATUS_OPTIONS = ("draft", "active", "archived")
+
+
+def _default_template_form_entry() -> dict[str, object]:
+    """Return defaults for a new reusable template form."""
+    return {
+        "id": "",
+        "name": "",
+        "template_key": "",
+        "category": "",
+        "status": "draft",
+        "description": "",
+        "module_count": "0",
+        "updated_at": "",
+        "process_pipeline": "",
+        "callback_modules": "",
+        "temporary_commands": "",
+        "load_bot_id": "",
+        "load_command": "",
+    }
+
+
+def _normalize_template_entry(raw: object) -> dict[str, object] | None:
+    """Normalize one persisted template entry for list rendering."""
+    if not isinstance(raw, dict):
+        return None
+    entry_id = str(raw.get("id", "")).strip()
+    name = str(raw.get("name", "")).strip()
+    if not entry_id or not name:
+        return None
+    template_key = str(raw.get("template_key", "")).strip() or _slugify_template_key(name)
+    return {
+        "id": entry_id,
+        "name": name,
+        "template_key": template_key,
+        "category": str(raw.get("category", "")).strip(),
+        "status": _normalize_choice(raw.get("status"), _TEMPLATE_STATUS_OPTIONS, "draft"),
+        "description": str(raw.get("description", "")).strip(),
+        "module_count": _normalize_template_module_count(raw.get("module_count", "0")),
+        "updated_at": str(raw.get("updated_at", "")).strip(),
+        "process_pipeline": str(raw.get("process_pipeline", "")).strip(),
+        "callback_modules": str(raw.get("callback_modules", "")).strip(),
+        "temporary_commands": str(raw.get("temporary_commands", "")).strip(),
+        "load_bot_id": str(raw.get("load_bot_id", "")).strip(),
+        "load_command": str(raw.get("load_command", "")).strip(),
+    }
+
+
+def _normalize_template_entries(raw_entries: Iterable[object]) -> list[dict[str, object]]:
+    """Normalize and order reusable template entries."""
+    normalized_entries = [
+        normalized
+        for raw in raw_entries
+        if (normalized := _normalize_template_entry(raw)) is not None
+    ]
+    return sorted(
+        normalized_entries,
+        key=lambda item: (
+            str(item.get("category", "")).lower(),
+            str(item.get("name", "")).lower(),
+            str(item.get("id", "")),
+        ),
+    )
+
+
+def _normalize_template_module_count(raw: object) -> str:
+    value = str(raw or "0").strip()
+    if not value:
+        return "0"
+    try:
+        normalized = int(value)
+    except ValueError as exc:
+        raise ValueError("module count must be a whole number") from exc
+    return str(max(0, normalized))
+
+
+def _default_template_pipeline_text() -> str:
+    """Return starter JSON-lines pipeline text for a new template config."""
+    return json.dumps(
+        {
+            "module_type": "send_message",
+            "text_template": "Template pipeline message.",
+            "parse_mode": "",
+        },
+        ensure_ascii=False,
+    )
+
+
+def _template_pipeline_text_to_steps(raw: str) -> list[dict[str, object]]:
+    """Parse template JSON-lines pipeline text into module editor steps."""
+    pipeline_text = str(raw or "").strip() or _default_template_pipeline_text()
+    steps = _parse_chain_steps(command_name="template", raw=pipeline_text)
+    if steps:
+        return steps
+    return _parse_chain_steps(command_name="template", raw=_default_template_pipeline_text())
+
+
+def _template_pipeline_text_to_command_row(
+    *,
+    raw: str,
+    template_name: str,
+    load_command: str,
+) -> dict[str, object]:
+    """Convert one template pipeline into the fixed command row used by the shared editor."""
+    steps = _template_pipeline_text_to_steps(raw)
+    primary_step = dict(steps[0])
+    primary_step["command"] = str(load_command or "template_pipeline").strip().lstrip("/") or "template_pipeline"
+    primary_step["description"] = f"Template: {str(template_name or '').strip() or 'Reusable Pipeline'}"
+    primary_step["editor_steps"] = steps
+    primary_step["chain_steps"] = _pipeline_to_chain_steps(steps)
+    return primary_step
+
+
+def _template_callback_text_to_rows(raw: str) -> list[dict[str, object]]:
+    """Convert template callback JSON into callback rows used by the shared editor."""
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, dict):
+        return []
+    rows: list[dict[str, object]] = []
+    for callback_key, raw_config in parsed.items():
+        normalized_key = str(callback_key or "").strip()
+        if not normalized_key:
+            continue
+        if isinstance(raw_config, list):
+            steps = [dict(step) for step in raw_config if isinstance(step, dict)]
+            temporary_commands: object = []
+        elif isinstance(raw_config, dict):
+            raw_pipeline = raw_config.get("pipeline", raw_config.get("steps", []))
+            steps = [dict(step) for step in raw_pipeline if isinstance(step, dict)] if isinstance(raw_pipeline, list) else []
+            temporary_commands = raw_config.get("temporary_commands", [])
+        else:
+            steps = []
+            temporary_commands = []
+        if not steps:
+            steps = _parse_callback_chain_steps(callback_key=normalized_key, raw=_default_template_pipeline_text())
+        primary_step = dict(steps[0])
+        primary_step["callback_key"] = normalized_key
+        primary_step["chain_steps"] = _pipeline_to_chain_steps(steps)
+        if isinstance(temporary_commands, list):
+            primary_step["temporary_commands"] = temporary_commands
+        rows.append(primary_step)
+    return rows
+
+
+def _template_temporary_command_text_to_rows(raw: str) -> list[dict[str, object]]:
+    """Parse standalone template temporary commands for the editor state."""
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [dict(item) for item in parsed if isinstance(item, dict)]
+
+
+def _template_callback_rows_with_temporary_commands(
+    *,
+    callback_text: str,
+    temporary_command_text: str,
+) -> list[dict[str, object]]:
+    """Return template callback rows with matching temporary commands attached once."""
+    callback_rows = _template_callback_text_to_rows(callback_text)
+    temporary_command_rows = _template_temporary_command_text_to_rows(temporary_command_text)
+    if not temporary_command_rows:
+        return callback_rows
+    if not callback_rows:
+        callback_rows.append(
+            {
+                "callback_key": "template_callback",
+                "module_type": "send_message",
+                "text_template": "Template callback received.",
+                "chain_steps": "",
+            }
+        )
+    callback_rows_by_key = {
+        str(row.get("callback_key", "")).strip(): row
+        for row in callback_rows
+        if str(row.get("callback_key", "")).strip()
+    }
+    fallback_temporary_commands: list[dict[str, object]] = []
+    for temporary_command in temporary_command_rows:
+        parent_callback_key = str(temporary_command.get("parent_callback_key", "")).strip()
+        target_row = callback_rows_by_key.get(parent_callback_key) if parent_callback_key else None
+        if target_row is None:
+            fallback_temporary_commands.append(temporary_command)
+            continue
+        existing_temporary_commands = target_row.get("temporary_commands", [])
+        existing_rows = existing_temporary_commands if isinstance(existing_temporary_commands, list) else []
+        command_key = str(temporary_command.get("command", "")).strip()
+        already_exists = any(
+            str(existing.get("command", "")).strip() == command_key
+            for existing in existing_rows
+            if isinstance(existing, dict)
+        )
+        if not already_exists:
+            target_row["temporary_commands"] = [*existing_rows, temporary_command]
+    if fallback_temporary_commands:
+        existing_temporary_commands = callback_rows[0].get("temporary_commands", [])
+        existing_rows = existing_temporary_commands if isinstance(existing_temporary_commands, list) else []
+        existing_commands = {
+            str(existing.get("command", "")).strip()
+            for existing in existing_rows
+            if isinstance(existing, dict)
+        }
+        callback_rows[0]["temporary_commands"] = [
+            *existing_rows,
+            *[
+                temporary_command
+                for temporary_command in fallback_temporary_commands
+                if str(temporary_command.get("command", "")).strip() not in existing_commands
+            ],
+        ]
+    return callback_rows
+
+
+def _build_config_template_options(
+    entries: Iterable[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Build compact template payloads that Bot Config can load into an editor."""
+    options: list[dict[str, object]] = []
+    for entry in _normalize_template_entries(entries):
+        if str(entry.get("status", "")).strip() == "archived":
+            continue
+        pipeline_text = str(entry.get("process_pipeline", "")).strip()
+        if not pipeline_text:
+            continue
+        try:
+            editor_steps = _template_pipeline_text_to_steps(pipeline_text)
+        except ValueError:
+            continue
+        options.append(
+            {
+                "id": str(entry.get("id", "")).strip(),
+                "name": str(entry.get("name", "")).strip(),
+                "template_key": str(entry.get("template_key", "")).strip(),
+                "category": str(entry.get("category", "")).strip(),
+                "editor_steps": editor_steps,
+                "callbacks": _template_callback_rows_with_temporary_commands(
+                    callback_text=str(entry.get("callback_modules", "")).strip(),
+                    temporary_command_text=str(entry.get("temporary_commands", "")).strip(),
+                ),
+            }
+        )
+    return options
+
+
+def _render_template_pipeline_fallback(command_row: dict[str, object]) -> str:
+    """Render a no-JS module list fallback for Template Config."""
+    steps: list[dict[str, object]] = []
+    module_type = str(command_row.get("module_type", "send_message")).strip() or "send_message"
+    primary_step = dict(command_row)
+    primary_step["module_type"] = module_type
+    steps.append(primary_step)
+    try:
+        steps.extend(
+            _parse_chain_steps(
+                command_name=str(command_row.get("command", "template")).strip() or "template",
+                raw=str(command_row.get("chain_steps", "")).strip(),
+            )
+        )
+    except ValueError:
+        pass
+    row_html = []
+    for index, step in enumerate(steps, start=1):
+        step_type = html.escape(str(step.get("module_type", "send_message")).strip() or "send_message")
+        text = html.escape(str(step.get("text_template", "")).strip() or "(empty)")
+        row_html.append(
+            "<div class='module-list-row'>"
+            f"<div class='module-list-meta'>#{index} {step_type} - {text}</div>"
+            "<div class='module-list-actions'><button type='button' disabled>Loading Editor</button></div>"
+            "</div>"
+        )
+    return (
+        "<div class='module-block template-fallback'>"
+        "<p class='module-title'>Process Pipeline</p>"
+        "<div class='module-list'>"
+        + "".join(row_html)
+        + "</div>"
+        "</div>"
+    )
+
+
+def _count_template_pipeline_steps(raw: str) -> int:
+    """Count configured JSON-line pipeline steps without requiring perfect JSON."""
+    lines = [line for line in str(raw or "").splitlines() if line.strip()]
+    return len(lines)
+
+
+def _build_template_entry_from_pipeline_payload(
+    payload: dict[str, object],
+    entries: Iterable[dict[str, object]],
+) -> dict[str, object]:
+    """Build a reusable template entry from a Bot Config pipeline save action."""
+    name = str(payload.get("name", "")).strip() or "Saved Pipeline"
+    pipeline_text = str(payload.get("process_pipeline", "")).strip()
+    if not pipeline_text:
+        raise ValueError("process pipeline is required")
+    bot_id = str(payload.get("bot_id", "")).strip()
+    source_key = str(payload.get("source_key", "")).strip()
+    source_type = str(payload.get("source_type", "")).strip() or "bot_config"
+    category = str(payload.get("category", "")).strip() or "Bot Config"
+    description_parts = ["Saved from Bot Config"]
+    if bot_id:
+        description_parts.append(f"bot={bot_id}")
+    if source_key:
+        description_parts.append(f"source={source_key}")
+    normalized_entry = _normalize_template_entry(
+        {
+            "id": _new_standalone_ui_entry_id(prefix="tpl"),
+            "name": name,
+            "template_key": _next_template_key(entries, name),
+            "category": category,
+            "status": "draft",
+            "description": " | ".join(description_parts),
+            "module_count": str(max(1, _count_template_pipeline_steps(pipeline_text))),
+            "updated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "process_pipeline": pipeline_text,
+            "callback_modules": str(payload.get("callback_modules", "")).strip(),
+            "temporary_commands": str(payload.get("temporary_commands", "")).strip(),
+            "load_bot_id": bot_id,
+            "load_command": source_key.lstrip("/") if source_type == "command" else "",
+        }
+    )
+    if normalized_entry is None:
+        raise ValueError("template name is required")
+    return normalized_entry
+
+
+def _slugify_template_key(value: str) -> str:
+    """Create a stable lower_snake_case key from a template name."""
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+    return slug or "template"
+
+
+def _template_key_conflicts(
+    entries: Iterable[dict[str, object]],
+    *,
+    template_key: str,
+    exclude_entry_id: str = "",
+) -> bool:
+    normalized_key = str(template_key or "").strip()
+    normalized_exclude_id = str(exclude_entry_id or "").strip()
+    return any(
+        str(item.get("template_key", "")).strip() == normalized_key
+        and str(item.get("id", "")).strip() != normalized_exclude_id
+        for item in entries
+    )
+
+
+def _next_template_key(entries: Iterable[dict[str, object]], name: str) -> str:
+    """Return an unused template key based on one display name."""
+    base_key = _slugify_template_key(name)
+    used_keys = {str(item.get("template_key", "")).strip() for item in entries}
+    if base_key not in used_keys:
+        return base_key
+    index = 2
+    while f"{base_key}_{index}" in used_keys:
+        index += 1
+    return f"{base_key}_{index}"
+
+
+def _render_template_table_row(item: dict[str, object]) -> str:
+    """Render one row in the Template List table."""
+    entry_id = html.escape(str(item["id"]))
+    name = html.escape(str(item.get("name", "")))
+    template_key = html.escape(str(item.get("template_key", "")))
+    category = html.escape(str(item.get("category", "") or "-"))
+    status = html.escape(str(item.get("status", "draft")))
+    module_count = html.escape(str(item.get("module_count", "0")))
+    updated_at = html.escape(_format_template_updated_at(str(item.get("updated_at", ""))))
+    description = str(item.get("description", "")).strip()
+    description_html = (
+        f"<div class='hint'>{html.escape(description)}</div>"
+        if description
+        else ""
+    )
+    return (
+        "<tr>"
+        f"<td data-label='Name'><strong>{name}</strong>{description_html}</td>"
+        f"<td data-label='Key'>{template_key}</td>"
+        f"<td data-label='Category'>{category}</td>"
+        f"<td data-label='Status'><span class='pill'>{status}</span></td>"
+        f"<td data-label='Modules'>{module_count}</td>"
+        f"<td data-label='Updated'>{updated_at}</td>"
+        "<td data-label='Action'>"
+        "<div class='action-stack'>"
+        f"<a class='button mini' href='/ui/templates/config?template_id={quote_plus(str(item['id']))}'>Config</a>"
+        f"<a class='button secondary mini' href='/ui/templates?template_id={quote_plus(str(item['id']))}'>Edit</a>"
+        "<form method='post' action='/ui/templates/duplicate'>"
+        f"<input type='hidden' name='entry_id' value='{entry_id}'>"
+        "<button class='button secondary mini' type='submit'>Copy</button>"
+        "</form>"
+        "<form method='post' action='/ui/templates/delete'>"
+        f"<input type='hidden' name='entry_id' value='{entry_id}'>"
+        "<button class='button delete mini' type='submit'>Delete</button>"
+        "</form>"
+        "</div>"
+        "</td>"
+        "</tr>"
+    )
+
+
+def _format_template_updated_at(value: str) -> str:
+    """Return a compact timestamp for template table display."""
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return "-"
+    try:
+        parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError:
+        return raw_value
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
+_SCHEDULE_SOURCE_TYPES = ("manual", "working_hours", "imported")
+_SCHEDULE_RECURRENCE_OPTIONS = ("once", "daily", "weekly")
+_SCHEDULE_TARGET_SCOPE_OPTIONS = ("all_users", "user", "chat", "group")
+_SCHEDULE_TASK_TYPE_OPTIONS = ("command", "process", "module", "callback")
+
+
+def _default_schedule_form_entry() -> dict[str, object]:
+    """Return defaults for a new manual scheduled task form."""
+    return {
+        "id": "",
+        "bot_id": "",
+        "name": "",
+        "enabled": True,
+        "source_type": "manual",
+        "source_id": "",
+        "source_event": "custom",
+        "recurrence": "weekly",
+        "weekday": "Monday",
+        "run_date": "",
+        "run_time": "08:00 AM",
+        "timezone": "Asia/Bangkok",
+        "target_scope": "all_users",
+        "target_id": "",
+        "task_type": "command",
+        "task_key": "",
+        "offset_minutes": "0",
+        "notes": "",
+    }
+
+
+def _normalize_schedule_form_entry(raw: object) -> dict[str, object] | None:
+    """Normalize one persisted scheduled task entry for display/editing."""
+    if not isinstance(raw, dict):
+        return None
+    entry_id = str(raw.get("id", "")).strip()
+    bot_id = str(raw.get("bot_id", "")).strip()
+    name = str(raw.get("name", "")).strip()
+    if not entry_id or not name:
+        return None
+    if not bot_id:
+        raise ValueError("bot_id is required")
+    source_type = _normalize_choice(raw.get("source_type"), _SCHEDULE_SOURCE_TYPES, "manual")
+    recurrence = _normalize_choice(raw.get("recurrence"), _SCHEDULE_RECURRENCE_OPTIONS, "weekly")
+    target_scope = _normalize_choice(raw.get("target_scope"), _SCHEDULE_TARGET_SCOPE_OPTIONS, "all_users")
+    task_type = _normalize_choice(raw.get("task_type"), _SCHEDULE_TASK_TYPE_OPTIONS, "command")
+    weekday = _normalize_choice(raw.get("weekday"), _WORKING_DAY_OPTIONS, "Monday")
+    task_key = str(raw.get("task_key", "")).strip()
+    run_time = str(raw.get("run_time", "")).strip()
+    if not task_key:
+        raise ValueError("task key is required")
+    if not run_time:
+        raise ValueError("run time is required")
+    if recurrence == "once" and not str(raw.get("run_date", "")).strip():
+        raise ValueError("run date is required for one-time schedules")
+    return {
+        "id": entry_id,
+        "bot_id": bot_id,
+        "name": name,
+        "enabled": _normalize_schedule_enabled(raw.get("enabled", True)),
+        "source_type": source_type,
+        "source_id": str(raw.get("source_id", "")).strip(),
+        "source_event": str(raw.get("source_event", "")).strip() or "custom",
+        "recurrence": recurrence,
+        "weekday": weekday,
+        "run_date": str(raw.get("run_date", "")).strip(),
+        "run_time": run_time,
+        "timezone": str(raw.get("timezone", "")).strip() or "Asia/Bangkok",
+        "target_scope": target_scope,
+        "target_id": str(raw.get("target_id", "")).strip(),
+        "task_type": task_type,
+        "task_key": task_key,
+        "offset_minutes": _normalize_schedule_offset(raw.get("offset_minutes", "0")),
+        "notes": str(raw.get("notes", "")).strip(),
+    }
+
+
+def _normalize_schedule_entries(raw_entries: Iterable[object]) -> list[dict[str, object]]:
+    """Normalize and order scheduled task entries for rendering and persistence."""
+    normalized_entries = [
+        normalized
+        for raw in raw_entries
+        if (normalized := _normalize_schedule_form_entry(raw)) is not None
+    ]
+    return sorted(
+        normalized_entries,
+        key=lambda item: (
+            _working_day_index(str(item.get("weekday", ""))),
+            str(item.get("run_time", "")),
+            str(item.get("name", "")),
+            str(item.get("id", "")),
+        ),
+    )
+
+
+def _filter_schedule_entries_for_bot(
+    entries: Iterable[dict[str, object]],
+    *,
+    bot_id: str,
+) -> list[dict[str, object]]:
+    """Return only scheduled task entries attached to one bot."""
+    normalized_bot_id = str(bot_id or "").strip()
+    if not normalized_bot_id:
+        return []
+    return [
+        dict(item)
+        for item in entries
+        if str(item.get("bot_id", "")).strip() == normalized_bot_id
+    ]
+
+
+def _upsert_schedule_entry(
+    entries: Iterable[dict[str, object]],
+    entry: dict[str, object],
+) -> list[dict[str, object]]:
+    """Insert or replace one scheduled task by bot id and schedule id."""
+    entry_id = str(entry.get("id", "")).strip()
+    bot_id = str(entry.get("bot_id", "")).strip()
+    if not entry_id:
+        raise ValueError("schedule id is required")
+    if not bot_id:
+        raise ValueError("bot_id is required")
+    updated: list[dict[str, object]] = []
+    replaced = False
+    for current in entries:
+        current_id = str(current.get("id", "")).strip()
+        current_bot_id = str(current.get("bot_id", "")).strip()
+        if current_id == entry_id and current_bot_id == bot_id:
+            updated.append(dict(entry))
+            replaced = True
+        else:
+            updated.append(dict(current))
+    if not replaced:
+        updated.append(dict(entry))
+    return updated
+
+
+def _delete_schedule_entry_for_bot(
+    entries: Iterable[dict[str, object]],
+    *,
+    bot_id: str,
+    entry_id: str,
+) -> tuple[list[dict[str, object]], bool]:
+    """Delete one scheduled task by bot id and schedule id."""
+    normalized_bot_id = str(bot_id or "").strip()
+    normalized_entry_id = str(entry_id or "").strip()
+    kept: list[dict[str, object]] = []
+    deleted = False
+    for current in entries:
+        current_id = str(current.get("id", "")).strip()
+        current_bot_id = str(current.get("bot_id", "")).strip()
+        if current_id == normalized_entry_id and current_bot_id == normalized_bot_id:
+            deleted = True
+            continue
+        kept.append(dict(current))
+    return kept, deleted
+
+
+def _normalize_choice(raw: object, choices: Iterable[str], default: str) -> str:
+    value = str(raw or "").strip()
+    allowed = {str(choice) for choice in choices}
+    return value if value in allowed else default
+
+
+def _normalize_schedule_enabled(raw: object) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    value = str(raw).strip().lower()
+    return value not in {"", "0", "false", "no", "off", "disabled"}
+
+
+def _normalize_schedule_offset(raw: object) -> str:
+    value = str(raw or "0").strip()
+    if not value:
+        return "0"
+    try:
+        return str(int(value))
+    except ValueError as exc:
+        raise ValueError("offset minutes must be a whole number") from exc
+
+
+def _render_schedule_card(item: dict[str, object]) -> str:
+    """Render one saved scheduled task card."""
+    entry_id = html.escape(str(item["id"]))
+    bot_id = str(item.get("bot_id", "")).strip()
+    name = html.escape(str(item["name"]))
+    enabled_label = "Enabled" if bool(item.get("enabled", True)) else "Disabled"
+    enabled_class = "pill" if bool(item.get("enabled", True)) else "toolbar-chip"
+    source_label = _schedule_source_label(item)
+    schedule_label = _schedule_time_label(item)
+    target_label = _schedule_target_label(item)
+    task_label = f"{str(item.get('task_type', '')).title()}: {str(item.get('task_key', ''))}"
+    notes = str(item.get("notes", "")).strip()
+    notes_html = f"<div class='schedule-meta'><span>{html.escape(notes)}</span></div>" if notes else ""
+    return (
+        "<div class='schedule-card'>"
+        "<div class='schedule-card-top'>"
+        f"<div><h4>{name}</h4><div class='schedule-meta'><span>{html.escape(schedule_label)}</span><span>{html.escape(task_label)}</span></div></div>"
+        f"<div class='{enabled_class}'>{enabled_label}</div>"
+        "</div>"
+        f"<div class='schedule-meta'><span>{html.escape(source_label)}</span><span>{html.escape(target_label)}</span></div>"
+        f"{notes_html}"
+        "<div class='schedule-actions'>"
+        f"<a class='button secondary mini' href='/ui/schedules?bot_id={quote_plus(bot_id)}&schedule_id={quote_plus(str(item['id']))}'>Edit</a>"
+        f"<form method='post' action='/ui/schedules/delete'>"
+        f"<input type='hidden' name='bot_id' value='{html.escape(bot_id)}'>"
+        f"<input type='hidden' name='entry_id' value='{entry_id}'>"
+        "<button class='button delete mini' type='submit'>Delete</button>"
+        "</form>"
+        "</div>"
+        "</div>"
+    )
+
+
+def _render_select_options(options: Iterable[str], selected_value: str) -> str:
+    """Render escaped select options with one selected value."""
+    selected = str(selected_value or "").strip()
+    return "".join(
+        (
+            f"<option value='{html.escape(str(option), quote=True)}' selected>{html.escape(str(option))}</option>"
+            if str(option) == selected
+            else f"<option value='{html.escape(str(option), quote=True)}'>{html.escape(str(option))}</option>"
+        )
+        for option in options
+    )
+
+
+def _schedule_source_label(item: dict[str, object]) -> str:
+    source_type = str(item.get("source_type", "manual")).strip()
+    source_id = str(item.get("source_id", "")).strip()
+    source_event = str(item.get("source_event", "")).strip()
+    label = f"Source: {source_type}"
+    if source_id:
+        label += f" / {source_id}"
+    if source_event:
+        label += f" / {source_event}"
+    return label
+
+
+def _schedule_time_label(item: dict[str, object]) -> str:
+    recurrence = str(item.get("recurrence", "")).strip()
+    run_time = str(item.get("run_time", "")).strip()
+    timezone_name = str(item.get("timezone", "")).strip()
+    if recurrence == "once":
+        prefix = str(item.get("run_date", "")).strip() or "One time"
+    elif recurrence == "daily":
+        prefix = "Daily"
+    else:
+        prefix = str(item.get("weekday", "")).strip() or "Weekly"
+    offset = str(item.get("offset_minutes", "0")).strip()
+    offset_label = "" if offset in {"", "0"} else f" offset {offset}m"
+    return f"{prefix} at {run_time} {timezone_name}{offset_label}".strip()
+
+
+def _schedule_target_label(item: dict[str, object]) -> str:
+    target_scope = str(item.get("target_scope", "")).strip()
+    target_id = str(item.get("target_id", "")).strip()
+    if not target_id:
+        return f"Target: {target_scope}"
+    return f"Target: {target_scope} / {target_id}"
+
+
+def _build_schedule_entries_from_working_hours(
+    working_entries: Iterable[dict[str, object]],
+    *,
+    bot_id: str,
+    existing_entries: Iterable[dict[str, object]] = (),
+    task_type: str,
+    clock_in_task_key: str,
+    clock_out_task_key: str,
+    timezone_name: str,
+    target_scope: str,
+) -> list[dict[str, object]]:
+    """Build deterministic schedule entries from working-hour rows."""
+    normalized_bot_id = str(bot_id or "").strip()
+    if not normalized_bot_id:
+        raise ValueError("bot_id is required")
+    existing_by_id = {
+        str(item.get("id", "")).strip(): dict(item)
+        for item in existing_entries
+        if str(item.get("id", "")).strip()
+        and str(item.get("bot_id", "")).strip() == normalized_bot_id
+    }
+    generated: list[dict[str, object]] = []
+    for working_entry in working_entries:
+        working_id = str(working_entry.get("id", "")).strip()
+        working_day = str(working_entry.get("working_day", "")).strip()
+        if not working_id or not working_day:
+            continue
+        generated.extend(
+            [
+                _build_working_hour_schedule_entry(
+                    existing_by_id=existing_by_id,
+                    bot_id=normalized_bot_id,
+                    working_id=working_id,
+                    working_day=working_day,
+                    source_event="shift_start",
+                    name=f"{working_day} clock-in schedule",
+                    run_time=str(working_entry.get("start_time", "")).strip(),
+                    task_type=task_type,
+                    task_key=clock_in_task_key,
+                    timezone_name=timezone_name,
+                    target_scope=target_scope,
+                ),
+                _build_working_hour_schedule_entry(
+                    existing_by_id=existing_by_id,
+                    bot_id=normalized_bot_id,
+                    working_id=working_id,
+                    working_day=working_day,
+                    source_event="shift_end",
+                    name=f"{working_day} clock-out schedule",
+                    run_time=str(working_entry.get("end_time", "")).strip(),
+                    task_type=task_type,
+                    task_key=clock_out_task_key,
+                    timezone_name=timezone_name,
+                    target_scope=target_scope,
+                ),
+            ]
+        )
+    return _normalize_schedule_entries(generated)
+
+
+def _build_working_hour_schedule_entry(
+    *,
+    existing_by_id: dict[str, dict[str, object]],
+    bot_id: str,
+    working_id: str,
+    working_day: str,
+    source_event: str,
+    name: str,
+    run_time: str,
+    task_type: str,
+    task_key: str,
+    timezone_name: str,
+    target_scope: str,
+) -> dict[str, object]:
+    schedule_id = f"sch-{working_id}-{source_event}"
+    existing = existing_by_id.get(schedule_id, {})
+    return {
+        "id": schedule_id,
+        "bot_id": bot_id,
+        "name": name,
+        "enabled": existing.get("enabled", True),
+        "source_type": "working_hours",
+        "source_id": working_id,
+        "source_event": source_event,
+        "recurrence": "weekly",
+        "weekday": working_day,
+        "run_date": "",
+        "run_time": run_time or "08:00 AM",
+        "timezone": timezone_name or "Asia/Bangkok",
+        "target_scope": target_scope or "all_users",
+        "target_id": existing.get("target_id", ""),
+        "task_type": task_type or "command",
+        "task_key": task_key,
+        "offset_minutes": existing.get("offset_minutes", "0"),
+        "notes": existing.get("notes", ""),
+    }
+
+
+def _merge_generated_schedule_entries(
+    existing_entries: Iterable[dict[str, object]],
+    generated_entries: Iterable[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Merge generated schedule rows without touching unrelated manual rows."""
+    generated_by_id = {
+        (
+            str(item.get("bot_id", "")).strip(),
+            str(item.get("id", "")).strip(),
+        ): dict(item)
+        for item in generated_entries
+        if str(item.get("bot_id", "")).strip() and str(item.get("id", "")).strip()
+    }
+    merged: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    for existing in existing_entries:
+        existing_key = (
+            str(existing.get("bot_id", "")).strip(),
+            str(existing.get("id", "")).strip(),
+        )
+        if existing_key in generated_by_id:
+            merged.append(generated_by_id[existing_key])
+            seen.add(existing_key)
+        else:
+            merged.append(dict(existing))
+    for generated_key, generated in generated_by_id.items():
+        if generated_key not in seen:
+            merged.append(generated)
+    return merged
+
+
 def _normalize_working_hour_entry(raw: object) -> dict[str, object] | None:
     """Normalize one persisted working-hour entry for display/editing."""
     if not isinstance(raw, dict):
@@ -3127,6 +5388,7 @@ def _render_config_page(
     runtime_status: dict[str, object],
     context_key_options: Iterable[str] = (),
     custom_code_function_options: Iterable[str] = (),
+    template_entries: Iterable[dict[str, object]] = (),
     message: str,
     level: str,
 ) -> str:
@@ -3154,6 +5416,7 @@ def _render_config_page(
     callback_rows = _extract_callback_rows(command_menu.get("callback_modules", {}))
     config_state_json = json.dumps(
         {
+            "bot_id": bot_id,
             "start": {
                 "description": start_command_description,
                 "module_values": start_module_values,
@@ -3167,6 +5430,7 @@ def _render_config_page(
             "custom_code_function_options": [
                 str(value).strip() for value in custom_code_function_options if str(value).strip()
             ],
+            "templates": _build_config_template_options(template_entries),
         }
     ).replace("</", "<\\/")
     is_running = bool(runtime_status.get("running"))
@@ -3641,15 +5905,34 @@ def _render_config_page(
     .chain-raw {{
       display: none;
     }}
-    .command-panel-title {{
-      margin: 0 0 8px;
-      font-size: 0.95rem;
-      font-weight: 700;
-      color: #22314a;
-    }}
-    .secondary {{
-      background: #475467;
-    }}
+	    .command-panel-title {{
+	      margin: 0 0 8px;
+	      font-size: 0.95rem;
+	      font-weight: 700;
+	      color: #22314a;
+	    }}
+	    .pipeline-title-row {{
+	      display: flex;
+	      align-items: center;
+	      justify-content: space-between;
+	      gap: 10px;
+	      margin-bottom: 8px;
+	    }}
+	    .pipeline-title-row .command-panel-title,
+	    .pipeline-title-row .module-title {{
+	      margin: 0;
+	    }}
+	    .collapse-toggle {{
+	      padding: 6px 10px;
+	      font-size: 0.82rem;
+	      background: #475467;
+	    }}
+	    .collapse-toggle:hover {{
+	      background: #344054;
+	    }}
+	    .secondary {{
+	      background: #475467;
+	    }}
     .secondary:hover {{
       background: #344054;
     }}
@@ -3730,6 +6013,7 @@ def _render_config_page(
           <input type="hidden" name="next" value="{html.escape(next_url)}">
           <button class="{toggle_class}" type="submit">{toggle_label} Runtime</button>
         </form>
+        <a class="back" href="/ui/schedules?bot_id={quote_plus(bot_id)}">Scheduled Setup</a>
         <a class="back" href="/ui/working-hours">Working Hours</a>
         <a class="back" href="/ui/locations">Locations</a>
         <button

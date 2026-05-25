@@ -1,0 +1,437 @@
+# Next Step Development Outline
+
+This file summarizes the recent design questions, concerns, and recommended solutions for the eTrax Telegram bot builder. The direction remains standalone-first for Windows build/test, with Frappe as the first production integration target.
+
+## 1. General Scheduled Task Setup
+
+Concern / Problem:
+- Scheduling should not be limited to clock-in and clock-out notifications.
+- Users should be able to schedule any supported task/process/module.
+- Schedules can be added manually or loaded/generated from another source, such as the working-hours list.
+- Current working-hours setup and manual scheduled setup should be consistent and should not create duplicate or conflicting scheduled jobs.
+- Scheduled setup should attach to a specific bot, like Bot Config.
+- Scheduled setup should have its own independent UI/config page, similar to the main config builder.
+
+Solution:
+- Add a reusable scheduled-task service in core logic.
+- Treat working hours as one schedule source, not as the scheduler itself.
+- Add a dedicated Scheduled Setup UI where users can create, edit, enable, disable, and preview schedules.
+- Open Scheduled Setup with `bot_id`, for example `/ui/schedules?bot_id=attendance-bot`.
+- Allow schedules to trigger any configured workflow process or module chain.
+- Store generated schedule records with source metadata so manual schedules and working-hour-derived schedules can be compared safely.
+- Runtime should execute due schedules, not the UI.
+- Store execution state/logs to prevent duplicate runs.
+
+Schedule sources:
+- Manual schedule created from Scheduled Setup UI.
+- Working-hours-derived schedule, such as shift start and shift end.
+- Future imported schedule source, such as Frappe shift assignment or another business calendar.
+
+Schedule conflict rules:
+- Every schedule should belong to one `bot_id`.
+- Every schedule should have a stable `schedule_id`.
+- Every generated schedule should include `source_type`, `source_id`, and `source_event`.
+- Manual schedules should not overwrite working-hour-derived schedules unless the user explicitly links/replaces them.
+- Working-hour-derived schedules should update when the working-hour row changes.
+- Disabled generated schedules should stay disabled unless the user re-enables them or regenerates intentionally.
+- Runtime duplicate prevention should use an execution key such as `bot_id + schedule_id + target_id + due_at`.
+
+Working-hours consistency:
+- Working hours should define availability/shift windows.
+- Scheduled Setup should define what task runs at a time.
+- Loading from working hours should generate scheduled tasks such as:
+  - clock-in reminder at shift start.
+  - clock-out reminder at shift end.
+  - custom task before/after shift time.
+- User-specific working hours later should generate user-specific schedules while falling back to global working hours.
+
+Scheduled Setup UI:
+- Bot-scoped independent page/config area, not hidden inside Working Hours.
+- Similar interaction style to the main config builder.
+- Should support:
+  - bot id.
+  - schedule name.
+  - enabled/disabled status.
+  - source type: manual or generated.
+  - target users/groups.
+  - recurrence rule.
+  - timezone.
+  - task/process/module to run.
+  - preview next run times.
+  - execution history/log link.
+
+Recommended components:
+- `WorkingHoursStore`
+- `UserScheduleResolver`
+- `ScheduleStore`
+- `ScheduledTaskResolver`
+- `ScheduledTaskRunner`
+- `ScheduleExecutionLogStore`
+
+Standalone storage:
+- `data/working_hours_ui.json`
+- `data/schedules_ui.json`
+- `data/schedule_execution_log.json` or similar for testing.
+
+Frappe storage later:
+- Working Hours / Shift Assignment DocType.
+- Scheduled Task DocType.
+- Schedule Execution Log DocType with unique keys.
+
+## 2. Clock In / Clock Out Record Storage
+
+Concern / Problem:
+- Need to store clock-in and clock-out records.
+- Need to support many employees.
+- Need to support night shift.
+- Need good query speed.
+
+Solution:
+- Store clock-in and clock-out in the same append-only event store.
+- Use `event_type` to distinguish records:
+  - `clock_in`
+  - `clock_out`
+- Do not rely only on one mutable daily row as the source of truth.
+- Build daily summaries from raw events when needed.
+
+Recommended event fields:
+- `id`
+- `bot_id`
+- `employee_id`
+- `telegram_user_id`
+- `event_type`
+- `happened_at`
+- `timezone`
+- `work_date`
+- `shift_id`
+- `working_hour_id`
+- `location_id`
+- `latitude`
+- `longitude`
+- `selfie_file_id`
+- `source`
+- `idempotency_key`
+- `created_at`
+
+Night shift rule:
+- If `end_time` is earlier than `start_time`, the shift crosses midnight.
+- `work_date` should be the shift start date.
+- Example: 22:00 to 06:00 belongs to the date where 22:00 starts.
+
+Standalone storage:
+- JSON/JSONL is acceptable for personal build/test.
+- SQLite can be added later if standalone needs heavier testing.
+
+Frappe storage later:
+- Prefer a custom `Telegram Attendance Event` DocType first.
+- Optionally sync or derive ERPNext `Employee Checkin`.
+
+Indexes / unique keys for Frappe:
+- `employee_id`, `happened_at`
+- `employee_id`, `work_date`
+- `bot_id`, `telegram_user_id`
+- `work_date`, `event_type`
+- unique `idempotency_key`
+
+## 3. Many Employees Clocking In / Out At The Same Time
+
+Concern / Problem:
+- Many employees may clock in or out during the same minute.
+- Risks include duplicate taps, Telegram retries, many writes, and slow reports.
+
+Solution:
+- Make clock event writes quick and idempotent.
+- Avoid heavy reporting during the clock-in request.
+- Store the raw event first, then update summaries in the background.
+
+Recommended runtime behavior:
+- Receive Telegram update.
+- Validate user and action.
+- Create attendance event using an idempotency key.
+- Reply to user quickly.
+- Let reports/summaries run separately.
+
+Frappe production approach:
+- Use DocType tables with database indexes.
+- Use unique constraints where possible.
+- Use background jobs for summary/report updates.
+- Use short transactions.
+
+## 4. Runtime State Under Many Users
+
+Concern / Problem:
+- Runtime state includes:
+  - pending replies
+  - active command menus
+  - scheduled task state
+  - schedule execution logs
+- In production, many users may create/update this state at the same time.
+
+Solution:
+- Standalone can stay simple for personal testing.
+- Frappe implementation should use database-backed state, unique keys, indexes, and atomic updates.
+- Runtime state writes should be idempotent.
+
+Recommended state keys:
+- Pending reply:
+  - `bot_id + chat_id + user_id + request_type`
+- Active command menu:
+  - `bot_id + chat_id`
+- Scheduled task state:
+  - `bot_id + schedule_id + target_id + due_at`
+- Schedule execution log:
+  - `bot_id + schedule_id + target_id + due_at + execution_type`
+
+Scheduled task claiming pattern:
+- Find due scheduled tasks.
+- Mark as processing atomically.
+- Run the configured task/process/module.
+- Mark as completed or failed.
+
+Frappe production approach:
+- DocTypes / MariaDB for durable state.
+- Background jobs for scheduled task execution.
+- Optional Redis/cache only for short-lived locks or performance support.
+
+## 5. Configurable Storage Targets
+
+Concern / Problem:
+- Need to choose where commands, processes, modules, runtime state, and business data are stored.
+- Standalone may use JSON, but Frappe should use DocTypes/tables.
+
+Solution:
+- Add a storage routing layer.
+- Keep core workflow logic storage-agnostic.
+- Let adapters decide whether data goes to JSON, SQLite, or Frappe.
+
+Storage categories:
+- Builder config:
+  - commands
+  - workflow processes
+  - module definitions
+- Runtime state:
+  - pending replies
+  - active command menus
+  - scheduled task state
+  - schedule execution logs
+- Business data:
+  - working hours
+  - clock in/out records
+  - user/employee mapping
+  - locations
+
+Recommended interfaces:
+- `WorkflowConfigStore`
+- `RuntimeStateStore`
+- `WorkingHoursStore`
+- `AttendanceEventStore`
+- `ScheduleStore`
+- `UserProfileStore`
+
+Adapter plan:
+- Standalone adapter: JSON first.
+- Optional standalone serious mode: SQLite.
+- Frappe adapter: DocTypes / MariaDB tables.
+
+## 6. Dynamic Translation For Existing Modules
+
+Concern / Problem:
+- Many modules already exist.
+- Need translation support without rewriting every module manually.
+- English should remain the main setup language on the config page.
+- User wants a Translate button that opens another page, scans English text, and lets them add translations.
+
+Solution:
+- Add a central i18n / translation registry.
+- Keep English text in the normal module config.
+- Store translations separately.
+- Add a Translate page that scans configured modules for translatable fields.
+
+Translation workflow:
+1. User builds the bot in English on the normal config page.
+2. User clicks Translate.
+3. Translation page scans current module config.
+4. User adds/selects language.
+5. Page shows English source text fields.
+6. User enters translated text.
+7. Runtime resolves text by user/bot locale with English fallback.
+
+Example English module config:
+```json
+{
+  "module_id": "send_clock_in_prompt",
+  "type": "send_message",
+  "text": "Please clock in."
+}
+```
+
+Example translation store:
+```json
+{
+  "km": {
+    "module.send_clock_in_prompt.text": "..."
+  },
+  "th": {
+    "module.send_clock_in_prompt.text": "..."
+  }
+}
+```
+
+Stable translation key examples:
+- `module.{module_id}.text`
+- `module.{module_id}.caption`
+- `module.{module_id}.button_label`
+- `command.{command_name}.description`
+- `runtime.error.finish_current_command`
+
+Locale resolution order:
+1. User-selected language.
+2. Telegram `language_code`.
+3. Bot default language.
+4. English fallback.
+
+Frappe storage later:
+- Main module config DocType stores English.
+- Translation child table or Translation DocType stores translated values.
+
+## 7. Dynamic Module / Template / Process Builder Goal
+
+Concern / Problem:
+- The product goal is to make the bot builder dynamic.
+- Users should build small configurable modules, then group them into templates or full processes.
+- Users should not need to understand backend storage, Telegram routing, runtime state, Frappe tables, scheduled jobs, or translation keys.
+- Current and future modules should stay composable so the same module can be reused in different workflows.
+
+Solution:
+- Treat each workflow block as a configurable module with a clear schema.
+- Let the UI render module fields from the module definition.
+- Let templates group multiple modules into a reusable process.
+- Let runtime services handle backend details through interfaces.
+- Keep storage, Frappe integration, translation, scheduling, and state management behind adapters/services.
+
+Module design rule:
+- Each module should expose what the user can configure.
+- Each module should define what inputs it needs and what outputs/context values it creates.
+- Each module should delegate backend work to services instead of writing directly to JSON, SQLite, or Frappe.
+
+Example attendance template:
+- Send clock-in prompt.
+- Ask for location.
+- Ask for selfie.
+- Record clock-in event.
+- Send confirmation.
+
+User-facing config examples:
+- Message text.
+- Button labels.
+- Require location: yes/no.
+- Require selfie: yes/no.
+- Allowed working hours.
+- Success reply.
+- Error reply.
+
+Backend responsibilities hidden from the user:
+- Resolve Telegram user to employee.
+- Validate working hours and night shift rules.
+- Prevent duplicate clock-in/out.
+- Store attendance event.
+- Store pending replies and active menus.
+- Resolve translations.
+- Send Telegram messages.
+- Sync or map data to Frappe later.
+
+Recommended dynamic architecture:
+- `ModuleDefinition`
+- `ModuleConfigSchema`
+- `ProcessTemplate`
+- `WorkflowProcess`
+- `RuntimeExecutionContext`
+- `RuntimeServiceRegistry`
+- Storage/service interfaces for attendance, scheduling, translation, runtime state, profiles, and workflow config.
+
+Guiding product rule:
+- The builder should feel like assembling business behavior from blocks.
+- Backend complexity should be configured once by the system/adapters, not exposed to normal users building workflows.
+
+## 8. Exportable Server Runtime Bundle
+
+Concern / Problem:
+- User may want to export one deployable artifact after finishing setup and configuration.
+- The exported artifact should run on a server using the configured bot, workflows, modules, translations, scheduled tasks, and storage adapter settings.
+- Deployment users should not need to manually recreate the builder setup on the server.
+
+Solution:
+- Add an export/build step that packages the selected bot configuration and runtime metadata into a server runtime bundle.
+- Keep the builder UI separate from the exported runtime.
+- The exported runtime should load configuration from the bundle, resolve secrets from environment variables, and run without opening the config UI.
+
+Recommended export model:
+- Export a single bundle file for portability, not necessarily one huge Python source file.
+- Preferred format:
+  - `.zip` or `.etarx` bundle containing config JSON, templates, translations, and metadata.
+  - small runtime entrypoint loads the bundle.
+- Optional advanced format:
+  - one executable package later using PyInstaller or similar.
+
+Bundle contents:
+- bot/process configuration
+- selected workflow templates
+- module definitions used by the process
+- translation catalogs
+- working-hours defaults if needed
+- storage route settings
+- runtime version / schema version
+- required adapter list
+
+Do not export secrets directly:
+- Telegram bot token should be referenced by environment variable or server secret store.
+- Frappe credentials should be referenced by environment variable or Frappe site config.
+- Export should include secret names, not raw secret values, unless explicitly requested for local-only testing.
+
+Example server runtime command:
+```text
+etrax run-bundle exported_bot.etarx
+```
+
+Example environment:
+```text
+ETRAX_BOT_TOKEN=...
+ETRAX_STORAGE_BACKEND=frappe
+ETRAX_FRAPPE_SITE=...
+```
+
+Runtime behavior:
+- Load bundle.
+- Validate schema/runtime version.
+- Load required adapters.
+- Resolve secrets.
+- Start Telegram polling or webhook mode.
+- Run configured workflows.
+- Persist runtime/business data through configured storage interfaces.
+
+Frappe deployment later:
+- Bundle can map workflow config into Frappe DocTypes.
+- Server runtime can run as a Frappe app/background worker.
+- For Frappe production, prefer DocTypes and background jobs over local JSON state.
+
+Guiding export rule:
+- Export should package configuration and runtime instructions, while secrets and production storage remain server-managed.
+
+## Recommended Build Order
+
+1. Define core storage/service interfaces.
+2. Add attendance event model and standalone JSON event store.
+3. Add clock-in/clock-out event recording through workflow modules.
+4. Add general Scheduled Setup models, store, and UI.
+5. Add working-hours import/generation into Scheduled Setup.
+6. Add scheduled task runner with duplicate prevention.
+7. Add translation registry and scanner for existing module config.
+8. Add Translate page in standalone UI.
+9. Add bundle export/import schema for configured bots and workflow templates.
+10. Add server runtime command that can run an exported bundle.
+11. Add Frappe adapter DocType mapping for attendance events and runtime state.
+12. Add Frappe background jobs for scheduled task execution and attendance summaries.
+
+## Guiding Rule
+
+Keep standalone simple for building and testing, but do not let standalone JSON design leak into core business logic. Core modules should depend on interfaces so Frappe can replace storage and runtime behavior cleanly later.

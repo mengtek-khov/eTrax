@@ -7,6 +7,7 @@ from etrax.standalone.token_ui import (
     _build_callback_module_entry,
     _build_command_module_entry,
     _command_menu_uses_module_type,
+    _build_template_entry_from_pipeline_payload,
     _extract_location_coordinates,
     _extract_callback_module_form_values,
     _extract_callback_rows,
@@ -14,9 +15,17 @@ from etrax.standalone.token_ui import (
     _extract_command_module_form_values,
     _load_standalone_ui_entries,
     _load_profile_log_context_keys,
+    _build_schedule_entries_from_working_hours,
+    _merge_generated_schedule_entries,
+    _normalize_schedule_entries,
+    _normalize_template_entries,
     _normalize_working_hour_entries,
     _render_location_demo_page,
+    _render_scheduled_tasks_demo_page,
+    _render_template_config_page,
+    _render_template_list_page,
     _render_working_hours_demo_page,
+    _next_template_key,
     _available_working_day_options,
     _next_available_working_day,
     _parse_chain_steps,
@@ -537,6 +546,34 @@ def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
                 }
             ],
         },
+        template_entries=[
+            {
+                "id": "tpl-load-1",
+                "name": "Welcome Template",
+                "template_key": "welcome_template",
+                "category": "General",
+                "status": "active",
+                "process_pipeline": json.dumps(
+                    {
+                        "module_type": "send_message",
+                        "text_template": "Loaded from template",
+                    }
+                ),
+                "callback_modules": json.dumps(
+                    {
+                        "confirm_template": {
+                            "pipeline": [
+                                {
+                                    "module_type": "send_message",
+                                    "text_template": "Confirmed",
+                                }
+                            ],
+                            "temporary_commands": [],
+                        }
+                    }
+                ),
+            }
+        ],
         message="",
         level="info",
     )
@@ -558,6 +595,11 @@ def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
     assert "Point #2" in html
     assert "Newest" in html
     assert "/runtime-status?bot_id=support-bot" in html
+    assert '"templates": [' in html
+    assert "Welcome Template" in html
+    assert "confirm_template" in html
+    assert ".pipeline-title-row" in html
+    assert ".collapse-toggle" in html
 
 
 def test_render_config_page_includes_share_location_mode_cards() -> None:
@@ -646,6 +688,57 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
         message="Saved",
         level="success",
     )
+    schedules_html = _render_scheduled_tasks_demo_page(
+        bot_id="attendance-bot",
+        entries=[
+            {
+                "id": "sch-1",
+                "bot_id": "attendance-bot",
+                "name": "Morning reminder",
+                "enabled": True,
+                "source_type": "manual",
+                "source_id": "",
+                "source_event": "custom",
+                "recurrence": "weekly",
+                "weekday": "Thursday",
+                "run_date": "",
+                "run_time": "08:00 AM",
+                "timezone": "Asia/Bangkok",
+                "target_scope": "all_users",
+                "target_id": "",
+                "task_type": "command",
+                "task_key": "clock_in",
+                "offset_minutes": "0",
+                "notes": "manual test",
+            }
+        ],
+        working_hour_entries=[
+            {
+                "id": "wh-1",
+                "working_day": "Thursday",
+                "start_time": "08:00 AM",
+                "end_time": "05:30 PM",
+            }
+        ],
+        message="Saved",
+        level="success",
+    )
+    templates_html = _render_template_list_page(
+        entries=[
+            {
+                "id": "tpl-1",
+                "name": "Attendance Clock In",
+                "template_key": "attendance_clock_in",
+                "category": "Attendance",
+                "status": "active",
+                "description": "Collect location and selfie before recording attendance.",
+                "module_count": "5",
+                "updated_at": "2026-05-25T08:00:00+00:00",
+            }
+        ],
+        message="Saved",
+        level="success",
+    )
 
     assert "Thursday" in working_hours_html
     assert "08:00 AM" in working_hours_html
@@ -653,6 +746,22 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
     assert "1 / 7 Rows" in working_hours_html
     assert 'action="/ui/working-hours/save"' in working_hours_html
     assert "/ui/working-hours/delete" in working_hours_html
+    assert "Scheduled Setup" in schedules_html
+    assert "Morning reminder" in schedules_html
+    assert "command: clock_in" in schedules_html.lower()
+    assert 'action="/ui/schedules/save"' in schedules_html
+    assert "/ui/schedules/delete" in schedules_html
+    assert "/ui/schedules/import-working-hours" in schedules_html
+    assert "1 working-hour rows ready to load." in schedules_html
+    assert "Template List" in templates_html
+    assert "Configured Templates" in templates_html
+    assert '<div class="tabs">' not in templates_html
+    assert "Attendance Clock In" in templates_html
+    assert "attendance_clock_in" in templates_html
+    assert "/ui/templates/config" in templates_html
+    assert 'action="/ui/templates/save"' in templates_html
+    assert "/ui/templates/duplicate" in templates_html
+    assert "/ui/templates/delete" in templates_html
     assert "Main Office" in locations_html
     assert "loc-0490" in locations_html
     assert "Use My Location" in locations_html
@@ -675,6 +784,213 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
     assert "â€¢" not in locations_html
 
 
+def test_template_entries_normalize_sort_and_generate_next_key() -> None:
+    entries = _normalize_template_entries(
+        [
+            {
+                "id": "tpl-2",
+                "name": "Welcome Flow",
+                "template_key": "",
+                "category": "General",
+                "status": "active",
+                "module_count": "2",
+            },
+            {
+                "id": "tpl-1",
+                "name": "Attendance Clock In",
+                "template_key": "attendance_clock_in",
+                "category": "Attendance",
+                "status": "unknown",
+                "module_count": "-4",
+            },
+        ]
+    )
+
+    assert [item["name"] for item in entries] == ["Attendance Clock In", "Welcome Flow"]
+    assert entries[0]["status"] == "draft"
+    assert entries[0]["module_count"] == "0"
+    assert entries[1]["template_key"] == "welcome_flow"
+    assert _next_template_key(entries, "Attendance Clock In") == "attendance_clock_in_2"
+
+
+def test_render_template_config_page_has_single_pipeline_and_template_actions() -> None:
+    html = _render_template_config_page(
+        template={
+            "id": "tpl-1",
+            "name": "Attendance Clock In",
+            "template_key": "attendance_clock_in",
+            "status": "active",
+            "process_pipeline": '{"module_type":"send_message","text_template":"Clock in"}',
+            "callback_modules": '{"confirm":[]}',
+            "temporary_commands": '[{"command":"approve","description":"Approve"}]',
+            "load_bot_id": "attendance-bot",
+            "load_command": "clock_in",
+        },
+        message="Saved",
+        level="success",
+    )
+
+    assert "Template Config: Attendance Clock In" in html
+    assert 'action="/ui/templates/config/save"' in html
+    assert 'class="template-config-page"' in html
+    assert "template-editor-panel" in html
+    assert ".template-config-page .module-list-tools select" in html
+    assert ".template-config-page .template-toolbar" in html
+    assert 'class="back" href="/ui/templates"' in html
+    assert 'class="actions"' in html
+    assert 'id="command-config-app"' in html
+    assert 'id="command-config-state"' in html
+    assert 'id="template-module-fallback"' in html
+    assert '"mode": "template"' in html
+    assert '"editor_steps": [' in html
+    assert "template-fallback" in html
+    assert "#1 send_message - Clock in" in html
+    assert "/config-vue.js" in html
+    assert "Clock in" in html
+    assert "confirm" in html
+    assert "approve" in html
+    assert "Load Pipeline To Command" in html
+    assert "Save Pipeline To Template" in html
+    assert "attendance-bot" in html
+    assert "clock_in" in html
+
+
+def test_config_vue_keeps_template_pipeline_editor_visible() -> None:
+    script = Path("src/etrax/standalone/config_vue.js").read_text(encoding="utf-8")
+
+    assert '<div class="module-block" id="start-module-setup">' in script
+    assert '<div v-if="!isTemplateMode">' in script
+    assert '@click="addModule(entry.editor)"' in script
+    assert '@click="editModule(entry.editor, moduleIndex)"' in script
+    assert '@click="removeModule(entry.editor, moduleIndex)"' in script
+    assert "collectRelatedTemplateParts" in script
+    assert "collectCallbackKeysFromSteps" in script
+    assert "loadTemplateIntoEditor" in script
+    assert "Load Template" in script
+    assert "templateOptions" in script
+    assert "toggleEditorCollapsed" in script
+    assert "Collapse" in script
+    assert "Expand" in script
+    assert "callback_modules: relatedParts.callback_modules" in script
+    assert "temporary_commands: relatedParts.temporary_commands" in script
+
+
+def test_build_template_entry_from_pipeline_payload_uses_bot_config_source() -> None:
+    pipeline = "\n".join(
+        [
+            json.dumps({"module_type": "send_message", "text_template": "Register"}),
+            json.dumps({"module_type": "wait_keyboard_reply", "text_template": "Name?"}),
+        ]
+    )
+
+    entry = _build_template_entry_from_pipeline_payload(
+        {
+            "name": "/register Pipeline",
+            "bot_id": "register-demo",
+            "source_type": "command",
+            "source_key": "/register",
+            "process_pipeline": pipeline,
+            "callback_modules": json.dumps(
+                {
+                    "confirm_register": {
+                        "pipeline": [
+                            {
+                                "module_type": "send_message",
+                                "text_template": "Confirmed",
+                            }
+                        ],
+                        "temporary_commands": [
+                            {
+                                "command": "next",
+                                "description": "Next",
+                                "module_type": "send_message",
+                                "text_template": "Next step",
+                            }
+                        ],
+                    }
+                }
+            ),
+            "temporary_commands": json.dumps(
+                [
+                    {
+                        "parent_callback_key": "confirm_register",
+                        "command": "next",
+                    }
+                ]
+            ),
+        },
+        entries=[{"id": "tpl-1", "template_key": "register_pipeline"}],
+    )
+
+    assert entry["name"] == "/register Pipeline"
+    assert entry["template_key"] == "register_pipeline_2"
+    assert entry["category"] == "Bot Config"
+    assert entry["status"] == "draft"
+    assert entry["module_count"] == "2"
+    assert entry["process_pipeline"] == pipeline
+    assert "confirm_register" in str(entry["callback_modules"])
+    assert "temporary_commands" in str(entry["callback_modules"])
+    assert "parent_callback_key" in str(entry["temporary_commands"])
+    assert entry["load_bot_id"] == "register-demo"
+    assert entry["load_command"] == "register"
+
+
+def test_template_config_attaches_parented_temporary_commands_to_matching_callback_once() -> None:
+    callback_modules = json.dumps(
+        {
+            "confirm_register": {
+                "pipeline": [
+                    {
+                        "module_type": "send_message",
+                        "text_template": "Confirmed",
+                    }
+                ],
+                "temporary_commands": [
+                    {
+                        "command": "next",
+                        "description": "Next",
+                        "module_type": "send_message",
+                        "text_template": "Next step",
+                    }
+                ],
+            }
+        }
+    )
+    temporary_commands = json.dumps(
+        [
+            {
+                "parent_callback_key": "confirm_register",
+                "command": "next",
+                "description": "Next",
+                "module_type": "send_message",
+                "text_template": "Next step",
+            }
+        ]
+    )
+
+    html = _render_template_config_page(
+        template={
+            "id": "tpl-2",
+            "name": "Register With Callback",
+            "template_key": "register_with_callback",
+            "status": "active",
+            "process_pipeline": json.dumps(
+                {
+                    "module_type": "callback_module",
+                    "target_callback_key": "confirm_register",
+                }
+            ),
+            "callback_modules": callback_modules,
+            "temporary_commands": temporary_commands,
+        }
+    )
+
+    assert "confirm_register" in html
+    assert "Next step" in html
+    assert html.count("&quot;command&quot;: &quot;next&quot;") == 0
+    assert html.count('"command": "next"') == 1
+
+
 def test_render_working_hours_page_hides_add_form_at_seven_rows() -> None:
     html = _render_working_hours_demo_page(
         entries=[
@@ -695,6 +1011,85 @@ def test_render_working_hours_page_hides_add_form_at_seven_rows() -> None:
     assert "Working Hours is limited to 7 rows." in html
     assert "+ Add New" not in html
     assert "7 / 7 Rows" in html
+
+
+def test_schedule_entries_from_working_hours_are_deterministic_and_preserve_disabled_state() -> None:
+    working_entries = _normalize_working_hour_entries(
+        [
+            {
+                "id": "wh-1",
+                "working_day": "Monday",
+                "start_time": "08:00 AM",
+                "end_time": "05:00 PM",
+            }
+        ]
+    )
+    existing = _normalize_schedule_entries(
+        [
+            {
+                "id": "sch-wh-1-shift_start",
+                "bot_id": "attendance-bot",
+                "name": "Old name",
+                "enabled": False,
+                "source_type": "working_hours",
+                "source_id": "wh-1",
+                "source_event": "shift_start",
+                "recurrence": "weekly",
+                "weekday": "Monday",
+                "run_date": "",
+                "run_time": "07:00 AM",
+                "timezone": "Asia/Bangkok",
+                "target_scope": "all_users",
+                "target_id": "",
+                "task_type": "command",
+                "task_key": "clock_in",
+                "offset_minutes": "0",
+                "notes": "",
+            },
+            {
+                "id": "sch-manual",
+                "bot_id": "attendance-bot",
+                "name": "Manual schedule",
+                "enabled": True,
+                "source_type": "manual",
+                "source_id": "",
+                "source_event": "custom",
+                "recurrence": "daily",
+                "weekday": "Monday",
+                "run_date": "",
+                "run_time": "12:00 PM",
+                "timezone": "Asia/Bangkok",
+                "target_scope": "all_users",
+                "target_id": "",
+                "task_type": "command",
+                "task_key": "lunch_ping",
+                "offset_minutes": "0",
+                "notes": "",
+            },
+        ]
+    )
+
+    generated = _build_schedule_entries_from_working_hours(
+        working_entries,
+        bot_id="attendance-bot",
+        existing_entries=existing,
+        task_type="command",
+        clock_in_task_key="clock_in",
+        clock_out_task_key="clock_out",
+        timezone_name="Asia/Bangkok",
+        target_scope="all_users",
+    )
+    merged = _normalize_schedule_entries(_merge_generated_schedule_entries(existing, generated))
+
+    generated_by_id = {str(item["id"]): item for item in generated}
+    merged_by_id = {str(item["id"]): item for item in merged}
+
+    assert set(generated_by_id) == {"sch-wh-1-shift_start", "sch-wh-1-shift_end"}
+    assert generated_by_id["sch-wh-1-shift_start"]["run_time"] == "08:00 AM"
+    assert generated_by_id["sch-wh-1-shift_start"]["enabled"] is False
+    assert generated_by_id["sch-wh-1-shift_end"]["task_key"] == "clock_out"
+    assert "sch-manual" in merged_by_id
+    assert merged_by_id["sch-manual"]["task_key"] == "lunch_ping"
 
 
 def test_normalize_working_hour_entries_sorts_by_weekday() -> None:
