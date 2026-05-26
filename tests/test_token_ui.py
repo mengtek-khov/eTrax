@@ -7,6 +7,7 @@ from etrax.standalone.token_ui import (
     _build_callback_module_entry,
     _build_command_module_entry,
     _command_menu_uses_module_type,
+    _build_schedule_task_key_options,
     _build_template_entry_from_pipeline_payload,
     _extract_location_coordinates,
     _extract_callback_module_form_values,
@@ -579,6 +580,12 @@ def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
     )
 
     assert '<button class="toggle-stop" type="submit">Stop Runtime</button>' in html
+    assert '<a class="button secondary" href="/ui/schedules?bot_id=support-bot">Scheduled Setup</a>' in html
+    assert '<a class="button secondary" href="/ui/working-hours">Working Hours</a>' in html
+    assert '<a class="button secondary" href="/ui/locations">Locations</a>' in html
+    assert '<a class="button back" href="/">Back to Home</a>' in html
+    assert '<a class="back" href="/ui/working-hours">' not in html
+    assert "Back to Bot List" not in html
     assert 'class="runtime-error-toggle"' in html
     assert 'id="config-layout" class="config-layout runtime-error-hidden"' in html
     assert "data-runtime-error-toggle" in html
@@ -710,6 +717,9 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
                 "task_key": "clock_in",
                 "offset_minutes": "0",
                 "notes": "manual test",
+                "process_pipeline": json.dumps(
+                    {"module_type": "send_message", "text_template": "Clock in reminder"}
+                ),
             }
         ],
         working_hour_entries=[
@@ -720,6 +730,27 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
                 "end_time": "05:30 PM",
             }
         ],
+        template_entries=[
+            {
+                "id": "tpl-1",
+                "name": "Attendance Clock In",
+                "template_key": "attendance_clock_in",
+                "category": "Attendance",
+                "status": "active",
+                "description": "Collect location and selfie before recording attendance.",
+                "module_count": "1",
+                "updated_at": "2026-05-25T08:00:00+00:00",
+                "process_pipeline": json.dumps(
+                    {"module_type": "send_message", "text_template": "Template reminder"}
+                ),
+            }
+        ],
+        task_key_options=[
+            {"value": "clock_in", "label": "Command: clock_in - Clock In"},
+            {"value": "clock_out", "label": "Command: clock_out - Clock Out"},
+            {"value": "confirm_absent", "label": "Callback: confirm_absent"},
+        ],
+        selected_schedule_id="sch-1",
         message="Saved",
         level="success",
     )
@@ -744,15 +775,46 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
     assert "08:00 AM" in working_hours_html
     assert "Saved" in working_hours_html
     assert "1 / 7 Rows" in working_hours_html
+    assert '<a class="button back" href="/">Back to Home</a>' in working_hours_html
+    assert '<a class="button secondary" href="/ui/locations">Locations</a>' in working_hours_html
     assert 'action="/ui/working-hours/save"' in working_hours_html
     assert "/ui/working-hours/delete" in working_hours_html
     assert "Scheduled Setup" in schedules_html
+    assert '<a class="button back" href="/">Back to Home</a>' in schedules_html
+    assert '<a class="button secondary" href="/config?bot_id=attendance-bot">Bot Config</a>' in schedules_html
     assert "Morning reminder" in schedules_html
     assert "command: clock_in" in schedules_html.lower()
     assert 'action="/ui/schedules/save"' in schedules_html
     assert "/ui/schedules/delete" in schedules_html
-    assert "/ui/schedules/import-working-hours" in schedules_html
-    assert "1 working-hour rows ready to load." in schedules_html
+    assert "/ui/schedules/import-working-hours" not in schedules_html
+    assert "1 Working Hours rows available." in schedules_html
+    assert "Run When" in schedules_html
+    assert '<select name="task_key" required>' in schedules_html
+    assert "Command: clock_in - Clock In" in schedules_html
+    assert "Command: clock_out - Clock Out" in schedules_html
+    assert "Callback: confirm_absent" in schedules_html
+    assert "value='clock_in' selected" in schedules_html
+    assert "Source Type" not in schedules_html
+    assert "Source ID" not in schedules_html
+    assert "Recurrence" not in schedules_html
+    assert "Weekday" not in schedules_html
+    assert "Run Date" not in schedules_html
+    assert "Run Time" not in schedules_html
+    assert "Task Type" not in schedules_html
+    assert "Target ID" not in schedules_html
+    assert "Configured Schedules" in schedules_html
+    assert "Edit Schedule Config" in schedules_html
+    assert 'id="command-config-app"' in schedules_html
+    assert 'id="command-config-state"' in schedules_html
+    assert 'id="scheduled-pipeline-section" class="scheduled-pipeline-section" hidden' in schedules_html
+    assert "syncPipelineVisibility" in schedules_html
+    assert 'taskSelect.value !== manualTaskKey' in schedules_html
+    assert '"mode": "scheduled"' in schedules_html
+    assert "Clock in reminder" in schedules_html
+    assert "Attendance Clock In" in schedules_html
+    assert "/config-vue.js" in schedules_html
+    assert "Manual: Process Pipeline on this page" in schedules_html
+    assert '<div class="tabs">' not in schedules_html
     assert "Template List" in templates_html
     assert "Configured Templates" in templates_html
     assert '<div class="tabs">' not in templates_html
@@ -765,6 +827,10 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
     assert "Main Office" in locations_html
     assert "loc-0490" in locations_html
     assert "Use My Location" in locations_html
+    assert '<a class="button back" href="/">Back to Home</a>' in locations_html
+    assert '<a class="button secondary" href="/ui/working-hours">Working Hours</a>' in locations_html
+    assert '<a class="button cancel" href="/ui/locations">Cancel</a>' not in locations_html
+    assert '<button class="button save" type="submit">Save Location</button>' in locations_html
     assert "Load All To Map" in locations_html
     assert "Generate Test Under 30 km" in locations_html
     assert "data-location-search-button" in locations_html
@@ -859,7 +925,8 @@ def test_config_vue_keeps_template_pipeline_editor_visible() -> None:
     script = Path("src/etrax/standalone/config_vue.js").read_text(encoding="utf-8")
 
     assert '<div class="module-block" id="start-module-setup">' in script
-    assert '<div v-if="!isTemplateMode">' in script
+    assert '<div v-if="!isSinglePipelineMode">' in script
+    assert 'this.editorMode === "scheduled"' in script
     assert '@click="addModule(entry.editor)"' in script
     assert '@click="editModule(entry.editor, moduleIndex)"' in script
     assert '@click="removeModule(entry.editor, moduleIndex)"' in script
@@ -1013,7 +1080,7 @@ def test_render_working_hours_page_hides_add_form_at_seven_rows() -> None:
     assert "7 / 7 Rows" in html
 
 
-def test_schedule_entries_from_working_hours_are_deterministic_and_preserve_disabled_state() -> None:
+def test_schedule_entries_from_working_hours_create_dynamic_workday_rule() -> None:
     working_entries = _normalize_working_hour_entries(
         [
             {
@@ -1027,22 +1094,42 @@ def test_schedule_entries_from_working_hours_are_deterministic_and_preserve_disa
     existing = _normalize_schedule_entries(
         [
             {
-                "id": "sch-wh-1-shift_start",
+                "id": "sch-working-hours-work_start",
                 "bot_id": "attendance-bot",
                 "name": "Old name",
                 "enabled": False,
                 "source_type": "working_hours",
-                "source_id": "wh-1",
-                "source_event": "shift_start",
-                "recurrence": "weekly",
-                "weekday": "Monday",
+                "source_id": "working_hours",
+                "source_event": "work_start",
+                "recurrence": "working_day",
+                "weekday": "",
                 "run_date": "",
-                "run_time": "07:00 AM",
+                "run_time": "",
                 "timezone": "Asia/Bangkok",
                 "target_scope": "all_users",
                 "target_id": "",
                 "task_type": "command",
                 "task_key": "clock_in",
+                "offset_minutes": "5",
+                "notes": "",
+            },
+            {
+                "id": "sch-wh-1-shift_end",
+                "bot_id": "attendance-bot",
+                "name": "Legacy per-day schedule",
+                "enabled": True,
+                "source_type": "working_hours",
+                "source_id": "wh-1",
+                "source_event": "shift_end",
+                "recurrence": "weekly",
+                "weekday": "Monday",
+                "run_date": "",
+                "run_time": "05:00 PM",
+                "timezone": "Asia/Bangkok",
+                "target_scope": "all_users",
+                "target_id": "",
+                "task_type": "command",
+                "task_key": "clock_out",
                 "offset_minutes": "0",
                 "notes": "",
             },
@@ -1074,8 +1161,9 @@ def test_schedule_entries_from_working_hours_are_deterministic_and_preserve_disa
         bot_id="attendance-bot",
         existing_entries=existing,
         task_type="command",
-        clock_in_task_key="clock_in",
-        clock_out_task_key="clock_out",
+        source_event="missed_clock_in",
+        task_key="absent",
+        offset_minutes="15",
         timezone_name="Asia/Bangkok",
         target_scope="all_users",
     )
@@ -1084,12 +1172,63 @@ def test_schedule_entries_from_working_hours_are_deterministic_and_preserve_disa
     generated_by_id = {str(item["id"]): item for item in generated}
     merged_by_id = {str(item["id"]): item for item in merged}
 
-    assert set(generated_by_id) == {"sch-wh-1-shift_start", "sch-wh-1-shift_end"}
-    assert generated_by_id["sch-wh-1-shift_start"]["run_time"] == "08:00 AM"
-    assert generated_by_id["sch-wh-1-shift_start"]["enabled"] is False
-    assert generated_by_id["sch-wh-1-shift_end"]["task_key"] == "clock_out"
+    assert set(generated_by_id) == {"sch-working-hours-missed_clock_in"}
+    assert generated_by_id["sch-working-hours-missed_clock_in"]["run_time"] == ""
+    assert generated_by_id["sch-working-hours-missed_clock_in"]["recurrence"] == "working_day"
+    assert generated_by_id["sch-working-hours-missed_clock_in"]["weekday"] == ""
+    assert generated_by_id["sch-working-hours-missed_clock_in"]["task_key"] == "absent"
+    assert generated_by_id["sch-working-hours-missed_clock_in"]["offset_minutes"] == "15"
+    assert "sch-wh-1-shift_end" not in merged_by_id
     assert "sch-manual" in merged_by_id
     assert merged_by_id["sch-manual"]["task_key"] == "lunch_ping"
+
+
+def test_build_schedule_task_key_options_scans_current_bot_commands_and_callbacks() -> None:
+    options = _build_schedule_task_key_options(
+        {
+            "command_menu": {
+                "include_start": True,
+                "start_description": "Start bot",
+                "commands": [
+                    {"command": "/clock_in", "description": "Clock In"},
+                    {"command": "clock_out", "description": "Clock Out"},
+                ],
+                "command_modules": {
+                    "absent": [{"module_type": "send_message", "text_template": "Absent"}],
+                },
+                "callback_modules": {
+                    "confirm_absent": [{"module_type": "send_message", "text_template": "Confirm"}],
+                },
+            }
+        }
+    )
+
+    assert options == [
+        {"value": "start", "label": "Command: start - Start bot"},
+        {"value": "clock_in", "label": "Command: clock_in - Clock In"},
+        {"value": "clock_out", "label": "Command: clock_out - Clock Out"},
+        {"value": "absent", "label": "Command: absent"},
+        {"value": "confirm_absent", "label": "Callback: confirm_absent"},
+    ]
+
+
+def test_scheduled_setup_defaults_to_manual_process_pipeline_task() -> None:
+    html = _render_scheduled_tasks_demo_page(
+        bot_id="attendance-bot",
+        entries=[],
+        working_hour_entries=[
+            {
+                "id": "wh-1",
+                "working_day": "Monday",
+                "start_time": "08:00 AM",
+                "end_time": "05:00 PM",
+            }
+        ],
+    )
+
+    assert "Manual: Process Pipeline on this page" in html
+    assert "value='manual_process_pipeline' selected" in html
+    assert 'id="scheduled-pipeline-section" class="scheduled-pipeline-section">' in html
 
 
 def test_normalize_working_hour_entries_sorts_by_weekday() -> None:

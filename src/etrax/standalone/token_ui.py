@@ -222,12 +222,21 @@ def _build_handler(
                     bot_id=bot_id,
                 )
                 working_entries = _load_standalone_ui_entries(working_hours_file)
+                template_entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                task_key_options: list[dict[str, str]] = []
+                try:
+                    _config_path, bot_payload = _load_bot_config(scaffold_store, bot_config_dir, bot_id)
+                    task_key_options = _build_schedule_task_key_options(bot_payload)
+                except (ValueError, RuntimeError):
+                    task_key_options = []
                 self._send_html(
                     HTTPStatus.OK,
                     _render_scheduled_tasks_demo_page(
                         bot_id=bot_id,
                         entries=schedules,
                         working_hour_entries=working_entries,
+                        template_entries=template_entries,
+                        task_key_options=task_key_options,
                         selected_schedule_id=schedule_id,
                         message=message,
                         level=level,
@@ -739,6 +748,9 @@ def _build_handler(
                         "task_key": form.get("task_key", [""])[0],
                         "offset_minutes": form.get("offset_minutes", [""])[0],
                         "notes": form.get("notes", [""])[0],
+                        "process_pipeline": form.get("process_pipeline", [""])[0],
+                        "callback_modules": form.get("callback_modules", [""])[0],
+                        "temporary_commands": form.get("temporary_commands", [""])[0],
                     }
                 )
                 if normalized_entry is None:
@@ -794,11 +806,12 @@ def _build_handler(
                 self._redirect(_with_message(path, "error", str(exc)))
 
         def _handle_schedules_import_working_hours(self, form: dict[str, list[str]]) -> None:
-            """Generate scheduled task rows from the current working-hours list."""
+            """Generate one dynamic scheduled task rule from Working Hours."""
             bot_id = form.get("bot_id", [""])[0].strip()
             task_type = form.get("task_type", ["command"])[0].strip() or "command"
-            clock_in_task_key = form.get("clock_in_task_key", ["clock_in"])[0].strip() or "clock_in"
-            clock_out_task_key = form.get("clock_out_task_key", ["clock_out"])[0].strip() or "clock_out"
+            source_event = form.get("source_event", ["work_start"])[0].strip() or "work_start"
+            task_key = form.get("task_key", [""])[0].strip()
+            offset_minutes = form.get("offset_minutes", ["0"])[0].strip() or "0"
             timezone_name = form.get("timezone", ["Asia/Bangkok"])[0].strip() or "Asia/Bangkok"
             target_scope = form.get("target_scope", ["all_users"])[0].strip() or "all_users"
             try:
@@ -814,8 +827,9 @@ def _build_handler(
                     bot_id=bot_id,
                     existing_entries=existing,
                     task_type=task_type,
-                    clock_in_task_key=clock_in_task_key,
-                    clock_out_task_key=clock_out_task_key,
+                    source_event=source_event,
+                    task_key=task_key,
+                    offset_minutes=offset_minutes,
                     timezone_name=timezone_name,
                     target_scope=target_scope,
                 )
@@ -827,7 +841,7 @@ def _build_handler(
                     _with_message(
                         f"/ui/schedules?bot_id={quote_plus(bot_id)}",
                         "success",
-                        f"Imported {len(generated)} schedules from working hours",
+                        f"Imported {len(generated)} dynamic Working Hours schedule",
                     )
                 )
             except ValueError as exc:
@@ -1661,7 +1675,7 @@ def _render_page(
                 "</form>"
                 "<form method='get' action='/ui/schedules'>"
                 f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
-                "<button class='secondary' type='submit'>Schedule</button>"
+                "<button class='secondary' type='submit'>Scheduled Setup</button>"
                 "</form>"
                 "<form method='post' action='/revoke'>"
                 f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
@@ -1685,6 +1699,15 @@ def _render_page(
     rows = "".join(row_items)
     if not rows:
         rows = "<tr><td colspan='4' class='empty'>No bot token configured yet.</td></tr>"
+    first_bot_id = str(records[0]["bot_id"]) if records else ""
+    scheduled_setup_quick_html = ""
+    if first_bot_id:
+        scheduled_setup_quick_html = (
+            '<form method="get" action="/ui/schedules">'
+            f'<input type="hidden" name="bot_id" value="{html.escape(first_bot_id)}">'
+            '<button class="secondary" type="submit">Scheduled Setup</button>'
+            '</form>'
+        )
 
     status_html = ""
     if message:
@@ -1868,13 +1891,14 @@ def _render_page(
     <div class="panel">
       <h1>Telegram Bot Token Config</h1>
       <p>Standalone configuration UI. Tokens are encrypted before saving to local storage.</p>
-      <div class="action-row" style="margin-top: 14px;">
+	      <div class="action-row" style="margin-top: 14px;">
 	        <form method="get" action="/ui/working-hours">
 	          <button class="secondary" type="submit">Working Hours</button>
 	        </form>
 	        <form method="get" action="/ui/templates">
 	          <button class="secondary" type="submit">Templates</button>
 	        </form>
+	        {scheduled_setup_quick_html}
 	        <form method="get" action="/ui/locations">
 	          <button class="secondary" type="submit">Locations</button>
 	        </form>
@@ -1908,16 +1932,17 @@ def _render_page(
     <div class="panel">
       <h1>UI Prototype Routes</h1>
 	      <p>Standalone route samples for setup screens used by the workflow builder.</p>
-	      <div class="action-row" style="margin-top: 14px;">
-	        <form method="get" action="/ui/working-hours">
-	          <button class="secondary" type="submit">Working Hours Demo</button>
-	        </form>
-	        <form method="get" action="/ui/templates">
-	          <button class="secondary" type="submit">Template List</button>
-	        </form>
-	        <form method="get" action="/ui/locations">
-	          <button class="secondary" type="submit">Location Demo</button>
-	        </form>
+		      <div class="action-row" style="margin-top: 14px;">
+		        <form method="get" action="/ui/working-hours">
+		          <button class="secondary" type="submit">Working Hours Demo</button>
+		        </form>
+		        <form method="get" action="/ui/templates">
+		          <button class="secondary" type="submit">Template List</button>
+		        </form>
+		        {scheduled_setup_quick_html}
+		        <form method="get" action="/ui/locations">
+		          <button class="secondary" type="submit">Location Demo</button>
+		        </form>
       </div>
     </div>
   </div>
@@ -2544,7 +2569,7 @@ def _render_working_hours_demo_page(
       {add_row_html}
     """
     toolbar_html = (
-        '<a class="button back" href="/">Back To Home</a>'
+        '<a class="button back" href="/">Back to Home</a>'
         '<a class="button secondary" href="/ui/locations">Locations</a>'
     )
     return _render_demo_page_shell(
@@ -2791,7 +2816,7 @@ def _render_template_list_page(
       <p>Reusable workflow/process templates. Templates are separate from bot runtime configuration.</p>
       <div class="meta">{len(template_entries)} template records</div>
       <div class="action-row" style="margin-top: 14px;">
-        <a class="button back" href="/">Back To Home</a>
+        <a class="button back" href="/">Back to Home</a>
         <a class="button secondary" href="/ui/working-hours">Working Hours</a>
         <a class="button secondary" href="/ui/locations">Locations</a>
       </div>
@@ -3280,7 +3305,7 @@ def _render_template_config_page(
 		      <p>Configure one reusable process pipeline. This template is not attached to a command until it is loaded into a bot command.</p>
 		      <div class="meta">Template key: {html.escape(template_key)}</div>
 		      <div class="actions">
-		        <a class="back" href="/ui/templates">Back To Templates</a>
+		        <a class="button back" href="/ui/templates">Back to Templates</a>
 		      </div>
 	    </div>
 	    {status_html}
@@ -3350,11 +3375,13 @@ def _render_scheduled_tasks_demo_page(
     bot_id: str,
     entries: list[dict[str, object]] | None = None,
     working_hour_entries: list[dict[str, object]] | None = None,
+    template_entries: list[dict[str, object]] | None = None,
+    task_key_options: list[dict[str, str]] | None = None,
     selected_schedule_id: str = "",
     message: str = "",
     level: str = "info",
 ) -> str:
-    """Render the standalone Scheduled Setup page with local JSON persistence."""
+    """Render the standalone Scheduled Setup page in the same style as Template setup."""
     normalized_bot_id = str(bot_id or "").strip()
     schedule_entries = _filter_schedule_entries_for_bot(
         _normalize_schedule_entries(entries or []),
@@ -3364,180 +3391,529 @@ def _render_scheduled_tasks_demo_page(
     selected_entry = _find_standalone_ui_entry(schedule_entries, selected_schedule_id)
     current_entry = _normalize_schedule_form_entry(selected_entry or {}) or _default_schedule_form_entry()
     current_entry["bot_id"] = normalized_bot_id
-    schedule_cards_html = "".join(_render_schedule_card(item) for item in schedule_entries)
-    if not schedule_cards_html:
-        schedule_cards_html = "<div class='empty-note'>No scheduled tasks yet. Create one manually or load from Working Hours.</div>"
+    rows_html = "".join(_render_schedule_table_row(item) for item in schedule_entries)
+    if not rows_html:
+        rows_html = "<tr><td colspan='7' class='empty'>No schedules configured yet.</td></tr>"
 
-    enabled_checked = " checked" if bool(current_entry.get("enabled", True)) else ""
-    source_type = str(current_entry.get("source_type", "manual"))
-    recurrence = str(current_entry.get("recurrence", "weekly"))
-    weekday = str(current_entry.get("weekday", "Monday"))
+    enabled_value = "1" if bool(current_entry.get("enabled", True)) else "0"
+    enabled_options = (
+        f"<option value='1'{' selected' if enabled_value == '1' else ''}>Enabled</option>"
+        f"<option value='0'{' selected' if enabled_value == '0' else ''}>Disabled</option>"
+    )
     target_scope = str(current_entry.get("target_scope", "all_users"))
-    task_type = str(current_entry.get("task_type", "command"))
-    import_disabled = " disabled" if not working_entries else ""
-    import_note = (
-        f"{len(working_entries)} working-hour rows ready to load."
+    pipeline_text = str(current_entry.get("process_pipeline", "")).strip()
+    if not pipeline_text:
+        pipeline_text = _default_template_pipeline_text()
+    command_row = _template_pipeline_text_to_command_row(
+        raw=pipeline_text,
+        template_name=str(current_entry.get("name", "")).strip() or "Scheduled Pipeline",
+        load_command=str(current_entry.get("task_key", "")).strip() or "scheduled_pipeline",
+    )
+    callback_rows = _template_callback_rows_with_temporary_commands(
+        callback_text=str(current_entry.get("callback_modules", "")).strip(),
+        temporary_command_text=str(current_entry.get("temporary_commands", "")).strip(),
+    )
+    config_state_json = json.dumps(
+        {
+            "mode": "scheduled",
+            "bot_id": normalized_bot_id,
+            "start": {},
+            "commands": [command_row],
+            "callbacks": callback_rows,
+            "templates": _build_config_template_options(template_entries or []),
+            "context_key_options": [],
+            "custom_code_function_options": [],
+        },
+        ensure_ascii=False,
+    ).replace("</", "<\\/")
+    asset_version = html.escape(_config_editor_asset_version())
+    fallback_module_list_html = _render_template_pipeline_fallback(command_row)
+    working_hours_note = (
+        f"{len(working_entries)} Working Hours rows available."
         if working_entries
-        else "Add Working Hours before loading generated schedules."
+        else "Add Working Hours rows before running these schedules."
     )
-
-    content_html = f"""
-      <div class="section-header">
-        <div>
-          <h2>Scheduled Setup</h2>
-          <p>Bot: {html.escape(normalized_bot_id)}. Create manual schedules or load generated schedules from working hours. Schedules can trigger configured commands, processes, or module chains.</p>
-        </div>
-        <div class="toolbar">
-          <div class="toolbar-chip">{len(schedule_entries)} Schedules</div>
-        </div>
+    task_options_html = _render_schedule_task_key_options(
+        task_key_options or [],
+        str(current_entry.get("task_key", "")),
+    )
+    pipeline_hidden_attr = (
+        ""
+        if str(current_entry.get("task_key", "")).strip() == _SCHEDULE_MANUAL_PIPELINE_TASK_KEY
+        else " hidden"
+    )
+    status_html = _render_status_html(message=message, level=level)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>eTrax Scheduled Setup</title>
+  <style>
+    :root {{
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #1e2a39;
+      --muted: #5f6f83;
+      --line: #d6deea;
+      --ok: #0a7a4d;
+      --err: #b42318;
+      --info: #0b63c7;
+      --accent: #0f4ea5;
+      --accent-hover: #0b3d81;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at top, #edf3ff 0%, var(--bg) 60%);
+      color: var(--text);
+    }}
+    .container {{
+      width: min(1280px, calc(100% - 32px));
+      margin: 20px auto;
+      padding: 0;
+    }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(15, 32, 62, 0.08);
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 1.25rem;
+    }}
+    p {{
+      margin: 0;
+      color: var(--muted);
+    }}
+    .meta {{
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }}
+    .schedule-grid {{
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      align-items: start;
+    }}
+    .wide {{ grid-column: span 2; }}
+    .full {{ grid-column: 1 / -1; }}
+    label {{
+      display: block;
+      margin-bottom: 6px;
+      color: #344054;
+      font-size: 0.88rem;
+      font-weight: 700;
+    }}
+    input, select, textarea {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      width: 100%;
+      font-size: 0.95rem;
+      background: #fff;
+      font-family: inherit;
+    }}
+    textarea {{
+      min-height: 42px;
+      resize: vertical;
+    }}
+    button, .button {{
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
+      font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }}
+    button:hover, .button:hover {{ background: var(--accent-hover); }}
+    button.secondary, .button.secondary {{ background: #475467; }}
+    button.secondary:hover, .button.secondary:hover {{ background: #344054; }}
+    button:disabled {{
+      opacity: 0.58;
+      cursor: not-allowed;
+    }}
+    button.danger, .button.delete {{ background: #9f1239; }}
+    button.danger:hover, .button.delete:hover {{ background: #881337; }}
+    .button.back {{ background: #475467; }}
+    .button.back:hover {{ background: #344054; }}
+    .button.mini, button.mini {{
+      padding: 8px 10px;
+      font-size: 0.84rem;
+    }}
+    .action-cell {{ min-width: 220px; }}
+    .action-row, .action-stack {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }}
+    .action-row form, .action-stack form {{ margin: 0; }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }}
+    th, td {{
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 10px;
+      vertical-align: middle;
+      font-size: 0.92rem;
+    }}
+    th {{
+      color: var(--muted);
+      font-weight: 600;
+    }}
+    .status {{
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      font-size: 0.98rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      box-shadow: 0 8px 22px rgba(15, 32, 62, 0.12);
+    }}
+    .status.info {{ background: #ebf3ff; color: var(--info); border-color: #a9c9f5; }}
+    .status.error {{ background: #fff1f1; color: var(--err); border-color: #f8b4b4; }}
+    .status.success {{ background: #ebfff4; color: var(--ok); border-color: #96dfbb; }}
+    .empty, .hint {{ color: var(--muted); }}
+    .hint {{
+      font-size: 0.86rem;
+      margin-top: 4px;
+    }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: #eef4ff;
+      color: #2c5dde;
+      font-weight: 700;
+      font-size: 0.84rem;
+    }}
+    .import-grid {{
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      align-items: end;
+    }}
+    #template-module-fallback {{
+      margin: 14px 0;
+    }}
+    #template-module-fallback[hidden],
+    .scheduled-pipeline-section[hidden],
+    .chain-raw,
+    .module-type-hidden {{
+      display: none;
+    }}
+    #command-config-app > .module-block,
+    .template-fallback {{
+      margin-top: 14px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #ffffff;
+    }}
+    .command-list {{
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+    }}
+    .command-entry {{
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #f9fbff;
+    }}
+    .command-row {{
+      display: grid;
+      grid-template-columns: 1.1fr 1.3fr auto;
+      gap: 8px;
+      align-items: center;
+    }}
+    .command-row.no-action {{
+      grid-template-columns: 1.1fr 1.3fr;
+    }}
+    .module-grid {{
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }}
+    .module-block {{
+      margin-top: 10px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }}
+    .module-title, .command-panel-title {{
+      margin: 0;
+      color: #22314a;
+      font-size: 0.95rem;
+      font-weight: 700;
+    }}
+    .module-list-tools, .template-toolbar {{
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }}
+    .module-list-tools select,
+    .template-toolbar select {{
+      width: auto;
+      min-width: 150px;
+    }}
+    .module-list {{
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }}
+    .module-list-row {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fbff;
+      padding: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }}
+    .module-list-row.is-editing {{
+      border-color: #175cd3;
+      background: #edf4ff;
+    }}
+    .module-list-meta {{
+      font-size: 0.86rem;
+      color: #2b3f5f;
+      font-weight: 600;
+    }}
+    .module-list-actions, .pipeline-title-row {{
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }}
+    .module-list-actions button,
+    .collapse-toggle {{
+      padding: 6px 10px;
+      font-size: 0.82rem;
+      background: #475467;
+    }}
+    .module-editor {{
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--line);
+    }}
+    .module-editor-placeholder {{
+      margin-top: 10px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      background: #fff;
+    }}
+    .callback-submenu-block {{
+      margin-top: 12px;
+      border: 1px solid #d6e3f5;
+      border-radius: 10px;
+      padding: 12px;
+      background: #f8fbff;
+    }}
+    @media (max-width: 980px) {{
+      .schedule-grid, .import-grid {{
+        grid-template-columns: 1fr 1fr;
+      }}
+      .wide, .full {{
+        grid-column: 1 / -1;
+      }}
+    }}
+    @media (max-width: 760px) {{
+      .schedule-grid, .import-grid, .row, .command-row, .command-row.no-action, .module-grid {{
+        grid-template-columns: 1fr;
+      }}
+      table, thead, tbody, tr, td {{
+        display: block;
+      }}
+      thead {{
+        display: none;
+      }}
+      tr {{
+        border-bottom: 1px solid var(--line);
+        padding: 10px 0;
+      }}
+      td {{
+        border-bottom: 0;
+        padding: 7px 0;
+      }}
+      td::before {{
+        content: attr(data-label);
+        display: block;
+        color: var(--muted);
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="panel">
+      <h1>Scheduled Setup</h1>
+	      <p>Bot: {html.escape(normalized_bot_id)}. Build a pipeline, then choose when it runs from each user's Working Hours. {html.escape(working_hours_note)}</p>
+      <div class="meta">{len(schedule_entries)} schedule records</div>
+      <div class="action-row" style="margin-top: 14px;">
+        <a class="button back" href="/">Back to Home</a>
+        <a class="button secondary" href="/config?bot_id={quote_plus(normalized_bot_id)}">Bot Config</a>
+        <a class="button secondary" href="/ui/templates">Templates</a>
+        <a class="button secondary" href="/ui/working-hours">Working Hours</a>
+        <a class="button secondary" href="/ui/locations">Locations</a>
       </div>
-      <div class="schedule-layout">
-        <div class="schedule-form-panel">
-          <h3>{'Edit Schedule' if selected_entry else 'Create Schedule'}</h3>
-          <form method="post" action="/ui/schedules/save">
-            <input type="hidden" name="bot_id" value="{html.escape(normalized_bot_id)}">
-            <input type="hidden" name="entry_id" value="{html.escape(str(current_entry.get('id', '')))}">
-            <div class="schedule-grid">
-              <div class="field wide">
-                <label>Schedule Name</label>
-                <input class="input" name="name" value="{html.escape(str(current_entry.get('name', '')))}" placeholder="Daily clock-in prompt">
-              </div>
-              <div class="field">
-                <label>Status</label>
-                <label class="switch-row"><input type="checkbox" name="enabled" value="1"{enabled_checked}> Enabled</label>
-              </div>
-              <div class="field">
-                <label>Source Type</label>
-                <select class="select" name="source_type">
-                  {_render_select_options(_SCHEDULE_SOURCE_TYPES, source_type)}
-                </select>
-              </div>
-              <div class="field">
-                <label>Source ID</label>
-                <input class="input" name="source_id" value="{html.escape(str(current_entry.get('source_id', '')))}" placeholder="manual or working-hour id">
-              </div>
-              <div class="field">
-                <label>Source Event</label>
-                <input class="input" name="source_event" value="{html.escape(str(current_entry.get('source_event', '')))}" placeholder="shift_start, shift_end, custom">
-              </div>
-              <div class="field">
-                <label>Recurrence</label>
-                <select class="select" name="recurrence">
-                  {_render_select_options(_SCHEDULE_RECURRENCE_OPTIONS, recurrence)}
-                </select>
-              </div>
-              <div class="field">
-                <label>Weekday</label>
-                <select class="select" name="weekday">
-                  {_render_select_options(_WORKING_DAY_OPTIONS, weekday)}
-                </select>
-              </div>
-              <div class="field">
-                <label>Run Date</label>
-                <input class="input" name="run_date" value="{html.escape(str(current_entry.get('run_date', '')))}" placeholder="YYYY-MM-DD for one-time">
-              </div>
-              <div class="field">
-                <label>Run Time</label>
-                <input class="input" name="run_time" value="{html.escape(str(current_entry.get('run_time', '')))}" placeholder="08:00 AM">
-              </div>
-              <div class="field">
-                <label>Timezone</label>
-                <input class="input" name="timezone" value="{html.escape(str(current_entry.get('timezone', 'Asia/Bangkok')))}">
-              </div>
-              <div class="field">
-                <label>Target Scope</label>
-                <select class="select" name="target_scope">
-                  {_render_select_options(_SCHEDULE_TARGET_SCOPE_OPTIONS, target_scope)}
-                </select>
-              </div>
-              <div class="field">
-                <label>Target ID</label>
-                <input class="input" name="target_id" value="{html.escape(str(current_entry.get('target_id', '')))}" placeholder="blank for all users">
-              </div>
-              <div class="field">
-                <label>Task Type</label>
-                <select class="select" name="task_type">
-                  {_render_select_options(_SCHEDULE_TASK_TYPE_OPTIONS, task_type)}
-                </select>
-              </div>
-              <div class="field">
-                <label>Task Key</label>
-                <input class="input" name="task_key" value="{html.escape(str(current_entry.get('task_key', '')))}" placeholder="clock_in, process key, module key">
-              </div>
-              <div class="field">
-                <label>Offset Minutes</label>
-                <input class="input" name="offset_minutes" value="{html.escape(str(current_entry.get('offset_minutes', '0')))}" placeholder="0">
-              </div>
-              <div class="field wide">
-                <label>Notes</label>
-                <textarea class="textarea" name="notes" placeholder="Optional internal note">{html.escape(str(current_entry.get('notes', '')))}</textarea>
-              </div>
-            </div>
-            <div class="toolbar" style="margin-top: 16px;">
-              <button class="button save" type="submit">Save Schedule</button>
-              <a class="button back" href="/ui/schedules?bot_id={quote_plus(normalized_bot_id)}">Clear</a>
-            </div>
-          </form>
-        </div>
-        <div>
-          <div class="schedule-form-panel">
-            <h3>Load From Working Hours</h3>
-            <form method="post" action="/ui/schedules/import-working-hours">
-              <input type="hidden" name="bot_id" value="{html.escape(normalized_bot_id)}">
-              <div class="schedule-grid">
-                <div class="field">
-                  <label>Task Type</label>
-                  <select class="select" name="task_type">
-                    {_render_select_options(_SCHEDULE_TASK_TYPE_OPTIONS, 'command')}
-                  </select>
-                </div>
-                <div class="field">
-                  <label>Target Scope</label>
-                  <select class="select" name="target_scope">
-                    {_render_select_options(_SCHEDULE_TARGET_SCOPE_OPTIONS, 'all_users')}
-                  </select>
-                </div>
-                <div class="field">
-                  <label>Clock-In Task Key</label>
-                  <input class="input" name="clock_in_task_key" value="clock_in">
-                </div>
-                <div class="field">
-                  <label>Clock-Out Task Key</label>
-                  <input class="input" name="clock_out_task_key" value="clock_out">
-                </div>
-                <div class="field wide">
-                  <label>Timezone</label>
-                  <input class="input" name="timezone" value="Asia/Bangkok">
-                </div>
-              </div>
-              <div class="toolbar" style="margin-top: 16px;">
-                <button class="button secondary" type="submit"{import_disabled}>Load Working Hours</button>
-                <div class="toolbar-chip">{html.escape(import_note)}</div>
-              </div>
-            </form>
+    </div>
+    {status_html}
+    <div class="panel">
+      <h1>{'Edit Schedule Config' if selected_entry else 'Create or Update Schedule Config'}</h1>
+      <form id="config-save-form" method="post" action="/ui/schedules/save" data-autosave-enabled="0">
+	        <input type="hidden" name="bot_id" value="{html.escape(normalized_bot_id)}">
+	        <input type="hidden" name="entry_id" value="{html.escape(str(current_entry.get('id', '')))}">
+	        <input type="hidden" name="source_type" value="working_hours">
+	        <input type="hidden" name="source_id" value="working_hours">
+	        <input type="hidden" name="recurrence" value="working_day">
+	        <input type="hidden" name="weekday" value="">
+	        <input type="hidden" name="run_date" value="">
+	        <input type="hidden" name="run_time" value="">
+	        <input type="hidden" name="target_id" value="">
+	        <input type="hidden" name="task_type" value="command">
+		        <div class="schedule-grid">
+          <div class="wide">
+            <label>Schedule Name</label>
+            <input name="name" value="{html.escape(str(current_entry.get('name', '')))}" placeholder="Daily clock-in prompt" required>
           </div>
-          <div class="list-panel">
-            <h3>Saved Scheduled Tasks</h3>
-            <p>Generated schedules keep source metadata so they can update from Working Hours without overwriting manual schedules.</p>
-            <div class="schedule-list">{schedule_cards_html}</div>
+          <div>
+            <label>Status</label>
+            <select name="enabled">{enabled_options}</select>
           </div>
-        </div>
-      </div>
-    """
-    toolbar_html = (
-        '<a class="button back" href="/">Back To Home</a>'
-        f'<a class="button save" href="/config?bot_id={quote_plus(normalized_bot_id)}">Bot Config</a>'
-        '<a class="button secondary" href="/ui/working-hours">Working Hours</a>'
-        '<a class="button secondary" href="/ui/locations">Locations</a>'
-    )
-    return _render_demo_page_shell(
-        title="Scheduled Setup",
-        active_tab="schedules",
-        content_html=content_html,
-        toolbar_html=toolbar_html,
-        status_html=_render_status_html(message=message, level=level),
-        bot_id=normalized_bot_id,
-    )
+		          <div>
+		            <label>Run When</label>
+		            <select name="source_event">{_render_schedule_working_event_options(str(current_entry.get('source_event', 'work_start')))}</select>
+		          </div>
+	          <div>
+	            <label>Target Scope</label>
+	            <select name="target_scope">{_render_select_options(_SCHEDULE_TARGET_SCOPE_OPTIONS, target_scope)}</select>
+	          </div>
+	          <div>
+	            <label>Task Key</label>
+	            <select name="task_key" required>{task_options_html}</select>
+	          </div>
+	          <div>
+	            <label>Offset Minutes</label>
+	            <input name="offset_minutes" value="{html.escape(str(current_entry.get('offset_minutes', '0')))}" placeholder="0">
+	          </div>
+	          <div>
+	            <label>Timezone</label>
+	            <input name="timezone" value="{html.escape(str(current_entry.get('timezone', 'Asia/Bangkok')))}">
+	          </div>
+	          <div class="full">
+	            <label>Notes</label>
+	            <textarea name="notes" placeholder="Optional internal note">{html.escape(str(current_entry.get('notes', '')))}</textarea>
+	          </div>
+	        </div>
+	        <div id="scheduled-pipeline-section" class="scheduled-pipeline-section"{pipeline_hidden_attr}>
+	          <div id="template-module-fallback">{fallback_module_list_html}</div>
+	          <div id="command-config-app"></div>
+	        </div>
+	        <button type="submit">Save Schedule</button>
+	        <a class="button back" href="/ui/schedules?bot_id={quote_plus(normalized_bot_id)}">Clear</a>
+	      </form>
+	    </div>
+	    <div class="panel">
+      <h1>Configured Schedules</h1>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Schedule</th>
+            <th>Source</th>
+            <th>Target</th>
+            <th>Task</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+    </div>
+  </div>
+  <script id="command-config-state" type="application/json">{config_state_json}</script>
+  <script src="/vue-runtime.js?v={asset_version}"></script>
+  <script src="/module-system.js?v={asset_version}"></script>
+  <script src="/module-send-message.js?v={asset_version}"></script>
+  <script src="/module-send-photo.js?v={asset_version}"></script>
+  <script src="/module-send-location.js?v={asset_version}"></script>
+  <script src="/module-menu.js?v={asset_version}"></script>
+  <script src="/module-inline-button.js?v={asset_version}"></script>
+  <script src="/module-keyboard-button.js?v={asset_version}"></script>
+  <script src="/module-wait-keyboard-reply.js?v={asset_version}"></script>
+  <script src="/module-share-contact.js?v={asset_version}"></script>
+  <script src="/module-ask-selfie.js?v={asset_version}"></script>
+  <script src="/module-custom-code.js?v={asset_version}"></script>
+  <script src="/module-bind-code.js?v={asset_version}"></script>
+  <script src="/module-check-username.js?v={asset_version}"></script>
+  <script src="/module-share-location.js?v={asset_version}"></script>
+  <script src="/module-route.js?v={asset_version}"></script>
+  <script src="/module-checkout.js?v={asset_version}"></script>
+  <script src="/module-payway-payment.js?v={asset_version}"></script>
+  <script src="/module-cart-button.js?v={asset_version}"></script>
+  <script src="/module-open-mini-app.js?v={asset_version}"></script>
+  <script src="/module-forget-user-data.js?v={asset_version}"></script>
+  <script src="/module-reset-command-menu.js?v={asset_version}"></script>
+  <script src="/module-delete-message.js?v={asset_version}"></script>
+  <script src="/module-userinfo.js?v={asset_version}"></script>
+  <script src="/module-callback-module.js?v={asset_version}"></script>
+  <script src="/module-command-module.js?v={asset_version}"></script>
+  <script src="/module-inline-button-module.js?v={asset_version}"></script>
+  <script src="/config-vue.js?v={asset_version}"></script>
+  <script>
+	    if (window.EtraxConfigVue && typeof window.EtraxConfigVue.mount === "function") {{
+	      window.EtraxConfigVue.mount("#command-config-app", "#command-config-state");
+	    }}
+	    (function () {{
+	      var manualTaskKey = "{_SCHEDULE_MANUAL_PIPELINE_TASK_KEY}";
+	      var taskSelect = document.querySelector("select[name='task_key']");
+	      var pipelineSection = document.getElementById("scheduled-pipeline-section");
+	      if (!taskSelect || !pipelineSection) {{
+	        return;
+	      }}
+	      function syncPipelineVisibility() {{
+	        pipelineSection.hidden = taskSelect.value !== manualTaskKey;
+	      }}
+	      taskSelect.addEventListener("change", syncPipelineVisibility);
+	      syncPipelineVisibility();
+	    }})();
+	  </script>
+</body>
+</html>"""
 
 
 def _render_general_details_demo_page(*, message: str = "", level: str = "info") -> str:
@@ -3556,7 +3932,7 @@ def _render_general_details_demo_page(*, message: str = "", level: str = "info")
       </div>
     """
     toolbar_html = (
-        '<a class="button back" href="/">Back To Home</a>'
+        '<a class="button back" href="/">Back to Home</a>'
         '<a class="button secondary" href="/ui/working-hours">Working Hours</a>'
         '<a class="button secondary" href="/ui/locations">Locations</a>'
     )
@@ -3705,11 +4081,15 @@ def _render_location_demo_page(
             <div class="map-helper">Click the map or drag the pin to update coordinates. Search also accepts Google Maps URLs such as maps.app.goo.gl links.</div>
           </div>
           <div class="map-canvas" data-location-map></div>
-          <div class="map-feedback" data-location-feedback>Map ready. Click anywhere to move the pin.</div>
-        </div>
-      </div>
-      </form>
-      <div class="list-panel">
+	          <div class="map-feedback" data-location-feedback>Map ready. Click anywhere to move the pin.</div>
+	        </div>
+	      </div>
+	      <div class="actions">
+	        <button class="button save" type="submit">Save Location</button>
+	        <a class="button back" href="/ui/locations">Clear</a>
+	      </div>
+	      </form>
+	      <div class="list-panel">
         <h3>Saved Locations</h3>
         <p>Use Edit to load a saved record back into the form, or Delete to remove it.</p>
         <div class="location-list">
@@ -3733,9 +4113,8 @@ def _render_location_demo_page(
     )
     content_html = content_html.replace("â€¢", "|")
     toolbar_html = (
-        '<a class="button back" href="/">Back To Home</a>'
-        '<a class="button cancel" href="/ui/locations">Cancel</a>'
-        '<button class="button save" type="submit" form="location-form">Save</button>'
+        '<a class="button back" href="/">Back to Home</a>'
+        '<a class="button secondary" href="/ui/working-hours">Working Hours</a>'
     )
     content_html = content_html.replace("\u00e2\u20ac\u00a2", "|").replace(
         "\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u00a2",
@@ -4576,32 +4955,54 @@ def _format_template_updated_at(value: str) -> str:
 
 
 _SCHEDULE_SOURCE_TYPES = ("manual", "working_hours", "imported")
-_SCHEDULE_RECURRENCE_OPTIONS = ("once", "daily", "weekly")
+_SCHEDULE_RECURRENCE_OPTIONS = ("once", "daily", "weekly", "working_day")
 _SCHEDULE_TARGET_SCOPE_OPTIONS = ("all_users", "user", "chat", "group")
 _SCHEDULE_TASK_TYPE_OPTIONS = ("command", "process", "module", "callback")
+_SCHEDULE_WORKING_HOURS_EVENTS = (
+    "work_start",
+    "work_end",
+    "missed_clock_in",
+    "missed_clock_out",
+)
+_SCHEDULE_WORKING_HOURS_EVENT_LABELS = {
+    "work_start": "Work start",
+    "work_end": "Work end",
+    "missed_clock_in": "Missed clock-in by offset",
+    "missed_clock_out": "Missed clock-out by offset",
+}
+_SCHEDULE_WORKING_HOURS_TASK_DEFAULTS = {
+    "work_start": "clock_in",
+    "work_end": "clock_out",
+    "missed_clock_in": "absent",
+    "missed_clock_out": "absent",
+}
+_SCHEDULE_MANUAL_PIPELINE_TASK_KEY = "manual_process_pipeline"
 
 
 def _default_schedule_form_entry() -> dict[str, object]:
-    """Return defaults for a new manual scheduled task form."""
+    """Return defaults for a new dynamic Working Hours scheduled task form."""
     return {
         "id": "",
         "bot_id": "",
         "name": "",
         "enabled": True,
-        "source_type": "manual",
-        "source_id": "",
-        "source_event": "custom",
-        "recurrence": "weekly",
-        "weekday": "Monday",
+        "source_type": "working_hours",
+        "source_id": "working_hours",
+        "source_event": "work_start",
+        "recurrence": "working_day",
+        "weekday": "",
         "run_date": "",
-        "run_time": "08:00 AM",
+        "run_time": "",
         "timezone": "Asia/Bangkok",
         "target_scope": "all_users",
         "target_id": "",
         "task_type": "command",
-        "task_key": "",
+        "task_key": _SCHEDULE_MANUAL_PIPELINE_TASK_KEY,
         "offset_minutes": "0",
         "notes": "",
+        "process_pipeline": "",
+        "callback_modules": "",
+        "temporary_commands": "",
     }
 
 
@@ -4617,15 +5018,20 @@ def _normalize_schedule_form_entry(raw: object) -> dict[str, object] | None:
     if not bot_id:
         raise ValueError("bot_id is required")
     source_type = _normalize_choice(raw.get("source_type"), _SCHEDULE_SOURCE_TYPES, "manual")
-    recurrence = _normalize_choice(raw.get("recurrence"), _SCHEDULE_RECURRENCE_OPTIONS, "weekly")
+    default_recurrence = "working_day" if source_type == "working_hours" else "weekly"
+    recurrence = _normalize_choice(raw.get("recurrence"), _SCHEDULE_RECURRENCE_OPTIONS, default_recurrence)
     target_scope = _normalize_choice(raw.get("target_scope"), _SCHEDULE_TARGET_SCOPE_OPTIONS, "all_users")
     task_type = _normalize_choice(raw.get("task_type"), _SCHEDULE_TASK_TYPE_OPTIONS, "command")
-    weekday = _normalize_choice(raw.get("weekday"), _WORKING_DAY_OPTIONS, "Monday")
+    weekday = (
+        ""
+        if source_type == "working_hours"
+        else _normalize_choice(raw.get("weekday"), _WORKING_DAY_OPTIONS, "Monday")
+    )
     task_key = str(raw.get("task_key", "")).strip()
     run_time = str(raw.get("run_time", "")).strip()
     if not task_key:
         raise ValueError("task key is required")
-    if not run_time:
+    if source_type != "working_hours" and not run_time:
         raise ValueError("run time is required")
     if recurrence == "once" and not str(raw.get("run_date", "")).strip():
         raise ValueError("run date is required for one-time schedules")
@@ -4636,7 +5042,10 @@ def _normalize_schedule_form_entry(raw: object) -> dict[str, object] | None:
         "enabled": _normalize_schedule_enabled(raw.get("enabled", True)),
         "source_type": source_type,
         "source_id": str(raw.get("source_id", "")).strip(),
-        "source_event": str(raw.get("source_event", "")).strip() or "custom",
+        "source_event": _normalize_schedule_source_event(
+            raw.get("source_event", ""),
+            source_type=source_type,
+        ),
         "recurrence": recurrence,
         "weekday": weekday,
         "run_date": str(raw.get("run_date", "")).strip(),
@@ -4648,6 +5057,9 @@ def _normalize_schedule_form_entry(raw: object) -> dict[str, object] | None:
         "task_key": task_key,
         "offset_minutes": _normalize_schedule_offset(raw.get("offset_minutes", "0")),
         "notes": str(raw.get("notes", "")).strip(),
+        "process_pipeline": str(raw.get("process_pipeline", "")).strip(),
+        "callback_modules": str(raw.get("callback_modules", "")).strip(),
+        "temporary_commands": str(raw.get("temporary_commands", "")).strip(),
     }
 
 
@@ -4745,6 +5157,13 @@ def _normalize_schedule_enabled(raw: object) -> bool:
     return value not in {"", "0", "false", "no", "off", "disabled"}
 
 
+def _normalize_schedule_source_event(raw: object, *, source_type: str) -> str:
+    value = str(raw or "").strip()
+    if source_type == "working_hours":
+        return _normalize_choice(value, _SCHEDULE_WORKING_HOURS_EVENTS, "work_start")
+    return value or "custom"
+
+
 def _normalize_schedule_offset(raw: object) -> str:
     value = str(raw or "0").strip()
     if not value:
@@ -4755,28 +5174,28 @@ def _normalize_schedule_offset(raw: object) -> str:
         raise ValueError("offset minutes must be a whole number") from exc
 
 
-def _render_schedule_card(item: dict[str, object]) -> str:
-    """Render one saved scheduled task card."""
+def _render_schedule_table_row(item: dict[str, object]) -> str:
+    """Render one row in the Scheduled Setup table."""
     entry_id = html.escape(str(item["id"]))
     bot_id = str(item.get("bot_id", "")).strip()
     name = html.escape(str(item["name"]))
     enabled_label = "Enabled" if bool(item.get("enabled", True)) else "Disabled"
-    enabled_class = "pill" if bool(item.get("enabled", True)) else "toolbar-chip"
     source_label = _schedule_source_label(item)
     schedule_label = _schedule_time_label(item)
     target_label = _schedule_target_label(item)
     task_label = f"{str(item.get('task_type', '')).title()}: {str(item.get('task_key', ''))}"
     notes = str(item.get("notes", "")).strip()
-    notes_html = f"<div class='schedule-meta'><span>{html.escape(notes)}</span></div>" if notes else ""
+    notes_html = f"<div class='hint'>{html.escape(notes)}</div>" if notes else ""
     return (
-        "<div class='schedule-card'>"
-        "<div class='schedule-card-top'>"
-        f"<div><h4>{name}</h4><div class='schedule-meta'><span>{html.escape(schedule_label)}</span><span>{html.escape(task_label)}</span></div></div>"
-        f"<div class='{enabled_class}'>{enabled_label}</div>"
-        "</div>"
-        f"<div class='schedule-meta'><span>{html.escape(source_label)}</span><span>{html.escape(target_label)}</span></div>"
-        f"{notes_html}"
-        "<div class='schedule-actions'>"
+        "<tr>"
+        f"<td data-label='Name'><strong>{name}</strong>{notes_html}</td>"
+        f"<td data-label='Schedule'>{html.escape(schedule_label)}</td>"
+        f"<td data-label='Source'>{html.escape(source_label)}</td>"
+        f"<td data-label='Target'>{html.escape(target_label)}</td>"
+        f"<td data-label='Task'>{html.escape(task_label)}</td>"
+        f"<td data-label='Status'><span class='pill'>{enabled_label}</span></td>"
+        "<td data-label='Action'>"
+        "<div class='action-stack'>"
         f"<a class='button secondary mini' href='/ui/schedules?bot_id={quote_plus(bot_id)}&schedule_id={quote_plus(str(item['id']))}'>Edit</a>"
         f"<form method='post' action='/ui/schedules/delete'>"
         f"<input type='hidden' name='bot_id' value='{html.escape(bot_id)}'>"
@@ -4784,7 +5203,8 @@ def _render_schedule_card(item: dict[str, object]) -> str:
         "<button class='button delete mini' type='submit'>Delete</button>"
         "</form>"
         "</div>"
-        "</div>"
+        "</td>"
+        "</tr>"
     )
 
 
@@ -4801,6 +5221,104 @@ def _render_select_options(options: Iterable[str], selected_value: str) -> str:
     )
 
 
+def _render_schedule_working_event_options(selected_value: str) -> str:
+    """Render Working Hours source events with readable labels."""
+    selected = str(selected_value or "").strip()
+    return "".join(
+        (
+            f"<option value='{html.escape(event, quote=True)}' selected>{html.escape(label)}</option>"
+            if event == selected
+            else f"<option value='{html.escape(event, quote=True)}'>{html.escape(label)}</option>"
+        )
+        for event, label in (
+            (event, _SCHEDULE_WORKING_HOURS_EVENT_LABELS[event])
+            for event in _SCHEDULE_WORKING_HOURS_EVENTS
+        )
+    )
+
+
+def _render_schedule_task_key_options(
+    options: Iterable[dict[str, str]],
+    selected_value: str,
+) -> str:
+    """Render schedule task keys from the current bot's commands and callbacks."""
+    selected = str(selected_value or "").strip()
+    rendered = ["<option value=''>Select task</option>"]
+    manual_selected = " selected" if selected == _SCHEDULE_MANUAL_PIPELINE_TASK_KEY else ""
+    rendered.append(
+        f"<option value='{_SCHEDULE_MANUAL_PIPELINE_TASK_KEY}'{manual_selected}>Manual: Process Pipeline on this page</option>"
+    )
+    seen: set[str] = {_SCHEDULE_MANUAL_PIPELINE_TASK_KEY}
+    for option in options:
+        value = str(option.get("value", "")).strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        label = str(option.get("label", "")).strip() or value
+        selected_attr = " selected" if value == selected else ""
+        rendered.append(
+            f"<option value='{html.escape(value, quote=True)}'{selected_attr}>{html.escape(label)}</option>"
+        )
+    if selected and selected not in seen:
+        rendered.append(
+            f"<option value='{html.escape(selected, quote=True)}' selected>{html.escape(selected)} (custom)</option>"
+        )
+    return "".join(rendered)
+
+
+def _build_schedule_task_key_options(payload: dict[str, object]) -> list[dict[str, str]]:
+    """Build Task Key dropdown options from one bot's command and callback config."""
+    command_menu = payload.get("command_menu") if isinstance(payload, dict) else {}
+    if not isinstance(command_menu, dict):
+        return []
+    options: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_option(kind: str, key: str, description: str = "") -> None:
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            return
+        if normalized_key.startswith("/"):
+            normalized_key = normalized_key[1:]
+        normalized_key = _normalize_command_value(normalized_key) if kind == "command" else normalized_key
+        if not normalized_key:
+            return
+        option_key = (kind, normalized_key)
+        if option_key in seen:
+            return
+        seen.add(option_key)
+        kind_label = "Command" if kind == "command" else "Callback"
+        suffix = f" - {description.strip()}" if description.strip() else ""
+        options.append(
+            {
+                "value": normalized_key,
+                "label": f"{kind_label}: {normalized_key}{suffix}",
+            }
+        )
+
+    if bool(command_menu.get("include_start", True)):
+        add_option("command", "start", str(command_menu.get("start_description", "")).strip() or "Start")
+
+    commands = command_menu.get("commands", [])
+    if isinstance(commands, list):
+        for item in commands:
+            if not isinstance(item, dict):
+                continue
+            add_option("command", str(item.get("command", "")), str(item.get("description", "")))
+
+    command_modules = command_menu.get("command_modules", {})
+    if isinstance(command_modules, dict):
+        for command_key in command_modules:
+            add_option("command", str(command_key))
+
+    callback_modules = command_menu.get("callback_modules", {})
+    if isinstance(callback_modules, dict):
+        for callback_key in callback_modules:
+            add_option("callback", str(callback_key))
+
+    return options
+
+
 def _schedule_source_label(item: dict[str, object]) -> str:
     source_type = str(item.get("source_type", "manual")).strip()
     source_id = str(item.get("source_id", "")).strip()
@@ -4809,15 +5327,23 @@ def _schedule_source_label(item: dict[str, object]) -> str:
     if source_id:
         label += f" / {source_id}"
     if source_event:
-        label += f" / {source_event}"
+        label += f" / {_SCHEDULE_WORKING_HOURS_EVENT_LABELS.get(source_event, source_event)}"
     return label
 
 
 def _schedule_time_label(item: dict[str, object]) -> str:
+    source_type = str(item.get("source_type", "")).strip()
+    source_event = str(item.get("source_event", "")).strip()
     recurrence = str(item.get("recurrence", "")).strip()
     run_time = str(item.get("run_time", "")).strip()
     timezone_name = str(item.get("timezone", "")).strip()
-    if recurrence == "once":
+    if source_type == "working_hours":
+        event_label = _SCHEDULE_WORKING_HOURS_EVENT_LABELS.get(
+            source_event,
+            source_event.replace("_", " ").title() or "Working Hours",
+        )
+        prefix = f"Each user work day: {event_label}"
+    elif recurrence == "once":
         prefix = str(item.get("run_date", "")).strip() or "One time"
     elif recurrence == "daily":
         prefix = "Daily"
@@ -4825,7 +5351,9 @@ def _schedule_time_label(item: dict[str, object]) -> str:
         prefix = str(item.get("weekday", "")).strip() or "Weekly"
     offset = str(item.get("offset_minutes", "0")).strip()
     offset_label = "" if offset in {"", "0"} else f" offset {offset}m"
-    return f"{prefix} at {run_time} {timezone_name}{offset_label}".strip()
+    time_label = f" at {run_time}" if run_time else ""
+    timezone_label = f" {timezone_name}" if timezone_name else ""
+    return f"{prefix}{time_label}{timezone_label}{offset_label}".strip()
 
 
 def _schedule_target_label(item: dict[str, object]) -> str:
@@ -4842,57 +5370,45 @@ def _build_schedule_entries_from_working_hours(
     bot_id: str,
     existing_entries: Iterable[dict[str, object]] = (),
     task_type: str,
-    clock_in_task_key: str,
-    clock_out_task_key: str,
+    source_event: str,
+    task_key: str,
+    offset_minutes: str,
     timezone_name: str,
     target_scope: str,
 ) -> list[dict[str, object]]:
-    """Build deterministic schedule entries from working-hour rows."""
+    """Build one dynamic Working Hours schedule rule.
+
+    The rule stores the event relative to each user's working day. Runtime can
+    resolve the actual date/time from Working Hours instead of persisting one
+    schedule row for every working day.
+    """
     normalized_bot_id = str(bot_id or "").strip()
     if not normalized_bot_id:
         raise ValueError("bot_id is required")
+    working_entry_list = list(working_entries)
+    if not working_entry_list:
+        return []
+    normalized_event = _normalize_choice(source_event, _SCHEDULE_WORKING_HOURS_EVENTS, "work_start")
+    normalized_task_key = str(task_key or "").strip() or _SCHEDULE_WORKING_HOURS_TASK_DEFAULTS[normalized_event]
+    normalized_offset = _normalize_schedule_offset(offset_minutes)
     existing_by_id = {
         str(item.get("id", "")).strip(): dict(item)
         for item in existing_entries
         if str(item.get("id", "")).strip()
         and str(item.get("bot_id", "")).strip() == normalized_bot_id
     }
-    generated: list[dict[str, object]] = []
-    for working_entry in working_entries:
-        working_id = str(working_entry.get("id", "")).strip()
-        working_day = str(working_entry.get("working_day", "")).strip()
-        if not working_id or not working_day:
-            continue
-        generated.extend(
-            [
-                _build_working_hour_schedule_entry(
-                    existing_by_id=existing_by_id,
-                    bot_id=normalized_bot_id,
-                    working_id=working_id,
-                    working_day=working_day,
-                    source_event="shift_start",
-                    name=f"{working_day} clock-in schedule",
-                    run_time=str(working_entry.get("start_time", "")).strip(),
-                    task_type=task_type,
-                    task_key=clock_in_task_key,
-                    timezone_name=timezone_name,
-                    target_scope=target_scope,
-                ),
-                _build_working_hour_schedule_entry(
-                    existing_by_id=existing_by_id,
-                    bot_id=normalized_bot_id,
-                    working_id=working_id,
-                    working_day=working_day,
-                    source_event="shift_end",
-                    name=f"{working_day} clock-out schedule",
-                    run_time=str(working_entry.get("end_time", "")).strip(),
-                    task_type=task_type,
-                    task_key=clock_out_task_key,
-                    timezone_name=timezone_name,
-                    target_scope=target_scope,
-                ),
-            ]
+    generated = [
+        _build_working_hour_schedule_entry(
+            existing_by_id=existing_by_id,
+            bot_id=normalized_bot_id,
+            source_event=normalized_event,
+            task_type=task_type,
+            task_key=normalized_task_key,
+            offset_minutes=normalized_offset,
+            timezone_name=timezone_name,
+            target_scope=target_scope,
         )
+    ]
     return _normalize_schedule_entries(generated)
 
 
@@ -4900,37 +5416,38 @@ def _build_working_hour_schedule_entry(
     *,
     existing_by_id: dict[str, dict[str, object]],
     bot_id: str,
-    working_id: str,
-    working_day: str,
     source_event: str,
-    name: str,
-    run_time: str,
     task_type: str,
     task_key: str,
+    offset_minutes: str,
     timezone_name: str,
     target_scope: str,
 ) -> dict[str, object]:
-    schedule_id = f"sch-{working_id}-{source_event}"
+    schedule_id = f"sch-working-hours-{source_event}"
     existing = existing_by_id.get(schedule_id, {})
+    event_label = _SCHEDULE_WORKING_HOURS_EVENT_LABELS.get(source_event, source_event.replace("_", " "))
     return {
         "id": schedule_id,
         "bot_id": bot_id,
-        "name": name,
+        "name": str(existing.get("name", "")).strip() or f"Working Hours - {event_label}",
         "enabled": existing.get("enabled", True),
         "source_type": "working_hours",
-        "source_id": working_id,
+        "source_id": "working_hours",
         "source_event": source_event,
-        "recurrence": "weekly",
-        "weekday": working_day,
+        "recurrence": "working_day",
+        "weekday": "",
         "run_date": "",
-        "run_time": run_time or "08:00 AM",
+        "run_time": "",
         "timezone": timezone_name or "Asia/Bangkok",
         "target_scope": target_scope or "all_users",
         "target_id": existing.get("target_id", ""),
         "task_type": task_type or "command",
         "task_key": task_key,
-        "offset_minutes": existing.get("offset_minutes", "0"),
-        "notes": existing.get("notes", ""),
+        "offset_minutes": offset_minutes,
+        "notes": existing.get("notes", "Dynamic Working Hours rule. Runtime resolves user work day and time."),
+        "process_pipeline": existing.get("process_pipeline", ""),
+        "callback_modules": existing.get("callback_modules", ""),
+        "temporary_commands": existing.get("temporary_commands", ""),
     }
 
 
@@ -4957,6 +5474,12 @@ def _merge_generated_schedule_entries(
         if existing_key in generated_by_id:
             merged.append(generated_by_id[existing_key])
             seen.add(existing_key)
+        elif (
+            str(existing.get("source_type", "")).strip() == "working_hours"
+            and str(existing.get("source_id", "")).strip() != "working_hours"
+            and existing_key[0] in {key[0] for key in generated_by_id}
+        ):
+            continue
         else:
             merged.append(dict(existing))
     for generated_key, generated in generated_by_id.items():
@@ -5936,7 +6459,7 @@ def _render_config_page(
     .secondary:hover {{
       background: #344054;
     }}
-    button, .back {{
+    button, .button, .back {{
       border: 0;
       border-radius: 8px;
       padding: 10px 14px;
@@ -5947,7 +6470,7 @@ def _render_config_page(
       text-decoration: none;
       display: inline-block;
     }}
-    button:hover, .back:hover {{
+    button:hover, .button:hover, .back:hover {{
       background: var(--accent-hover);
     }}
     button.toggle-run {{
@@ -6013,9 +6536,9 @@ def _render_config_page(
           <input type="hidden" name="next" value="{html.escape(next_url)}">
           <button class="{toggle_class}" type="submit">{toggle_label} Runtime</button>
         </form>
-        <a class="back" href="/ui/schedules?bot_id={quote_plus(bot_id)}">Scheduled Setup</a>
-        <a class="back" href="/ui/working-hours">Working Hours</a>
-        <a class="back" href="/ui/locations">Locations</a>
+        <a class="button secondary" href="/ui/schedules?bot_id={quote_plus(bot_id)}">Scheduled Setup</a>
+        <a class="button secondary" href="/ui/working-hours">Working Hours</a>
+        <a class="button secondary" href="/ui/locations">Locations</a>
         <button
           type="button"
           class="runtime-error-toggle"
@@ -6048,7 +6571,7 @@ def _render_config_page(
             <div class="actions">
               <span id="config-autosave-status" class="hint">Autosave ready.</span>
               <button type="submit">Save Config</button>
-              <a class="back" href="/">Back to Bot List</a>
+              <a class="button back" href="/">Back to Home</a>
             </div>
           </form>
         </div>
@@ -6151,17 +6674,23 @@ def _render_config_page(
           }}
           const updatesSeen = Number(runtimeStatus.updates_seen || 0);
           const messagesSent = Number(runtimeStatus.messages_sent || 0);
+          const scheduledRunsSeen = Number(runtimeStatus.scheduled_runs_seen || 0);
+          const scheduledMessagesSent = Number(runtimeStatus.scheduled_messages_sent || 0);
           const activeBreadcrumbCount = Number(runtimeStatus.active_breadcrumb_count || 0);
           const summaryHtml =
             '<div class="runtime-summary-grid">' +
               '<div class="runtime-summary-card"><span class="runtime-summary-label">Status</span><strong>' + escapeHtml(runtimeText) + '</strong></div>' +
               '<div class="runtime-summary-card"><span class="runtime-summary-label">Updates</span><strong>' + escapeHtml(updatesSeen) + '</strong></div>' +
               '<div class="runtime-summary-card"><span class="runtime-summary-label">Messages</span><strong>' + escapeHtml(messagesSent) + '</strong></div>' +
+              '<div class="runtime-summary-card"><span class="runtime-summary-label">Schedules</span><strong>' + escapeHtml(scheduledRunsSeen) + '</strong></div>' +
+              '<div class="runtime-summary-card"><span class="runtime-summary-label">Schedule Messages</span><strong>' + escapeHtml(scheduledMessagesSent) + '</strong></div>' +
               '<div class="runtime-summary-card"><span class="runtime-summary-label">Breadcrumbs</span><strong>' + escapeHtml(activeBreadcrumbCount) + '</strong></div>' +
             '</div>';
           const lastError = String(runtimeStatus.last_error || "").trim();
-          const errorHtml = lastError
-            ? '<pre class="runtime-error-text">' + escapeHtml(lastError) + '</pre>'
+          const lastScheduleError = String(runtimeStatus.last_schedule_error || "").trim();
+          const errorText = [lastError, lastScheduleError ? "Schedule: " + lastScheduleError : ""].filter(Boolean).join("\\n");
+          const errorHtml = errorText
+            ? '<pre class="runtime-error-text">' + escapeHtml(errorText) + '</pre>'
             : '<p class="runtime-error-empty">No runtime details.</p>';
           const activeBreadcrumbs = Array.isArray(runtimeStatus.active_breadcrumbs) ? runtimeStatus.active_breadcrumbs : [];
           const activeLabels = activeBreadcrumbs
@@ -6304,8 +6833,12 @@ def _render_runtime_panel_html(runtime_status: dict[str, object]) -> str:
     runtime_text = str(runtime_status.get("status", "stopped")).strip() or "stopped"
     updates_seen = int(runtime_status.get("updates_seen", 0) or 0)
     messages_sent = int(runtime_status.get("messages_sent", 0) or 0)
+    scheduled_runs_seen = int(runtime_status.get("scheduled_runs_seen", 0) or 0)
+    scheduled_messages_sent = int(runtime_status.get("scheduled_messages_sent", 0) or 0)
     last_error_raw = runtime_status.get("last_error")
     last_error = str(last_error_raw).strip() if last_error_raw is not None else ""
+    last_schedule_error_raw = runtime_status.get("last_schedule_error")
+    last_schedule_error = str(last_schedule_error_raw).strip() if last_schedule_error_raw is not None else ""
     active_breadcrumbs = runtime_status.get("active_breadcrumbs")
     breadcrumb_stream = runtime_status.get("breadcrumb_stream")
     active_items = active_breadcrumbs if isinstance(active_breadcrumbs, list) else []
@@ -6317,12 +6850,22 @@ def _render_runtime_panel_html(runtime_status: dict[str, object]) -> str:
         f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Status</span><strong>{html.escape(runtime_text)}</strong></div>"
         f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Updates</span><strong>{updates_seen}</strong></div>"
         f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Messages</span><strong>{messages_sent}</strong></div>"
+        f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Schedules</span><strong>{scheduled_runs_seen}</strong></div>"
+        f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Schedule Messages</span><strong>{scheduled_messages_sent}</strong></div>"
         f"<div class='runtime-summary-card'><span class='runtime-summary-label'>Breadcrumbs</span><strong>{active_count}</strong></div>"
         "</div>"
     )
+    error_text = "\n".join(
+        item
+        for item in (
+            last_error,
+            f"Schedule: {last_schedule_error}" if last_schedule_error else "",
+        )
+        if item
+    )
     error_html = (
-        f"<pre class='runtime-error-text'>{html.escape(last_error)}</pre>"
-        if last_error
+        f"<pre class='runtime-error-text'>{html.escape(error_text)}</pre>"
+        if error_text
         else "<p class='runtime-error-empty'>No runtime details.</p>"
     )
 

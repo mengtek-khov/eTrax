@@ -47,6 +47,9 @@ def controller_to_status(controller: object) -> dict[str, object]:
         "started_at": started_at,
         "updates_seen": int(getattr(controller, "updates_seen", 0)),
         "messages_sent": int(getattr(controller, "messages_sent", 0)),
+        "scheduled_runs_seen": int(getattr(controller, "scheduled_runs_seen", 0)),
+        "scheduled_messages_sent": int(getattr(controller, "scheduled_messages_sent", 0)),
+        "last_schedule_error": getattr(controller, "last_schedule_error", None),
         "last_error": getattr(controller, "last_error", None),
     }
 

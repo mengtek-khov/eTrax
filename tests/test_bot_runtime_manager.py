@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -452,6 +453,159 @@ def test_run_loop_reloads_start_command_config_before_handling_update(tmp_path) 
     manager._run_loop(controller)
 
     assert [item["text"] for item in gateway.sent_messages] == ["Fresh start config"]
+
+
+def test_run_loop_executes_due_manual_schedule_once_for_profile_targets(tmp_path) -> None:
+    bot_id = "support-bot"
+    config_dir = tmp_path / "bot_processes"
+    config_dir.mkdir()
+    config_path = config_dir / f"{bot_id}.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "bot_id": bot_id,
+                "version": 1,
+                "token_ref": {"bot_id": bot_id},
+                "command_menu": {
+                    "include_start": False,
+                    "commands": [],
+                    "command_modules": {},
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    schedules_file = tmp_path / "schedules_ui.json"
+    schedules_file.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "id": "sch-1",
+                        "bot_id": bot_id,
+                        "enabled": True,
+                        "name": "Morning reminder",
+                        "recurrence": "once",
+                        "run_date": "2026-05-26",
+                        "run_time": "09:00",
+                        "timezone": "UTC",
+                        "target_scope": "all_users",
+                        "task_key": "manual_process_pipeline",
+                        "process_pipeline": json.dumps(
+                            {
+                                "module_type": "send_message",
+                                "text_template": "Scheduled hi {user_first_name}",
+                            }
+                        ),
+                    }
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    class EmptyScheduleGateway:
+        def __init__(self, stop_event) -> None:
+            self._stop_event = stop_event
+            self.sent_messages: list[dict[str, Any]] = []
+            self.command_syncs: list[list[dict[str, str]]] = []
+
+        def set_my_commands(
+            self,
+            *,
+            bot_token: str,
+            commands: list[dict[str, str]],
+            scope: dict[str, Any] | None = None,
+            language_code: str | None = None,
+        ) -> dict[str, Any]:
+            del scope, language_code
+            self.command_syncs.append([dict(item) for item in commands])
+            return {"bot_token": bot_token, "commands": commands}
+
+        def delete_my_commands(
+            self,
+            *,
+            bot_token: str,
+            scope: dict[str, Any] | None = None,
+            language_code: str | None = None,
+        ) -> dict[str, Any]:
+            return {"bot_token": bot_token, "scope": scope, "language_code": language_code}
+
+        def get_updates(
+            self,
+            *,
+            bot_token: str,
+            offset: int | None = None,
+            timeout: int | None = None,
+            allowed_updates: list[str] | None = None,
+        ) -> dict[str, Any]:
+            del bot_token, offset, timeout, allowed_updates
+            self._stop_event.set()
+            return {"ok": True, "result": []}
+
+        def send_message(
+            self,
+            *,
+            bot_token: str,
+            chat_id: str,
+            text: str,
+            parse_mode: str | None = None,
+            reply_markup: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            payload = {
+                "bot_token": bot_token,
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": parse_mode,
+                "reply_markup": reply_markup,
+            }
+            self.sent_messages.append(payload)
+            return payload
+
+    profile_store = JsonUserProfileLogStore(tmp_path / "profile_log.json")
+    profile_store.upsert_profile(
+        bot_id=bot_id,
+        user_id="77",
+        profile_updates={
+            "first_name": "Alice",
+            "last_chat_id": "12345",
+            "chat_ids": ["12345"],
+        },
+    )
+    controller = BotRuntimeController(bot_id=bot_id)
+    gateway = EmptyScheduleGateway(controller.stop_event)
+    schedule_state_file = tmp_path / "scheduled_run_state.json"
+    manager = BotRuntimeManager(
+        token_service=FakeTokenResolver({bot_id: "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        bot_config_dir=config_dir,
+        state_file=tmp_path / "update_offsets.json",
+        profile_log_store=profile_store,
+        schedules_file=schedules_file,
+        working_hours_file=tmp_path / "working_hours_ui.json",
+        schedule_state_file=schedule_state_file,
+        schedule_check_interval_seconds=0,
+        schedule_max_lag_seconds=60,
+        schedule_now_factory=lambda: datetime(2026, 5, 26, 9, 0, tzinfo=timezone.utc),
+        gateway_factory=lambda: gateway,
+        poll_interval_seconds=0.0,
+        poll_timeout_seconds=0,
+    )
+
+    manager._run_loop(controller)
+
+    assert [item["text"] for item in gateway.sent_messages] == ["Scheduled hi Alice"]
+    assert controller.scheduled_runs_seen == 1
+    assert schedule_state_file.exists()
+
+    controller = BotRuntimeController(bot_id=bot_id)
+    gateway._stop_event = controller.stop_event
+    manager._run_loop(controller)
+
+    assert [item["text"] for item in gateway.sent_messages] == ["Scheduled hi Alice"]
 
 
 def test_stop_returns_stopping_while_poll_thread_is_still_alive() -> None:

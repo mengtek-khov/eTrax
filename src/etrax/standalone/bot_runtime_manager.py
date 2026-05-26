@@ -9,7 +9,7 @@ import time
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any, Callable
@@ -38,6 +38,7 @@ from etrax.core.telegram import (
 from etrax.core.flow import FlowModule
 from etrax.core.token import BotTokenService
 from etrax.standalone.runtime_config_resolver import (
+    _resolve_named_step_config,
     _validate_cart_dependent_modules,
     resolve_callback_send_configs,
     resolve_callback_temporary_command_menus,
@@ -64,8 +65,19 @@ from etrax.standalone.runtime_support import (
     sync_command_menu as _sync_command_menu,
 )
 from etrax.standalone.runtime_update_router import (
+    execute_pipeline as _execute_pipeline,
     extract_command_name_and_payload as _extract_command_name_and_payload,
     handle_update as _handle_update,
+)
+from etrax.standalone.schedule_runtime import (
+    MANUAL_PIPELINE_TASK_KEY,
+    DueScheduledRun,
+    build_scheduled_context,
+    claim_schedule_run,
+    iter_due_scheduled_runs,
+    load_json_entries,
+    load_schedule_claims,
+    parse_schedule_pipeline_text,
 )
 
 
@@ -80,10 +92,14 @@ class BotRuntimeController:
     last_error: str | None = None
     updates_seen: int = 0
     messages_sent: int = 0
+    scheduled_runs_seen: int = 0
+    scheduled_messages_sent: int = 0
     active: bool = False
     last_error_logged: str | None = None
     last_error_logged_at_epoch: float = 0.0
     last_commands_signature: str | None = None
+    last_schedule_run_at_epoch: float | None = None
+    last_schedule_error: str | None = None
 
 
 @dataclass(slots=True)
@@ -98,6 +114,7 @@ class RuntimeSnapshot:
     callback_continuation_modules: dict[str, list[FlowModule]]
     callback_context_updates: dict[str, dict[str, object]]
     checkout_modules: dict[str, CheckoutCartModule]
+    cart_configs: dict[str, CartButtonConfig] = field(default_factory=dict)
 
     def is_empty(self) -> bool:
         """Return True when there is nothing configured to execute for this bot."""
@@ -375,12 +392,18 @@ class BotRuntimeManager:
         cart_state_file: Path | None = None,
         profile_log_file: Path | None = None,
         temporary_command_menu_state_file: Path | None = None,
+        schedules_file: Path | None = None,
+        working_hours_file: Path | None = None,
+        schedule_state_file: Path | None = None,
         cart_state_store: object | None = None,
         profile_log_store: UserProfileLogStore | None = None,
         temporary_command_menu_state_store: TemporaryCommandMenuStateStore | None = None,
         scaffold_store: BotProcessScaffoldStore | None = None,
         poll_timeout_seconds: int = 25,
         poll_interval_seconds: float = 0.5,
+        schedule_check_interval_seconds: float = 15.0,
+        schedule_max_lag_seconds: int = 300,
+        schedule_now_factory: Callable[[], datetime] | None = None,
         gateway_factory: Callable[[], TelegramBotApiGateway] | None = None,
     ) -> None:
         """Build the standalone runtime manager and its state store dependencies."""
@@ -400,13 +423,20 @@ class BotRuntimeManager:
             temporary_command_menu_state_file or state_file.with_name("temporary_command_menus.json")
         )
         self._scaffold_store = scaffold_store or JsonBotProcessScaffoldStore(bot_config_dir)
+        self._schedules_file = schedules_file or state_file.with_name("schedules_ui.json")
+        self._working_hours_file = working_hours_file or state_file.with_name("working_hours_ui.json")
+        self._schedule_state_file = schedule_state_file or state_file.with_name("scheduled_run_state.json")
         self._poll_timeout_seconds = poll_timeout_seconds
         self._poll_interval_seconds = poll_interval_seconds
+        self._schedule_check_interval_seconds = max(0.0, float(schedule_check_interval_seconds))
+        self._schedule_max_lag_seconds = max(0, int(schedule_max_lag_seconds))
+        self._schedule_now_factory = schedule_now_factory or (lambda: datetime.now(timezone.utc))
         self._gateway_factory = gateway_factory or (
             lambda: TelegramBotApiGateway(timeout_seconds=max(15, poll_timeout_seconds + 5))
         )
         self._controllers: dict[str, BotRuntimeController] = {}
         self._lock = Lock()
+        self._schedule_state_lock = Lock()
         self._contact_request_store = _InMemoryContactRequestStore()
         self._selfie_request_store = _InMemorySelfieRequestStore()
         self._location_request_store = _InMemoryLocationRequestStore()
@@ -497,6 +527,9 @@ class BotRuntimeManager:
                     "status": "stopped",
                     "updates_seen": 0,
                     "messages_sent": 0,
+                    "scheduled_runs_seen": 0,
+                    "scheduled_messages_sent": 0,
+                    "last_schedule_error": None,
                     "last_error": None,
                 }
             else:
@@ -520,6 +553,7 @@ class BotRuntimeManager:
         active_temporary_command_menus_by_chat: dict[str, dict[str, object]] = {}
         polling_token_lock: _PollingTokenLock | None = None
         polling_token_value = ""
+        last_schedule_check_epoch = 0.0
 
         try:
             while not controller.stop_event.is_set():
@@ -560,6 +594,22 @@ class BotRuntimeManager:
                         runtime_snapshot=runtime_snapshot,
                         active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
                     )
+                    current_epoch = time.time()
+                    if current_epoch - last_schedule_check_epoch >= self._schedule_check_interval_seconds:
+                        scheduled_sent_count = self._run_due_schedules(
+                            bot_id=bot_id,
+                            bot_token=token,
+                            gateway=gateway,
+                            controller=controller,
+                            runtime_snapshot=runtime_snapshot,
+                            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                            callback_continuation_by_message=callback_continuation_by_message,
+                            callback_context_updates_by_message=callback_context_updates_by_message,
+                            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+                        )
+                        if scheduled_sent_count > 0:
+                            controller.messages_sent += scheduled_sent_count
+                        last_schedule_check_epoch = current_epoch
 
                     updates = gateway.get_updates(
                         bot_token=token,
@@ -637,6 +687,194 @@ class BotRuntimeManager:
             if polling_token_lock is not None:
                 polling_token_lock.release()
             controller.active = False
+
+    def _run_due_schedules(
+        self,
+        *,
+        bot_id: str,
+        bot_token: str,
+        gateway: TelegramBotApiGateway,
+        controller: BotRuntimeController,
+        runtime_snapshot: RuntimeSnapshot,
+        active_temporary_command_menus_by_chat: dict[str, dict[str, object]],
+        callback_continuation_by_message: dict[str, list[FlowModule]],
+        callback_context_updates_by_message: dict[str, dict[str, object]],
+        inline_button_cleanup_by_message: dict[str, bool],
+    ) -> int:
+        """Execute due scheduled tasks for one running bot."""
+        try:
+            schedules = load_json_entries(self._schedules_file)
+            if not schedules:
+                controller.last_schedule_error = None
+                return 0
+            working_hours = load_json_entries(self._working_hours_file)
+            profiles = self._list_profiles(bot_id)
+            now = self._schedule_now_factory()
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=timezone.utc)
+            with self._schedule_state_lock:
+                claims = load_schedule_claims(self._schedule_state_file)
+            due_runs = iter_due_scheduled_runs(
+                bot_id=bot_id,
+                schedules=schedules,
+                working_hours=working_hours,
+                profiles=profiles,
+                now_utc=now.astimezone(timezone.utc),
+                existing_claims=claims,
+                max_lag_seconds=self._schedule_max_lag_seconds,
+            )
+            sent_count = 0
+            for run in due_runs:
+                with self._schedule_state_lock:
+                    claimed = claim_schedule_run(
+                        state_file=self._schedule_state_file,
+                        claim_key=run.claim_key,
+                        run_at=run.run_at,
+                        now=now,
+                    )
+                if not claimed:
+                    continue
+                run_sent_count = self._execute_scheduled_run(
+                    bot_id=bot_id,
+                    bot_token=bot_token,
+                    gateway=gateway,
+                    run=run,
+                    runtime_snapshot=runtime_snapshot,
+                    active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+                    callback_continuation_by_message=callback_continuation_by_message,
+                    callback_context_updates_by_message=callback_context_updates_by_message,
+                    inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+                )
+                controller.scheduled_runs_seen += 1
+                controller.scheduled_messages_sent += run_sent_count
+                controller.last_schedule_run_at_epoch = time.time()
+                sent_count += run_sent_count
+            controller.last_schedule_error = None
+            return sent_count
+        except Exception as exc:
+            error_message = f"{type(exc).__name__}: {str(exc).strip()}" if str(exc).strip() else type(exc).__name__
+            controller.last_schedule_error = error_message
+            _print_runtime_error(bot_id, f"scheduled task failed: {error_message}", details=traceback.format_exc())
+            return 0
+
+    def _execute_scheduled_run(
+        self,
+        *,
+        bot_id: str,
+        bot_token: str,
+        gateway: TelegramBotApiGateway,
+        run: DueScheduledRun,
+        runtime_snapshot: RuntimeSnapshot,
+        active_temporary_command_menus_by_chat: dict[str, dict[str, object]],
+        callback_continuation_by_message: dict[str, list[FlowModule]],
+        callback_context_updates_by_message: dict[str, dict[str, object]],
+        inline_button_cleanup_by_message: dict[str, bool],
+    ) -> int:
+        """Execute one claimed schedule occurrence against its target chat."""
+        pipeline = self._scheduled_pipeline_for_run(
+            bot_id=bot_id,
+            gateway=gateway,
+            run=run,
+            runtime_snapshot=runtime_snapshot,
+        )
+        if not pipeline:
+            return 0
+        context = build_scheduled_context(bot_id=bot_id, run=run)
+        task_key = str(run.schedule.get("task_key", "")).strip()
+        if task_key and task_key != MANUAL_PIPELINE_TASK_KEY:
+            if task_key in runtime_snapshot.callback_modules:
+                context["callback_data"] = task_key
+            else:
+                context["command_name"] = task_key
+        return _execute_pipeline(
+            pipeline,
+            context,
+            command_menu=runtime_snapshot.command_menu,
+            command_modules=runtime_snapshot.command_modules,
+            callback_modules=runtime_snapshot.callback_modules,
+            temporary_command_menus=runtime_snapshot.temporary_command_menus,
+            active_temporary_command_menus_by_chat=active_temporary_command_menus_by_chat,
+            temporary_command_menu_state_store=self._temporary_command_menu_state_store,
+            callback_continuation_by_message=callback_continuation_by_message,
+            callback_context_updates_by_message=callback_context_updates_by_message,
+            inline_button_cleanup_by_message=inline_button_cleanup_by_message,
+            callback_execution_stack=(task_key,) if task_key in runtime_snapshot.callback_modules else (),
+            command_execution_stack=(task_key,) if task_key in runtime_snapshot.command_modules else (),
+            gateway=gateway,
+            bot_token=bot_token,
+        )
+
+    def _scheduled_pipeline_for_run(
+        self,
+        *,
+        bot_id: str,
+        gateway: TelegramBotApiGateway,
+        run: DueScheduledRun,
+        runtime_snapshot: RuntimeSnapshot,
+    ) -> list[FlowModule]:
+        """Resolve the runtime pipeline for a schedule task key."""
+        task_key = str(run.schedule.get("task_key", "")).strip()
+        if task_key == MANUAL_PIPELINE_TASK_KEY:
+            step_configs = self._resolve_manual_schedule_step_configs(bot_id=bot_id, run=run)
+            if not step_configs:
+                return []
+            return _build_runtime_modules(
+                step_configs=step_configs,
+                token_service=self._token_service,
+                gateway=gateway,
+                cart_state_store=self._cart_state_store,
+                bound_code_store=self._bound_code_store,
+                profile_log_store=self._profile_log_store,
+                contact_request_store=self._contact_request_store,
+                selfie_request_store=self._selfie_request_store,
+                location_request_store=self._location_request_store,
+                keyboard_reply_request_store=self._keyboard_reply_request_store,
+                inline_action_request_store=self._inline_action_request_store,
+                cart_configs=runtime_snapshot.cart_configs,
+                checkout_modules=runtime_snapshot.checkout_modules,
+            )
+        if task_key in runtime_snapshot.command_modules:
+            return runtime_snapshot.command_modules[task_key]
+        if task_key in runtime_snapshot.callback_modules:
+            return runtime_snapshot.callback_modules[task_key]
+        return []
+
+    def _resolve_manual_schedule_step_configs(
+        self,
+        *,
+        bot_id: str,
+        run: DueScheduledRun,
+    ) -> list[object]:
+        """Resolve a manual schedule pipeline from JSON-lines into runtime configs."""
+        steps = parse_schedule_pipeline_text(run.schedule.get("process_pipeline", ""))
+        if not steps:
+            return []
+        schedule_id = str(run.schedule.get("id", "")).strip() or "schedule"
+        route_key = f"schedule_{schedule_id}"
+        route_label = f"schedule '{str(run.schedule.get('name', schedule_id)).strip() or schedule_id}'"
+        resolved: list[object] = []
+        for index, step in enumerate(steps):
+            resolved.append(
+                _resolve_named_step_config(
+                    bot_id=bot_id,
+                    route_label=route_label,
+                    route_key=route_key,
+                    step_index=index,
+                    default_text_template=f"Scheduled task {schedule_id} received.",
+                    step=step,
+                )
+            )
+        return resolved
+
+    def _list_profiles(self, bot_id: str) -> list[dict[str, object]]:
+        """Return profile rows for schedule targeting."""
+        list_profiles = getattr(self._profile_log_store, "list_profiles", None)
+        if not callable(list_profiles):
+            return []
+        profiles = list_profiles(bot_id=bot_id)
+        if not isinstance(profiles, list):
+            return []
+        return [dict(item) for item in profiles if isinstance(item, dict)]
 
     def _restore_persisted_temporary_command_menus(
         self,
@@ -853,6 +1091,7 @@ class BotRuntimeManager:
             callback_continuation_modules=callback_continuation_modules,
             callback_context_updates=callback_context_updates,
             checkout_modules=checkout_modules,
+            cart_configs=cart_configs,
         )
 
     def _should_log_error(self, controller: BotRuntimeController, error_message: str) -> bool:

@@ -391,7 +391,9 @@
   function parseState(rawState) {
     // Convert the server-provided JSON blob into the reactive Vue state shape.
     const parsed = rawState && typeof rawState === "object" ? rawState : {};
-    const editorMode = parsed.mode === "template" ? "template" : "bot";
+    const editorMode = parsed.mode === "template" || parsed.mode === "scheduled"
+      ? parsed.mode
+      : "bot";
     const start = parsed.start && typeof parsed.start === "object" ? parsed.start : {};
     const commandRows = Array.isArray(parsed.commands) ? parsed.commands : [];
     const callbackRows = Array.isArray(parsed.callbacks) ? parsed.callbacks : [];
@@ -442,7 +444,7 @@
 <div class="status success" v-if="templateSaveMessage">[[ templateSaveMessage ]]</div>
 <div class="status error" v-if="templateSaveError">[[ templateSaveError ]]</div>
 <div class="module-block" id="start-module-setup">
-  <div v-if="!isTemplateMode">
+  <div v-if="!isSinglePipelineMode">
 	  <div class="pipeline-title-row">
 	    <p class="module-title">/start Command Setup</p>
 	    <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(startEditor)">[[ editorCollapsed(startEditor) ? 'Expand' : 'Collapse' ]]</button>
@@ -460,11 +462,11 @@
     </select>
     <button type="button" class="secondary" @click="addModule(startEditor)">Add Module</button>
     <button type="button" class="secondary" @click="saveEditorAsTemplate(startEditor, '/start Pipeline', 'start', '/start')">Save As Template</button>
-    <select v-if="!isTemplateMode" v-model="startEditor.selected_template_id">
+    <select v-if="canLoadTemplates" v-model="startEditor.selected_template_id">
       <option value="">Select Template</option>
       <option v-for="template in templateOptions" :key="'start-template-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
     </select>
-    <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!startEditor.selected_template_id" @click="loadTemplateIntoEditor(startEditor)">Load Template</button>
+    <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!startEditor.selected_template_id" @click="loadTemplateIntoEditor(startEditor)">Load Template</button>
   </div>
 	  <div class="module-list">
     <div v-for="(step, moduleIndex) in startEditor.steps" :key="'start-' + moduleIndex" :class="moduleRowClass(startEditor, moduleIndex)">
@@ -574,8 +576,8 @@
   <input type="hidden" name="start_returning_text_template" :value="startReturningTextTemplate">
   </div>
 
-	  <label>[[ isTemplateMode ? 'Process Pipeline' : 'Custom Commands' ]]</label>
-	  <p class="hint">[[ isTemplateMode ? 'One reusable pipeline. It is not attached to a command until you load it into a bot command.' : 'Each command has its own process module setup panel.' ]]</p>
+	  <label>[[ isSinglePipelineMode ? 'Process Pipeline' : 'Custom Commands' ]]</label>
+	  <p class="hint">[[ isSinglePipelineMode ? 'One reusable pipeline. It can be edited directly or loaded from a saved template.' : 'Each command has its own process module setup panel.' ]]</p>
 	  <div id="command-list" class="command-list">
 	    <div class="command-entry" v-for="(entry, commandIndex) in commandEntries" :key="'cmd-' + entry._entry_id">
       <div class="pipeline-title-row">
@@ -583,10 +585,10 @@
         <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(entry.editor)">[[ editorCollapsed(entry.editor) ? 'Expand' : 'Collapse' ]]</button>
       </div>
       <div v-if="!editorCollapsed(entry.editor)">
-      <div :class="isTemplateMode ? 'command-row no-action' : 'command-row'">
-        <input placeholder="/help" v-model="entry.command" :readonly="isTemplateMode">
-        <input placeholder="Get help" v-model="entry.description" :readonly="isTemplateMode">
-        <button type="button" v-if="!isTemplateMode" @click="removeCommand(commandIndex)">Remove</button>
+      <div :class="isSinglePipelineMode ? 'command-row no-action' : 'command-row'">
+        <input placeholder="/help" v-model="entry.command" :readonly="isSinglePipelineMode">
+        <input placeholder="Get help" v-model="entry.description" :readonly="isSinglePipelineMode">
+        <button type="button" v-if="!isSinglePipelineMode" @click="removeCommand(commandIndex)">Remove</button>
       </div>
       <div class="module-list-tools">
         <select v-model="entry.editor.add_type">
@@ -594,11 +596,11 @@
         </select>
         <button type="button" class="secondary" @click="addModule(entry.editor)">Add Module</button>
         <button type="button" class="secondary" v-if="!isTemplateMode" @click="saveEditorAsTemplate(entry.editor, (entry.command || 'Command') + ' Pipeline', 'command', entry.command)">Save As Template</button>
-        <select v-if="!isTemplateMode" v-model="entry.editor.selected_template_id">
+        <select v-if="canLoadTemplates" v-model="entry.editor.selected_template_id">
           <option value="">Select Template</option>
           <option v-for="template in templateOptions" :key="'cmd-template-' + commandIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
         </select>
-        <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
+        <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
       </div>
       <div class="module-list">
         <div v-for="(step, moduleIndex) in entry.editor.steps" :key="'cmd-' + commandIndex + '-' + moduleIndex" :class="moduleRowClass(entry.editor, moduleIndex)">
@@ -710,10 +712,10 @@
 	    </div>
 	  </div>
 	  <div class="actions">
-	    <button type="button" class="secondary" v-if="!isTemplateMode" @click="addCommand">Add Command</button>
-	    <button type="button" class="secondary" v-if="!isTemplateMode" @click="addModuleWithTempCommandExample">Add command with temp command</button>
+		    <button type="button" class="secondary" v-if="!isSinglePipelineMode" @click="addCommand">Add Command</button>
+		    <button type="button" class="secondary" v-if="!isSinglePipelineMode" @click="addModuleWithTempCommandExample">Add command with temp command</button>
 	  </div>
-	  <div v-if="isTemplateMode">
+		  <div v-if="isSinglePipelineMode">
 	    <input type="hidden" name="process_pipeline" :value="templateProcessPipeline">
 	    <input type="hidden" name="callback_modules" :value="serializeTemplateCallbacks(callbackEntries)">
 	    <input type="hidden" name="temporary_commands" :value="serializeTemplateTemporaryCommands(callbackEntries)">
@@ -751,11 +753,11 @@
         </select>
         <button type="button" class="secondary" @click="addModule(entry.editor)">Add Module</button>
         <button type="button" class="secondary" @click="saveEditorAsTemplate(entry.editor, (entry.callback_key || 'Callback') + ' Pipeline', 'callback', entry.callback_key)">Save As Template</button>
-        <select v-if="!isTemplateMode" v-model="entry.editor.selected_template_id">
+        <select v-if="canLoadTemplates" v-model="entry.editor.selected_template_id">
           <option value="">Select Template</option>
           <option v-for="template in templateOptions" :key="'callback-template-' + callbackIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
         </select>
-        <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
+        <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
       </div>
 			      <div class="module-list">
 	        <div v-for="(step, moduleIndex) in entry.editor.steps" :key="'callback-' + callbackIndex + '-' + moduleIndex" :class="moduleRowClass(entry.editor, moduleIndex)">
@@ -814,11 +816,11 @@
               </select>
               <button type="button" class="secondary" @click="addModule(tempEntry.editor)">Add Module</button>
               <button type="button" class="secondary" @click="saveEditorAsTemplate(tempEntry.editor, (tempEntry.command || 'Temporary Command') + ' Pipeline', 'temporary_command', tempEntry.command)">Save As Template</button>
-              <select v-if="!isTemplateMode" v-model="tempEntry.editor.selected_template_id">
+              <select v-if="canLoadTemplates" v-model="tempEntry.editor.selected_template_id">
                 <option value="">Select Template</option>
                 <option v-for="template in templateOptions" :key="'temp-template-' + callbackIndex + '-' + tempCommandIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
               </select>
-              <button type="button" class="secondary" v-if="!isTemplateMode" :disabled="!tempEntry.editor.selected_template_id" @click="loadTemplateIntoEditor(tempEntry.editor)">Load Template</button>
+              <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!tempEntry.editor.selected_template_id" @click="loadTemplateIntoEditor(tempEntry.editor)">Load Template</button>
             </div>
 		            <div class="module-list">
               <div v-for="(step, moduleIndex) in tempEntry.editor.steps" :key="'callback-temp-step-' + callbackIndex + '-' + tempCommandIndex + '-' + moduleIndex" :class="moduleRowClass(tempEntry.editor, moduleIndex)">
@@ -942,7 +944,7 @@
   <div class="actions">
     <button type="button" class="secondary" @click="addCallback">Add Callback Module</button>
   </div>
-  <div class="actions" v-if="!isTemplateMode">
+  <div class="actions" v-if="!isSinglePipelineMode">
     <button type="button" class="secondary" @click="resetAllToStartDefault">Reset Everything To /start Default</button>
   </div>
 </div>
@@ -967,6 +969,15 @@
       computed: {
         isTemplateMode() {
           return this.editorMode === "template";
+        },
+        isScheduledMode() {
+          return this.editorMode === "scheduled";
+        },
+        isSinglePipelineMode() {
+          return this.isTemplateMode || this.isScheduledMode;
+        },
+        canLoadTemplates() {
+          return !this.isTemplateMode;
         },
         startPrimary() {
           return this.primaryStep(this.startEditor);
