@@ -79,6 +79,11 @@ from etrax.standalone.schedule_runtime import (
     load_schedule_claims,
     parse_schedule_pipeline_text,
 )
+from etrax.standalone.translation_registry import (
+    load_translation_entries,
+    resolve_runtime_language,
+    translate_runtime_text,
+)
 
 
 @dataclass(slots=True)
@@ -163,6 +168,119 @@ class _PollingTokenLock:
             self._path.unlink()
         except FileNotFoundError:
             return
+
+
+class _TranslatingTelegramGateway:
+    """Gateway wrapper that translates final outgoing message text and button labels."""
+
+    def __init__(
+        self,
+        *,
+        gateway: TelegramBotApiGateway,
+        bot_id: str,
+        translations_file: Path,
+        profile_log_store: UserProfileLogStore | None,
+    ) -> None:
+        self._gateway = gateway
+        self._bot_id = str(bot_id or "").strip()
+        self._translations_file = translations_file
+        self._profile_log_store = profile_log_store
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._gateway, name)
+
+    def send_message(
+        self,
+        *,
+        bot_token: str,
+        chat_id: str,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        language_code = self._language_for_chat(chat_id)
+        translated_text = self._translate_text(text, language_code=language_code)
+        translated_reply_markup = self._translate_reply_markup(reply_markup, language_code=language_code)
+        return self._gateway.send_message(
+            bot_token=bot_token,
+            chat_id=chat_id,
+            text=translated_text,
+            parse_mode=parse_mode,
+            reply_markup=translated_reply_markup,
+        )
+
+    def _language_for_chat(self, chat_id: str) -> str:
+        profile = self._profile_for_chat(chat_id)
+        return resolve_runtime_language({"profile": profile} if profile else {})
+
+    def _profile_for_chat(self, chat_id: str) -> dict[str, Any] | None:
+        if self._profile_log_store is None:
+            return None
+        normalized_chat_id = str(chat_id or "").strip()
+        if not normalized_chat_id:
+            return None
+        list_profiles = getattr(self._profile_log_store, "list_profiles", None)
+        if not callable(list_profiles):
+            return None
+        try:
+            profiles = list_profiles(bot_id=self._bot_id)
+        except (OSError, ValueError, TypeError):
+            return None
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                continue
+            chat_ids = profile.get("chat_ids", [])
+            if isinstance(chat_ids, list) and normalized_chat_id in {str(value).strip() for value in chat_ids}:
+                return dict(profile)
+            if str(profile.get("chat_id", "")).strip() == normalized_chat_id:
+                return dict(profile)
+        return None
+
+    def _translation_entries(self) -> list[dict[str, Any]]:
+        try:
+            return load_translation_entries(self._translations_file)
+        except (OSError, ValueError):
+            return []
+
+    def _translate_text(self, text: str, *, language_code: str) -> str:
+        if not language_code:
+            return text
+        return translate_runtime_text(
+            bot_id=self._bot_id,
+            source_text=text,
+            language_code=language_code,
+            entries=self._translation_entries(),
+        )
+
+    def _translate_reply_markup(
+        self,
+        reply_markup: dict[str, Any] | None,
+        *,
+        language_code: str,
+    ) -> dict[str, Any] | None:
+        if reply_markup is None:
+            return None
+        if not language_code:
+            return dict(reply_markup)
+        translated = _translate_markup_value(
+            reply_markup,
+            translate_text=lambda value: self._translate_text(value, language_code=language_code),
+        )
+        return translated if isinstance(translated, dict) else dict(reply_markup)
+
+
+def _translate_markup_value(value: Any, *, translate_text: Callable[[str], str]) -> Any:
+    if isinstance(value, dict):
+        translated: dict[str, Any] = {}
+        for key, nested_value in value.items():
+            if key == "text" and isinstance(nested_value, str):
+                translated[key] = translate_text(nested_value)
+            else:
+                translated[key] = _translate_markup_value(nested_value, translate_text=translate_text)
+        return translated
+    if isinstance(value, list):
+        return [_translate_markup_value(item, translate_text=translate_text) for item in value]
+    return value
 
 
 def _read_lock_pid(path: Path) -> int | None:
@@ -395,6 +513,7 @@ class BotRuntimeManager:
         schedules_file: Path | None = None,
         working_hours_file: Path | None = None,
         schedule_state_file: Path | None = None,
+        translations_file: Path | None = None,
         cart_state_store: object | None = None,
         profile_log_store: UserProfileLogStore | None = None,
         temporary_command_menu_state_store: TemporaryCommandMenuStateStore | None = None,
@@ -426,6 +545,7 @@ class BotRuntimeManager:
         self._schedules_file = schedules_file or state_file.with_name("schedules_ui.json")
         self._working_hours_file = working_hours_file or state_file.with_name("working_hours_ui.json")
         self._schedule_state_file = schedule_state_file or state_file.with_name("scheduled_run_state.json")
+        self._translations_file = translations_file or state_file.with_name("translations_ui.json")
         self._poll_timeout_seconds = poll_timeout_seconds
         self._poll_interval_seconds = poll_interval_seconds
         self._schedule_check_interval_seconds = max(0.0, float(schedule_check_interval_seconds))
@@ -638,6 +758,7 @@ class BotRuntimeManager:
                                 controller=controller,
                             )
 
+                        update_gateway = self._build_translating_gateway(gateway=gateway, bot_id=bot_id)
                         sent_count = _handle_update(
                             item,
                             bot_id=bot_id,
@@ -654,7 +775,7 @@ class BotRuntimeManager:
                             callback_context_updates_by_message=callback_context_updates_by_message,
                             inline_button_cleanup_by_message=inline_button_cleanup_by_message,
                             checkout_modules=runtime_snapshot.checkout_modules,
-                            gateway=gateway,
+                            gateway=update_gateway,
                             bot_token=token,
                             contact_request_store=self._contact_request_store,
                             selfie_request_store=self._selfie_request_store,
@@ -952,13 +1073,15 @@ class BotRuntimeManager:
         command_pipelines = resolve_command_send_configs(config_payload, bot_id, commands=command_menu)
         callback_pipelines = resolve_callback_send_configs(config_payload, bot_id)
         temporary_command_menus = resolve_callback_temporary_command_menus(config_payload, bot_id)
+        text_template_resolver = self._build_text_template_resolver(bot_id=bot_id)
+        module_gateway = self._build_translating_gateway(gateway=gateway, bot_id=bot_id)
 
         checkout_modules: dict[str, CheckoutCartModule] = {}
         command_modules = {
             command_name: _build_runtime_modules(
                 step_configs=pipeline,
                 token_service=self._token_service,
-                gateway=gateway,
+                gateway=module_gateway,
                 cart_state_store=self._cart_state_store,
                 bound_code_store=self._bound_code_store,
                 profile_log_store=self._profile_log_store,
@@ -969,6 +1092,7 @@ class BotRuntimeManager:
                 inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
+                text_template_resolver=text_template_resolver,
             )
             for command_name, pipeline in command_pipelines.items()
         }
@@ -976,7 +1100,7 @@ class BotRuntimeManager:
             callback_key: _build_runtime_modules(
                 step_configs=pipeline,
                 token_service=self._token_service,
-                gateway=gateway,
+                gateway=module_gateway,
                 cart_state_store=self._cart_state_store,
                 bound_code_store=self._bound_code_store,
                 profile_log_store=self._profile_log_store,
@@ -987,6 +1111,7 @@ class BotRuntimeManager:
                 inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
+                text_template_resolver=text_template_resolver,
             )
             for callback_key, pipeline in callback_pipelines.items()
         }
@@ -1000,7 +1125,7 @@ class BotRuntimeManager:
                 command_name: _build_runtime_modules(
                     step_configs=pipeline,
                     token_service=self._token_service,
-                    gateway=gateway,
+                    gateway=module_gateway,
                     cart_state_store=self._cart_state_store,
                     bound_code_store=self._bound_code_store,
                     profile_log_store=self._profile_log_store,
@@ -1011,6 +1136,7 @@ class BotRuntimeManager:
                     inline_action_request_store=self._inline_action_request_store,
                     cart_configs=cart_configs,
                     checkout_modules=checkout_modules,
+                    text_template_resolver=text_template_resolver,
                 )
                 for command_name, pipeline in temporary_command_pipelines.items()
             }
@@ -1033,7 +1159,7 @@ class BotRuntimeManager:
             product_key: _build_runtime_modules(
                 step_configs=[step_config],
                 token_service=self._token_service,
-                gateway=gateway,
+                gateway=module_gateway,
                 cart_state_store=self._cart_state_store,
                 bound_code_store=self._bound_code_store,
                 profile_log_store=self._profile_log_store,
@@ -1044,6 +1170,7 @@ class BotRuntimeManager:
                 inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
+                text_template_resolver=text_template_resolver,
             )[0]
             for product_key, step_config in cart_configs.items()
         }
@@ -1092,6 +1219,41 @@ class BotRuntimeManager:
             callback_context_updates=callback_context_updates,
             checkout_modules=checkout_modules,
             cart_configs=cart_configs,
+        )
+
+    def _build_text_template_resolver(self, *, bot_id: str) -> Callable[[str, dict[str, Any], str], str]:
+        """Build a runtime resolver that translates source templates by selected language."""
+
+        def resolve(text_template: str, context: dict[str, Any], resolved_bot_id: str) -> str:
+            language_code = resolve_runtime_language(context)
+            if not language_code:
+                return text_template
+            try:
+                entries = load_translation_entries(self._translations_file)
+            except (OSError, ValueError):
+                return text_template
+            return translate_runtime_text(
+                bot_id=resolved_bot_id or bot_id,
+                source_text=text_template,
+                language_code=language_code,
+                entries=entries,
+            )
+
+        return resolve
+
+    def _build_translating_gateway(
+        self,
+        *,
+        gateway: TelegramBotApiGateway,
+        bot_id: str,
+    ) -> _TranslatingTelegramGateway:
+        """Build a gateway wrapper that translates outbound messages for one bot."""
+
+        return _TranslatingTelegramGateway(
+            gateway=gateway,
+            bot_id=bot_id,
+            translations_file=self._translations_file,
+            profile_log_store=self._profile_log_store,
         )
 
     def _should_log_error(self, controller: BotRuntimeController, error_message: str) -> bool:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from string import Formatter
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 from ..flow import FlowModule, ModuleOutcome
 from .contracts import BotTokenResolver, TelegramMessageGateway
@@ -33,6 +33,7 @@ class WaitKeyboardReplyConfig:
     context_chat_id_key: str = "chat_id"
     context_user_id_key: str = "user_id"
     context_result_key: str = "wait_keyboard_reply_result"
+    text_template_resolver: Callable[[str, dict[str, Any], str], str] | None = None
 
 
 @dataclass(slots=True)
@@ -100,8 +101,21 @@ class WaitKeyboardReplyModule:
         render_context.setdefault("bot_name", bot_id)
         render_context.setdefault("chat_id", chat_id)
         render_context.setdefault("user_id", user_id)
+        prompt_text_template = self._translate_text_source(self._config.text_template, render_context, bot_id)
+        success_text_template = self._translate_text_source(
+            self._config.success_text_template,
+            render_context,
+            bot_id,
+        )
+        invalid_text_template = self._translate_text_source(
+            self._config.invalid_text_template,
+            render_context,
+            bot_id,
+        )
+        translated_buttons = self._translate_buttons(buttons, render_context, bot_id)
+
         prompt_text = render_wait_keyboard_reply_text(
-            self._config.text_template,
+            prompt_text_template,
             render_context,
             default_text=DEFAULT_KEYBOARD_REPLY_PROMPT,
             field_label="wait_keyboard_reply prompt",
@@ -117,7 +131,7 @@ class WaitKeyboardReplyModule:
             chat_id=chat_id,
             text=prompt_text,
             parse_mode=parse_mode,
-            reply_markup=build_reply_keyboard_reply_markup(list(buttons), one_time_keyboard=True),
+            reply_markup=build_reply_keyboard_reply_markup(list(translated_buttons), one_time_keyboard=True),
         )
         result_context = {
             self._config.context_result_key: {
@@ -125,7 +139,7 @@ class WaitKeyboardReplyModule:
                 "chat_id": chat_id,
                 "user_id": user_id,
                 "parse_mode": parse_mode,
-                "buttons": buttons,
+                "buttons": translated_buttons,
                 "save_reply_to_key": self._save_reply_to_key(),
                 "result": send_result,
             }
@@ -135,12 +149,12 @@ class WaitKeyboardReplyModule:
                 bot_id=bot_id,
                 chat_id=chat_id,
                 user_id=user_id,
-                buttons=buttons,
+                buttons=translated_buttons,
                 save_reply_to_key=self._save_reply_to_key(),
                 parse_mode=parse_mode,
-                prompt_text_template=self._config.text_template,
-                success_text_template=self._config.success_text_template,
-                invalid_text_template=self._config.invalid_text_template,
+                prompt_text_template=prompt_text_template,
+                success_text_template=success_text_template,
+                invalid_text_template=invalid_text_template,
                 click_timestamp_format=str(self._config.click_timestamp_format or "").strip()
                 or "%Y-%m-%d %H:%M:%S",
                 context_result_key=self._config.context_result_key,
@@ -183,6 +197,34 @@ class WaitKeyboardReplyModule:
 
     def _save_reply_to_key(self) -> str:
         return str(self._config.save_reply_to_key or "").strip() or DEFAULT_KEYBOARD_REPLY_CONTEXT_KEY
+
+    def _translate_text_source(
+        self,
+        source_text: str | None,
+        context: dict[str, Any],
+        bot_id: str,
+    ) -> str | None:
+        candidate = str(source_text or "")
+        if not candidate.strip() or self._config.text_template_resolver is None:
+            return source_text
+        return self._config.text_template_resolver(candidate, context, bot_id)
+
+    def _translate_buttons(
+        self,
+        buttons: tuple[dict[str, Any], ...],
+        context: dict[str, Any],
+        bot_id: str,
+    ) -> tuple[dict[str, Any], ...]:
+        if self._config.text_template_resolver is None:
+            return buttons
+        translated: list[dict[str, Any]] = []
+        for button in buttons:
+            text = str(button.get("text", "")).strip()
+            next_button = dict(button)
+            if text:
+                next_button["text"] = self._config.text_template_resolver(text, context, bot_id)
+            translated.append(next_button)
+        return tuple(translated)
 
 
 def normalize_keyboard_reply_buttons(raw_buttons: object) -> tuple[dict[str, Any], ...]:

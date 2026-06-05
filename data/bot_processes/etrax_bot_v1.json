@@ -99,6 +99,64 @@
           }
         ]
       },
+      "Lang": {
+        "buttons": [
+          {
+            "actual_value": "km",
+            "callback_data": "set_language_km",
+            "row": 1,
+            "text": "Khmer"
+          },
+          {
+            "actual_value": "en",
+            "callback_data": "set_language_en",
+            "row": 1,
+            "text": "English"
+          },
+          {
+            "actual_value": "th",
+            "callback_data": "set_language_th",
+            "row": 2,
+            "text": "Thai"
+          }
+        ],
+        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
+        "module_type": "inline_button",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "buttons": [
+              {
+                "actual_value": "km",
+                "callback_data": "set_language_km",
+                "row": 1,
+                "text": "Khmer"
+              },
+              {
+                "actual_value": "en",
+                "callback_data": "set_language_en",
+                "row": 1,
+                "text": "English"
+              },
+              {
+                "actual_value": "th",
+                "callback_data": "set_language_th",
+                "row": 2,
+                "text": "Thai"
+              }
+            ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
+            "module_type": "inline_button",
+            "parse_mode": null,
+            "remove_inline_buttons_on_click": true,
+            "save_callback_data_to_key": "preferred_language",
+            "text_template": "Choose your language."
+          }
+        ],
+        "remove_inline_buttons_on_click": true,
+        "save_callback_data_to_key": "preferred_language",
+        "text_template": "Choose your language."
+      },
       "age verify": {
         "buttons": [
           {
@@ -232,6 +290,42 @@
         ],
         "text_template": "\ud83d\udeab Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding."
       },
+      "set_language_en": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Language saved: English."
+          }
+        ],
+        "text_template": "Language saved: English."
+      },
+      "set_language_km": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Language saved: Khmer."
+          }
+        ],
+        "text_template": "Language saved: Khmer."
+      },
+      "set_language_th": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Language saved: Thai."
+          }
+        ],
+        "text_template": "Language saved: Thai."
+      },
       "share_contact": {
         "button_text": "Share My Contact",
         "invalid_text_template": "Please share your own contact using the button below.",
@@ -304,6 +398,22 @@
           }
         ],
         "title": "Current User Information"
+      },
+      "lang": {
+        "module_type": "send_message",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "module_type": "send_message",
+            "parse_mode": null,
+            "text_template": "Command /lang received."
+          },
+          {
+            "module_type": "callback_module",
+            "target_callback_key": "Lang"
+          }
+        ],
+        "text_template": "Command /lang received."
       },
       "reset": {
         "module_type": "forget_user_data",
@@ -408,6 +518,10 @@
       {
         "command": "clock",
         "description": "Clock"
+      },
+      {
+        "command": "lang",
+        "description": "Lang"
       }
     ]
   },
@@ -449,6 +563,6 @@
   "token_ref": {
     "bot_id": "eTrax Bot V1"
   },
-  "updated_at": "2026-05-13T08:36:08.985824+00:00",
+  "updated_at": "2026-06-03T07:46:45.526684+00:00",
   "version": 1
 }

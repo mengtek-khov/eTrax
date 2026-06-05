@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from string import Formatter
-from typing import Any
+from typing import Any, Callable
 
 from ..flow import ModuleOutcome
 from .contracts import BotTokenResolver, TelegramMessageGateway
@@ -27,6 +27,7 @@ class SendMessageConfig:
     context_result_key: str = "send_message_result"
     returning_user_text_template: str | None = None
     context_returning_user_key: str = "start_returning_user"
+    text_template_resolver: Callable[[str, dict[str, Any], str], str] | None = None
 
 
 class SendTelegramMessageModule:
@@ -97,6 +98,8 @@ class SendTelegramMessageModule:
         text_template = self._resolve_text_template(context=context)
         render_context = self._build_render_context(context=context, bot_id=bot_id)
         if text_template:
+            if self._config.text_template_resolver is not None:
+                text_template = self._config.text_template_resolver(text_template, render_context, bot_id)
             required_fields = {
                 field_name
                 for _, field_name, _, _ in Formatter().parse(text_template)

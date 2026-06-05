@@ -34,6 +34,7 @@ def resolve_inline_button_step_config(
         buttons=step.get("buttons"),
         run_if_context_keys=_normalize_context_key_rules(step.get("run_if_context_keys")),
         skip_if_context_keys=_normalize_context_key_rules(step.get("skip_if_context_keys")),
+        save_callback_data_to_key=str(step.get("save_callback_data_to_key", "")).strip(),
         remove_inline_buttons_on_click=bool(step.get("remove_inline_buttons_on_click")),
         click_timestamp_format=str(step.get("click_timestamp_format", "")).strip() or "%Y-%m-%d %H:%M:%S",
         require_finish_current_command=str(step.get("require_finish_current_command", "")).strip().lower()

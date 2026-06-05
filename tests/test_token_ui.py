@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
+from etrax.standalone.schedule_runtime import iter_due_scheduled_runs
 from etrax.standalone.token_ui import (
     _build_callback_module_entry,
     _build_command_module_entry,
+    _build_config_template_options,
     _command_menu_uses_module_type,
     _build_schedule_task_key_options,
     _build_template_entry_from_pipeline_payload,
@@ -25,6 +28,7 @@ from etrax.standalone.token_ui import (
     _render_scheduled_tasks_demo_page,
     _render_template_config_page,
     _render_template_list_page,
+    _render_translation_page,
     _render_working_hours_demo_page,
     _next_template_key,
     _available_working_day_options,
@@ -35,6 +39,7 @@ from etrax.standalone.token_ui import (
     _save_standalone_ui_entries,
     _resolve_location_search_payload,
     _working_day_conflicts,
+    _with_builtin_template_entries,
 )
 
 
@@ -581,6 +586,7 @@ def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
 
     assert '<button class="toggle-stop" type="submit">Stop Runtime</button>' in html
     assert '<a class="button secondary" href="/ui/schedules?bot_id=support-bot">Scheduled Setup</a>' in html
+    assert '<a class="button secondary" href="/ui/translations?bot_id=support-bot">Translate</a>' in html
     assert '<a class="button secondary" href="/ui/working-hours">Working Hours</a>' in html
     assert '<a class="button secondary" href="/ui/locations">Locations</a>' in html
     assert '<a class="button back" href="/">Back to Home</a>' in html
@@ -632,6 +638,39 @@ def test_render_config_page_includes_share_location_mode_cards() -> None:
     assert "share-location-mode-grid" in html
     assert "share-location-mode-title" in html
     assert "share-location-mode-note" in html
+
+
+def test_render_translation_page_includes_language_form_and_rows() -> None:
+    html = _render_translation_page(
+        bot_id="support-bot",
+        config_path=Path("data/bot_processes/support-bot.json"),
+        translation_file=Path("data/translations_ui.json"),
+        language_code="km",
+        available_languages=["km", "th"],
+        rows=[
+            {
+                "id": "tr-123",
+                "source_label": "Command /start step 1 send_message text_template",
+                "module_type": "send_message",
+                "field_name": "text_template",
+                "source_path": "command_menu.command_modules.start.pipeline[0].text_template",
+                "source_text": "Welcome",
+                "translation_text": "សូមស្វាគមន៍",
+            }
+        ],
+        message="Saved translations",
+        level="success",
+    )
+
+    assert '<form method="get" action="/ui/translations" class="toolbar">' in html
+    assert '<input type="hidden" name="bot_id" value="support-bot">' in html
+    assert 'name="language" list="translation-language-options" value="km"' in html
+    assert '<form method="post" action="/ui/translations/save">' in html
+    assert '<input type="hidden" name="language_code" value="km">' in html
+    assert "Command /start step 1 send_message text_template" in html
+    assert "Welcome" in html
+    assert "សូមស្វាគមន៍" in html
+    assert "1 of 1 rows translated" in html
 
 
 def test_standalone_ui_entries_round_trip() -> None:
@@ -797,7 +836,7 @@ def test_render_standalone_ui_pages_include_saved_records() -> None:
     assert "Source Type" not in schedules_html
     assert "Source ID" not in schedules_html
     assert "Recurrence" not in schedules_html
-    assert "Weekday" not in schedules_html
+    assert "<label>Weekday</label>" not in schedules_html
     assert "Run Date" not in schedules_html
     assert "Run Time" not in schedules_html
     assert "Task Type" not in schedules_html
@@ -877,6 +916,51 @@ def test_template_entries_normalize_sort_and_generate_next_key() -> None:
     assert entries[0]["module_count"] == "0"
     assert entries[1]["template_key"] == "welcome_flow"
     assert _next_template_key(entries, "Attendance Clock In") == "attendance_clock_in_2"
+
+
+def test_builtin_change_language_template_is_available_to_templates_and_config_load() -> None:
+    entries = _with_builtin_template_entries([])
+    template = next(item for item in entries if item["template_key"] == "change_language_command")
+
+    assert template["name"] == "Change Language Command"
+    assert template["category"] == "Translation"
+    assert template["status"] == "active"
+    assert template["builtin"] is True
+    assert template["load_command"] == "language"
+
+    steps = _parse_chain_steps(command_name="language", raw=str(template["process_pipeline"]))
+    assert steps == [
+            {
+                "module_type": "inline_button",
+                "text_template": "Choose your language.",
+                "parse_mode": None,
+            "buttons": [
+                {"text": "Khmer", "callback_data": "set_language_km", "row": 1, "actual_value": "km"},
+                {"text": "English", "callback_data": "set_language_en", "row": 1, "actual_value": "en"},
+                {"text": "Thai", "callback_data": "set_language_th", "row": 2, "actual_value": "th"},
+            ],
+            "save_callback_data_to_key": "preferred_language",
+            "remove_inline_buttons_on_click": True,
+        }
+    ]
+
+    callback_payload = json.loads(str(template["callback_modules"]))
+    assert sorted(callback_payload) == ["set_language_en", "set_language_km", "set_language_th"]
+    assert callback_payload["set_language_km"]["pipeline"][0]["text_template"] == "Language saved: Khmer."
+
+    list_html = _render_template_list_page(entries=[], message="", level="info")
+    assert "Change Language Command" in list_html
+    assert "Built-in" in list_html
+    assert "change_language_command" in list_html
+
+    options = _build_config_template_options([])
+    option = next(item for item in options if item["template_key"] == "change_language_command")
+    assert option["editor_steps"][0]["save_callback_data_to_key"] == "preferred_language"
+    assert {item["callback_key"] for item in option["callbacks"]} == {
+        "set_language_en",
+        "set_language_km",
+        "set_language_th",
+    }
 
 
 def test_render_template_config_page_has_single_pipeline_and_template_actions() -> None:
@@ -1229,6 +1313,87 @@ def test_scheduled_setup_defaults_to_manual_process_pipeline_task() -> None:
     assert "Manual: Process Pipeline on this page" in html
     assert "value='manual_process_pipeline' selected" in html
     assert 'id="scheduled-pipeline-section" class="scheduled-pipeline-section">' in html
+
+
+def test_scheduled_setup_renders_manual_days_and_time_controls() -> None:
+    html = _render_scheduled_tasks_demo_page(
+        bot_id="attendance-bot",
+        entries=[
+            {
+                "id": "sch-manual",
+                "bot_id": "attendance-bot",
+                "name": "Manual reminders",
+                "enabled": True,
+                "source_type": "manual",
+                "source_id": "",
+                "source_event": "custom",
+                "recurrence": "weekly",
+                "weekday": "Monday,Wednesday,Sunday",
+                "run_date": "",
+                "run_time": "06:30 AM",
+                "timezone": "Asia/Bangkok",
+                "target_scope": "all_users",
+                "target_id": "",
+                "task_type": "command",
+                "task_key": "clock_in",
+                "offset_minutes": "0",
+                "notes": "",
+            }
+        ],
+        selected_schedule_id="sch-manual",
+    )
+
+    assert '<option value=\'manual\' selected>Manual</option>' in html
+    assert 'id="manual_weekday_select" name="weekday" multiple' in html
+    assert 'id="manual_weekday_picker"' in html
+    assert "weekday-chip" in html
+    assert "setupWeekdayPicker" in html
+    assert html.index('id="manual-schedule-time"') < html.index('name="notes"')
+    assert html.index('id="manual-schedule-days"') > html.index('id="manual-schedule-time"')
+    assert html.index('id="manual-schedule-days"') < html.index('name="notes"')
+    assert "<option value='Monday' selected>Monday</option>" in html
+    assert "<option value='Wednesday' selected>Wednesday</option>" in html
+    assert "<option value='Sunday' selected>Sunday</option>" in html
+    assert 'id="manual_time_value" name="run_time" value="06:30 AM"' in html
+    assert 'id="manual_time_picker" data-hour="06" data-minute="30" data-period="AM"' in html
+    assert "setupTimePicker" in html
+    assert "data-time-part='hour' data-time-value='06'" in html
+    assert "data-time-part='minute' data-time-value='30'" in html
+    assert "data-time-part='period' data-time-value='AM'" in html
+    assert "Monday, Wednesday, Sunday at 06:30 AM Asia/Bangkok" in html
+
+
+def test_manual_schedule_due_runs_accept_multiple_weekdays() -> None:
+    due_runs = iter_due_scheduled_runs(
+        bot_id="attendance-bot",
+        schedules=[
+            {
+                "id": "sch-manual",
+                "bot_id": "attendance-bot",
+                "name": "Manual reminders",
+                "enabled": True,
+                "source_type": "manual",
+                "source_event": "custom",
+                "recurrence": "weekly",
+                "weekday": "Monday,Wednesday,Sunday",
+                "run_time": "06:30 AM",
+                "timezone": "UTC",
+                "target_scope": "chat",
+                "target_id": "12345",
+                "task_type": "command",
+                "task_key": "clock_in",
+                "offset_minutes": "0",
+            }
+        ],
+        working_hours=[],
+        profiles=[],
+        now_utc=datetime(2026, 6, 3, 6, 30, tzinfo=timezone.utc),
+        existing_claims={},
+        max_lag_seconds=60,
+    )
+
+    assert len(due_runs) == 1
+    assert due_runs[0].target.chat_id == "12345"
 
 
 def test_normalize_working_hour_entries_sorts_by_weekday() -> None:

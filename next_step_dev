@@ -2,78 +2,25 @@
 
 This file summarizes the recent design questions, concerns, and recommended solutions for the eTrax Telegram bot builder. The direction remains standalone-first for Windows build/test, with Frappe as the first production integration target.
 
-## 1. General Scheduled Task Setup
+## 1. Remaining Scheduled Task Work
 
-Concern / Problem:
-- Scheduling should not be limited to clock-in and clock-out notifications.
-- Users should be able to schedule any supported task/process/module.
-- Schedules can be added manually or loaded/generated from another source, such as the working-hours list.
-- Current working-hours setup and manual scheduled setup should be consistent and should not create duplicate or conflicting scheduled jobs.
-- Scheduled setup should attach to a specific bot, like Bot Config.
-- Scheduled setup should have its own independent UI/config page, similar to the main config builder.
+Already built in standalone:
+- Bot-scoped Scheduled Setup page at `/ui/schedules?bot_id=...`.
+- Template-style manual Process Pipeline editor with add/edit/remove/load template support.
+- Task Key dropdown populated from the current bot commands and callbacks, plus manual pipeline mode.
+- Working Hours as a dynamic schedule source using work start, work end, missed clock-in, and missed clock-out with offset minutes.
+- Runtime execution while the bot worker is running.
+- Duplicate prevention through persisted schedule run claims in `data/scheduled_run_state.json`.
+- Runtime status counters/errors for scheduled runs.
 
-Solution:
-- Add a reusable scheduled-task service in core logic.
-- Treat working hours as one schedule source, not as the scheduler itself.
-- Add a dedicated Scheduled Setup UI where users can create, edit, enable, disable, and preview schedules.
-- Open Scheduled Setup with `bot_id`, for example `/ui/schedules?bot_id=attendance-bot`.
-- Allow schedules to trigger any configured workflow process or module chain.
-- Store generated schedule records with source metadata so manual schedules and working-hour-derived schedules can be compared safely.
-- Runtime should execute due schedules, not the UI.
-- Store execution state/logs to prevent duplicate runs.
+Remaining gaps:
+- Add a user-facing next-run preview.
+- Add a schedule execution history/log page, not only the internal claim state.
+- Add user-specific working hours / shift assignments with fallback to global working hours.
+- Add imported schedule sources, especially Frappe shift assignment or business calendar sources.
+- Move schedule storage and execution claims behind explicit interfaces before Frappe integration.
 
-Schedule sources:
-- Manual schedule created from Scheduled Setup UI.
-- Working-hours-derived schedule, such as shift start and shift end.
-- Future imported schedule source, such as Frappe shift assignment or another business calendar.
-
-Schedule conflict rules:
-- Every schedule should belong to one `bot_id`.
-- Every schedule should have a stable `schedule_id`.
-- Every generated schedule should include `source_type`, `source_id`, and `source_event`.
-- Manual schedules should not overwrite working-hour-derived schedules unless the user explicitly links/replaces them.
-- Working-hour-derived schedules should update when the working-hour row changes.
-- Disabled generated schedules should stay disabled unless the user re-enables them or regenerates intentionally.
-- Runtime duplicate prevention should use an execution key such as `bot_id + schedule_id + target_id + due_at`.
-
-Working-hours consistency:
-- Working hours should define availability/shift windows.
-- Scheduled Setup should define what task runs at a time.
-- Loading from working hours should generate scheduled tasks such as:
-  - clock-in reminder at shift start.
-  - clock-out reminder at shift end.
-  - custom task before/after shift time.
-- User-specific working hours later should generate user-specific schedules while falling back to global working hours.
-
-Scheduled Setup UI:
-- Bot-scoped independent page/config area, not hidden inside Working Hours.
-- Similar interaction style to the main config builder.
-- Should support:
-  - bot id.
-  - schedule name.
-  - enabled/disabled status.
-  - source type: manual or generated.
-  - target users/groups.
-  - recurrence rule.
-  - timezone.
-  - task/process/module to run.
-  - preview next run times.
-  - execution history/log link.
-
-Recommended components:
-- `WorkingHoursStore`
-- `UserScheduleResolver`
-- `ScheduleStore`
-- `ScheduledTaskResolver`
-- `ScheduledTaskRunner`
-- `ScheduleExecutionLogStore`
-
-Standalone storage:
-- `data/working_hours_ui.json`
-- `data/schedules_ui.json`
-- `data/schedule_execution_log.json` or similar for testing.
-
-Frappe storage later:
+Future Frappe storage:
 - Working Hours / Shift Assignment DocType.
 - Scheduled Task DocType.
 - Schedule Execution Log DocType with unique keys.
@@ -168,7 +115,7 @@ Concern / Problem:
 - In production, many users may create/update this state at the same time.
 
 Solution:
-- Standalone can stay simple for personal testing.
+- Standalone can stay simple for personal testing; the current schedule runner already uses local JSON claim state.
 - Frappe implementation should use database-backed state, unique keys, indexes, and atomic updates.
 - Runtime state writes should be idempotent.
 
@@ -183,7 +130,7 @@ Recommended state keys:
   - `bot_id + schedule_id + target_id + due_at + execution_type`
 
 Scheduled task claiming pattern:
-- Find due scheduled tasks.
+- Find due scheduled tasks. Standalone has a first implementation in the bot runtime worker.
 - Mark as processing atomically.
 - Run the configured task/process/module.
 - Mark as completed or failed.
@@ -296,16 +243,24 @@ Frappe storage later:
 
 ## 7. Dynamic Module / Template / Process Builder Goal
 
+Already built in standalone:
+- Template List and Template Config pages.
+- Template-style Process Pipeline editor with add/edit/remove module support.
+- Save/load reusable templates from `data/templates_ui.json`.
+- Load saved templates into Bot Config and Scheduled Setup.
+- Manual scheduled pipelines can reuse the same template/pipeline editor pattern.
+
 Concern / Problem:
 - The product goal is to make the bot builder dynamic.
-- Users should build small configurable modules, then group them into templates or full processes.
+- Users can already build small configurable modules and group them into templates in the standalone UI.
 - Users should not need to understand backend storage, Telegram routing, runtime state, Frappe tables, scheduled jobs, or translation keys.
 - Current and future modules should stay composable so the same module can be reused in different workflows.
 
 Solution:
 - Treat each workflow block as a configurable module with a clear schema.
 - Let the UI render module fields from the module definition.
-- Let templates group multiple modules into a reusable process.
+- Keep the standalone Template UI as the current reusable process builder.
+- Formalize templates later behind core interfaces so Frappe and exported runtimes can load the same structure.
 - Let runtime services handle backend details through interfaces.
 - Keep storage, Frappe integration, translation, scheduling, and state management behind adapters/services.
 
@@ -340,7 +295,7 @@ Backend responsibilities hidden from the user:
 - Send Telegram messages.
 - Sync or map data to Frappe later.
 
-Recommended dynamic architecture:
+Remaining core architecture work:
 - `ModuleDefinition`
 - `ModuleConfigSchema`
 - `ProcessTemplate`
@@ -348,6 +303,8 @@ Recommended dynamic architecture:
 - `RuntimeExecutionContext`
 - `RuntimeServiceRegistry`
 - Storage/service interfaces for attendance, scheduling, translation, runtime state, profiles, and workflow config.
+- Template schema versioning and migration rules.
+- Template storage adapter so standalone JSON can later be replaced by Frappe DocTypes.
 
 Guiding product rule:
 - The builder should feel like assembling business behavior from blocks.
@@ -375,7 +332,7 @@ Recommended export model:
 
 Bundle contents:
 - bot/process configuration
-- selected workflow templates
+- selected workflow templates from the existing Template builder
 - module definitions used by the process
 - translation catalogs
 - working-hours defaults if needed
@@ -419,18 +376,17 @@ Guiding export rule:
 
 ## Recommended Build Order
 
-1. Define core storage/service interfaces.
+1. Define core storage/service interfaces for attendance events, schedules, runtime state, workflow config, and translations.
 2. Add attendance event model and standalone JSON event store.
 3. Add clock-in/clock-out event recording through workflow modules.
-4. Add general Scheduled Setup models, store, and UI.
-5. Add working-hours import/generation into Scheduled Setup.
-6. Add scheduled task runner with duplicate prevention.
-7. Add translation registry and scanner for existing module config.
-8. Add Translate page in standalone UI.
-9. Add bundle export/import schema for configured bots and workflow templates.
-10. Add server runtime command that can run an exported bundle.
-11. Add Frappe adapter DocType mapping for attendance events and runtime state.
-12. Add Frappe background jobs for scheduled task execution and attendance summaries.
+4. Add schedule next-run preview and schedule execution history/log UI.
+5. Add user-specific working hours / shift assignment resolution.
+6. Add translation registry and scanner for existing module config.
+7. Add Translate page in standalone UI.
+8. Add bundle export/import schema for configured bots and existing workflow templates.
+9. Add server runtime command that can run an exported bundle.
+10. Add Frappe adapter DocType mapping for attendance events, schedules, and runtime state.
+11. Add Frappe background jobs for scheduled task execution and attendance summaries.
 
 ## Guiding Rule
 

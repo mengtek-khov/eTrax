@@ -30,6 +30,14 @@ from etrax.adapters.telegram import TelegramBotApiGateway
 from etrax.core.token import BotTokenService
 from etrax.standalone.bot_runtime_manager import BotRuntimeManager, resolve_command_menu
 from etrax.standalone.custom_code_functions import load_custom_code_function_names
+from etrax.standalone.translation_registry import (
+    available_translation_languages,
+    build_translation_rows,
+    load_translation_entries,
+    merge_translation_sources,
+    save_translation_entries,
+    scan_bot_config_translation_sources,
+)
 
 
 def run_token_config_ui(
@@ -67,11 +75,13 @@ def run_token_config_ui(
     schedules_file = state_file.with_name("schedules_ui.json")
     templates_file = state_file.with_name("templates_ui.json")
     locations_file = state_file.with_name("locations_ui.json")
+    translations_file = state_file.with_name("translations_ui.json")
     runtime_manager = BotRuntimeManager(
         token_service=service,
         bot_config_dir=bot_config_dir,
         state_file=state_file,
         profile_log_file=profile_log_file,
+        translations_file=translations_file,
     )
 
     handler_class = _build_handler(
@@ -84,6 +94,7 @@ def run_token_config_ui(
         schedules_file,
         templates_file,
         locations_file,
+        translations_file,
     )
     server = ThreadingHTTPServer((host, port), handler_class)
     print(f"Token config UI running at http://{host}:{port}")
@@ -146,6 +157,7 @@ def _build_handler(
     schedules_file: Path,
     templates_file: Path,
     locations_file: Path,
+    translations_file: Path,
 ):
     """Build the request handler class bound to the current service/runtime instances."""
 
@@ -178,7 +190,7 @@ def _build_handler(
                 message = params.get("message", [""])[0]
                 level = params.get("level", ["info"])[0]
                 template_id = params.get("template_id", [""])[0].strip()
-                entries = _load_standalone_ui_entries(templates_file)
+                entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
                 self._send_html(
                     HTTPStatus.OK,
                     _render_template_list_page(
@@ -194,7 +206,7 @@ def _build_handler(
                 message = params.get("message", [""])[0]
                 level = params.get("level", ["info"])[0]
                 template_id = params.get("template_id", [""])[0].strip()
-                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
                 template_entry = _find_standalone_ui_entry(entries, template_id)
                 if template_entry is None:
                     self._redirect(_with_message("/ui/templates", "error", "template entry not found"))
@@ -222,7 +234,7 @@ def _build_handler(
                     bot_id=bot_id,
                 )
                 working_entries = _load_standalone_ui_entries(working_hours_file)
-                template_entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                template_entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
                 task_key_options: list[dict[str, str]] = []
                 try:
                     _config_path, bot_payload = _load_bot_config(scaffold_store, bot_config_dir, bot_id)
@@ -267,6 +279,9 @@ def _build_handler(
                         level=level,
                     ),
                 )
+                return
+            if parsed.path == "/ui/translations":
+                self._handle_translations_page(parsed)
                 return
             if parsed.path == "/ui/location-search":
                 params = parse_qs(parsed.query)
@@ -435,6 +450,9 @@ def _build_handler(
             if parsed.path == "/ui/locations/delete":
                 self._handle_locations_delete(form)
                 return
+            if parsed.path == "/ui/translations/save":
+                self._handle_translations_save(form)
+                return
 
             self._send_text(HTTPStatus.NOT_FOUND, "Not Found")
 
@@ -476,7 +494,7 @@ def _build_handler(
                 runtime_status = runtime_manager.status_by_bot_id(bot_id)
                 context_key_options = _load_profile_log_context_keys(profile_log_file, bot_id=bot_id)
                 custom_code_function_options = load_custom_code_function_names()
-                template_entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                template_entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
                 html_payload = _render_config_page(
                     bot_id=bot_id.strip(),
                     config_path=config_path,
@@ -525,6 +543,80 @@ def _build_handler(
                     "runtime_status": runtime_manager.status_by_bot_id(bot_id),
                 },
             )
+
+        def _handle_translations_page(self, parsed) -> None:
+            """Render the per-bot translation management page."""
+            params = parse_qs(parsed.query)
+            bot_id = params.get("bot_id", [""])[0].strip()
+            if not bot_id:
+                self._redirect("/?level=error&message=bot_id+is+required+for+Translate")
+                return
+            message = params.get("message", [""])[0]
+            level = params.get("level", ["info"])[0]
+            selected_language = (
+                params.get("language", params.get("language_code", [""]))[0].strip().lower().replace("_", "-")
+            )
+            try:
+                config_path, payload = _load_bot_config(scaffold_store, bot_config_dir, bot_id)
+                sources = scan_bot_config_translation_sources(bot_id=bot_id, payload=payload)
+                entries = load_translation_entries(translations_file)
+                languages = available_translation_languages(entries, bot_id=bot_id)
+                if not selected_language:
+                    selected_language = languages[0] if languages else "km"
+                rows = build_translation_rows(
+                    sources=sources,
+                    entries=entries,
+                    language_code=selected_language,
+                )
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_translation_page(
+                        bot_id=bot_id,
+                        config_path=config_path,
+                        translation_file=translations_file,
+                        rows=rows,
+                        language_code=selected_language,
+                        available_languages=languages,
+                        message=message,
+                        level=level,
+                    ),
+                )
+            except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                _print_terminal_error("translations-load", str(exc))
+                self._redirect(f"/?level=error&message={quote_plus(str(exc))}")
+
+        def _handle_translations_save(self, form: dict[str, list[str]]) -> None:
+            """Persist one target language for the current scanned translation sources."""
+            bot_id = form.get("bot_id", [""])[0].strip()
+            language_code = form.get("language_code", [""])[0].strip().lower().replace("_", "-")
+            next_url = f"/ui/translations?bot_id={quote_plus(bot_id)}&language={quote_plus(language_code)}"
+            try:
+                if not bot_id:
+                    raise ValueError("bot_id is required")
+                if not language_code:
+                    raise ValueError("language code is required")
+                _config_path, payload = _load_bot_config(scaffold_store, bot_config_dir, bot_id)
+                sources = scan_bot_config_translation_sources(bot_id=bot_id, payload=payload)
+                source_keys = form.get("source_key", [])
+                translation_texts = form.get("translation_text", [])
+                submitted = {
+                    str(source_key).strip(): str(translation_texts[index]).strip()
+                    for index, source_key in enumerate(source_keys)
+                    if index < len(translation_texts) and str(source_key).strip()
+                }
+                existing_entries = load_translation_entries(translations_file)
+                merged_entries = merge_translation_sources(
+                    sources=sources,
+                    entries=existing_entries,
+                    language_code=language_code,
+                    submitted_translations=submitted,
+                )
+                save_translation_entries(translations_file, merged_entries)
+                saved_count = sum(1 for value in submitted.values() if value.strip())
+                self._redirect(_with_message(next_url, "success", f"Saved {saved_count} translations for {language_code}"))
+            except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                _print_terminal_error("translations-save", str(exc))
+                self._redirect(_with_message(next_url or "/", "error", str(exc)))
 
         def _handle_working_hours_save(self, form: dict[str, list[str]]) -> None:
             """Create or update one working-hours row in the standalone demo page."""
@@ -627,6 +719,8 @@ def _build_handler(
             try:
                 if not entry_id:
                     raise ValueError("template id is required")
+                if _is_builtin_template_id(entry_id):
+                    raise ValueError("built-in templates cannot be deleted")
                 entries = _load_standalone_ui_entries(templates_file)
                 saved_entries, deleted = _delete_standalone_ui_entry(entries, entry_id)
                 if not deleted:
@@ -641,18 +735,20 @@ def _build_handler(
             """Duplicate one template record into a new reusable template."""
             entry_id = form.get("entry_id", [""])[0].strip()
             try:
-                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
-                source = _find_standalone_ui_entry(entries, entry_id)
+                persisted_entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+                lookup_entries = _with_builtin_template_entries(persisted_entries)
+                source = _find_standalone_ui_entry(lookup_entries, entry_id)
                 if source is None:
                     raise ValueError("template entry not found")
                 copy_name = f"{source['name']} Copy"
                 copied = dict(source)
                 copied["id"] = _new_standalone_ui_entry_id(prefix="tpl")
                 copied["name"] = copy_name
-                copied["template_key"] = _next_template_key(entries, copy_name)
+                copied["template_key"] = _next_template_key(lookup_entries, copy_name)
                 copied["status"] = "draft"
+                copied["builtin"] = False
                 copied["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
-                saved_entries = _normalize_template_entries(_upsert_standalone_ui_entry(entries, copied))
+                saved_entries = _normalize_template_entries(_upsert_standalone_ui_entry(persisted_entries, copied))
                 _save_standalone_ui_entries(templates_file, saved_entries)
                 self._redirect(_with_message("/ui/templates", "success", f"Template duplicated: {copy_name}"))
             except ValueError as exc:
@@ -728,17 +824,19 @@ def _build_handler(
             try:
                 if not bot_id:
                     raise ValueError("bot_id is required")
+                source_event = form.get("source_event", [""])[0].strip()
+                is_manual_schedule = source_event == "manual"
                 normalized_entry = _normalize_schedule_form_entry(
                     {
                         "id": entry_id or _new_standalone_ui_entry_id(prefix="sch"),
                         "bot_id": bot_id,
                         "name": form.get("name", [""])[0],
                         "enabled": "1" if form.get("enabled", [""])[0].strip() == "1" else "0",
-                        "source_type": form.get("source_type", [""])[0],
-                        "source_id": form.get("source_id", [""])[0],
-                        "source_event": form.get("source_event", [""])[0],
-                        "recurrence": form.get("recurrence", [""])[0],
-                        "weekday": form.get("weekday", [""])[0],
+                        "source_type": "manual" if is_manual_schedule else form.get("source_type", [""])[0],
+                        "source_id": "" if is_manual_schedule else form.get("source_id", [""])[0],
+                        "source_event": "custom" if is_manual_schedule else source_event,
+                        "recurrence": "weekly" if is_manual_schedule else form.get("recurrence", [""])[0],
+                        "weekday": form.get("weekday", []),
                         "run_date": form.get("run_date", [""])[0],
                         "run_time": form.get("run_time", [""])[0],
                         "timezone": form.get("timezone", [""])[0],
@@ -1677,6 +1775,10 @@ def _render_page(
                 f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
                 "<button class='secondary' type='submit'>Scheduled Setup</button>"
                 "</form>"
+                "<form method='get' action='/ui/translations'>"
+                f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
+                "<button class='secondary' type='submit'>Translate</button>"
+                "</form>"
                 "<form method='post' action='/revoke'>"
                 f"<input type='hidden' name='bot_id' value='{escaped_bot_id}'>"
                 "<input type='hidden' name='next' value='/'>"
@@ -1706,6 +1808,10 @@ def _render_page(
             '<form method="get" action="/ui/schedules">'
             f'<input type="hidden" name="bot_id" value="{html.escape(first_bot_id)}">'
             '<button class="secondary" type="submit">Scheduled Setup</button>'
+            '</form>'
+            '<form method="get" action="/ui/translations">'
+            f'<input type="hidden" name="bot_id" value="{html.escape(first_bot_id)}">'
+            '<button class="secondary" type="submit">Translate</button>'
             '</form>'
         )
 
@@ -2589,7 +2695,7 @@ def _render_template_list_page(
     level: str = "info",
 ) -> str:
     """Render a dedicated reusable template list page modeled after the token list."""
-    template_entries = _normalize_template_entries(entries or [])
+    template_entries = _with_builtin_template_entries(entries or [])
     selected_entry = _find_standalone_ui_entry(template_entries, selected_template_id)
     current_entry = _normalize_template_entry(selected_entry or {}) or _default_template_form_entry()
     rows_html = "".join(_render_template_table_row(item) for item in template_entries)
@@ -3401,6 +3507,13 @@ def _render_scheduled_tasks_demo_page(
         f"<option value='0'{' selected' if enabled_value == '0' else ''}>Disabled</option>"
     )
     target_scope = str(current_entry.get("target_scope", "all_users"))
+    source_type = str(current_entry.get("source_type", "working_hours")).strip() or "working_hours"
+    selected_run_when = (
+        "manual"
+        if source_type == "manual"
+        else str(current_entry.get("source_event", "work_start")).strip() or "work_start"
+    )
+    manual_controls_hidden = "" if selected_run_when == "manual" else " hidden"
     pipeline_text = str(current_entry.get("process_pipeline", "")).strip()
     if not pipeline_text:
         pipeline_text = _default_template_pipeline_text()
@@ -3437,6 +3550,7 @@ def _render_scheduled_tasks_demo_page(
         task_key_options or [],
         str(current_entry.get("task_key", "")),
     )
+    manual_time_parts = _schedule_time_picker_parts(str(current_entry.get("run_time", "06:00 AM")))
     pipeline_hidden_attr = (
         ""
         if str(current_entry.get("task_key", "")).strip() == _SCHEDULE_MANUAL_PIPELINE_TASK_KEY
@@ -3448,8 +3562,8 @@ def _render_scheduled_tasks_demo_page(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>eTrax Scheduled Setup</title>
-  <style>
+	  <title>eTrax Scheduled Setup</title>
+	  <style>
     :root {{
       --bg: #f5f7fb;
       --panel: #ffffff;
@@ -3502,8 +3616,10 @@ def _render_scheduled_tasks_demo_page(
       gap: 10px;
       align-items: start;
     }}
-    .wide {{ grid-column: span 2; }}
-    .full {{ grid-column: 1 / -1; }}
+	    .wide {{ grid-column: span 2; }}
+	    .full {{ grid-column: 1 / -1; }}
+	    .manual-time-field {{ grid-column: span 1; }}
+	    .manual-days-field {{ grid-column: span 3; }}
     label {{
       display: block;
       margin-bottom: 6px;
@@ -3520,11 +3636,207 @@ def _render_scheduled_tasks_demo_page(
       background: #fff;
       font-family: inherit;
     }}
-    textarea {{
-      min-height: 42px;
-      resize: vertical;
-    }}
-    button, .button {{
+	    textarea {{
+	      min-height: 42px;
+	      resize: vertical;
+	    }}
+	    .weekday-native-select {{
+	      display: none;
+	    }}
+	    .weekday-picker {{
+	      position: relative;
+	    }}
+	    .weekday-picker-control {{
+	      min-height: 43px;
+	      border: 1px solid var(--line);
+	      border-radius: 8px;
+	      background: #fff;
+	      padding: 6px 34px 6px 8px;
+	      display: flex;
+	      align-items: center;
+	      flex-wrap: nowrap;
+	      gap: 6px;
+	      cursor: pointer;
+	      overflow-x: auto;
+	      overflow-y: hidden;
+	      scrollbar-width: thin;
+	      scrollbar-color: transparent transparent;
+	    }}
+	    .weekday-picker-control:hover,
+	    .weekday-picker-control:focus {{
+	      scrollbar-color: #98a2b3 transparent;
+	    }}
+	    .weekday-picker-control::-webkit-scrollbar {{
+	      height: 6px;
+	    }}
+	    .weekday-picker-control::-webkit-scrollbar-thumb {{
+	      background: transparent;
+	      border-radius: 999px;
+	    }}
+	    .weekday-picker-control:hover::-webkit-scrollbar-thumb,
+	    .weekday-picker-control:focus::-webkit-scrollbar-thumb {{
+	      background: #98a2b3;
+	    }}
+	    .weekday-picker-control::after {{
+	      content: "";
+	      position: absolute;
+	      right: 12px;
+	      top: 18px;
+	      border-left: 5px solid transparent;
+	      border-right: 5px solid transparent;
+	      border-top: 6px solid #667085;
+	    }}
+	    .weekday-chip {{
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 6px;
+	      border-radius: 6px;
+	      background: #12a67a;
+	      color: #fff;
+	      padding: 5px 8px;
+	      font-size: 0.86rem;
+	      line-height: 1;
+	      flex: 0 0 auto;
+	    }}
+	    .weekday-chip button {{
+	      border: 0;
+	      border-radius: 4px;
+	      padding: 0 3px;
+	      min-width: 18px;
+	      height: 18px;
+	      background: rgba(255, 255, 255, 0.18);
+	      color: #fff;
+	      font-size: 0.95rem;
+	      line-height: 1;
+	    }}
+	    .weekday-chip button:hover {{
+	      background: rgba(255, 255, 255, 0.28);
+	    }}
+	    .weekday-placeholder {{
+	      color: var(--muted);
+	      font-size: 0.92rem;
+	      padding: 4px;
+	      flex: 0 0 auto;
+	    }}
+	    .weekday-picker-menu {{
+	      position: absolute;
+	      z-index: 20;
+	      top: calc(100% + 4px);
+	      left: 0;
+	      right: 0;
+	      max-height: 260px;
+	      overflow: auto;
+	      border: 1px solid var(--line);
+	      border-radius: 8px;
+	      background: #fff;
+	      box-shadow: 0 12px 28px rgba(15, 32, 62, 0.16);
+	      padding: 6px 0;
+	    }}
+	    .weekday-picker-menu[hidden] {{
+	      display: none;
+	    }}
+	    .weekday-option {{
+	      display: flex;
+	      align-items: center;
+	      gap: 8px;
+	      padding: 9px 12px;
+	      cursor: pointer;
+	      font-weight: 500;
+	      color: var(--text);
+	    }}
+	    .weekday-option:hover {{
+	      background: #f2f6fc;
+	    }}
+	    .weekday-option input {{
+	      width: auto;
+	      margin: 0;
+	    }}
+	    .time-picker {{
+	      position: relative;
+	    }}
+	    .time-picker-value {{
+	      min-height: 43px;
+	      border: 1px solid var(--line);
+	      border-radius: 8px;
+	      background: #fff;
+	      padding: 10px 34px 10px 12px;
+	      cursor: pointer;
+	      display: flex;
+	      align-items: center;
+	      justify-content: space-between;
+	      gap: 8px;
+	    }}
+	    .time-picker-value::after {{
+	      content: "";
+	      position: absolute;
+	      right: 12px;
+	      top: 18px;
+	      border-left: 5px solid transparent;
+	      border-right: 5px solid transparent;
+	      border-top: 6px solid #667085;
+	    }}
+	    .time-picker-menu {{
+	      position: absolute;
+	      z-index: 25;
+	      top: calc(100% + 4px);
+	      left: 0;
+	      width: 176px;
+	      border: 1px solid var(--line);
+	      border-radius: 8px;
+	      background: #fff;
+	      box-shadow: 0 12px 28px rgba(15, 32, 62, 0.16);
+	      padding: 6px;
+	      display: grid;
+	      grid-template-columns: repeat(3, 1fr);
+	      gap: 4px;
+	      max-height: 270px;
+	      overflow: hidden;
+	    }}
+	    .time-picker-menu[hidden] {{
+	      display: none;
+	    }}
+	    .time-picker-column {{
+	      display: grid;
+	      gap: 4px;
+	      max-height: 252px;
+	      overflow-y: auto;
+	      scrollbar-width: thin;
+	      scrollbar-color: transparent transparent;
+	    }}
+	    .time-picker-column:hover,
+	    .time-picker-column:focus-within {{
+	      scrollbar-color: #98a2b3 transparent;
+	    }}
+	    .time-picker-column::-webkit-scrollbar {{
+	      width: 6px;
+	    }}
+	    .time-picker-column::-webkit-scrollbar-thumb {{
+	      background: transparent;
+	      border-radius: 999px;
+	    }}
+	    .time-picker-column:hover::-webkit-scrollbar-thumb,
+	    .time-picker-column:focus-within::-webkit-scrollbar-thumb {{
+	      background: #98a2b3;
+	    }}
+	    .time-picker-option {{
+	      border: 0;
+	      border-radius: 4px;
+	      background: #fff;
+	      color: var(--text);
+	      padding: 7px 6px;
+	      min-width: 0;
+	      font-size: 0.88rem;
+	    }}
+	    .time-picker-option:hover {{
+	      background: #eef4ff;
+	      color: var(--accent);
+	    }}
+	    .time-picker-option.is-selected {{
+	      background: #0b7cff;
+	      color: #fff;
+	      font-weight: 700;
+	    }}
+	    button, .button {{
       border: 0;
       border-radius: 8px;
       padding: 10px 14px;
@@ -3797,14 +4109,12 @@ def _render_scheduled_tasks_demo_page(
       <form id="config-save-form" method="post" action="/ui/schedules/save" data-autosave-enabled="0">
 	        <input type="hidden" name="bot_id" value="{html.escape(normalized_bot_id)}">
 	        <input type="hidden" name="entry_id" value="{html.escape(str(current_entry.get('id', '')))}">
-	        <input type="hidden" name="source_type" value="working_hours">
-	        <input type="hidden" name="source_id" value="working_hours">
-	        <input type="hidden" name="recurrence" value="working_day">
-	        <input type="hidden" name="weekday" value="">
-	        <input type="hidden" name="run_date" value="">
-	        <input type="hidden" name="run_time" value="">
-	        <input type="hidden" name="target_id" value="">
-	        <input type="hidden" name="task_type" value="command">
+		        <input type="hidden" id="schedule_source_type" name="source_type" value="{html.escape(source_type if source_type == 'manual' else 'working_hours')}">
+		        <input type="hidden" id="schedule_source_id" name="source_id" value="{'' if source_type == 'manual' else 'working_hours'}">
+		        <input type="hidden" id="schedule_recurrence" name="recurrence" value="{'weekly' if source_type == 'manual' else 'working_day'}">
+		        <input type="hidden" name="run_date" value="">
+		        <input type="hidden" name="target_id" value="">
+		        <input type="hidden" name="task_type" value="command">
 		        <div class="schedule-grid">
           <div class="wide">
             <label>Schedule Name</label>
@@ -3814,13 +4124,13 @@ def _render_scheduled_tasks_demo_page(
             <label>Status</label>
             <select name="enabled">{enabled_options}</select>
           </div>
+				          <div>
+				            <label>Run When</label>
+				            <select id="schedule_run_when" name="source_event">{_render_schedule_run_when_options(selected_run_when)}</select>
+				          </div>
 		          <div>
-		            <label>Run When</label>
-		            <select name="source_event">{_render_schedule_working_event_options(str(current_entry.get('source_event', 'work_start')))}</select>
-		          </div>
-	          <div>
-	            <label>Target Scope</label>
-	            <select name="target_scope">{_render_select_options(_SCHEDULE_TARGET_SCOPE_OPTIONS, target_scope)}</select>
+		            <label>Target Scope</label>
+		            <select name="target_scope">{_render_select_options(_SCHEDULE_TARGET_SCOPE_OPTIONS, target_scope)}</select>
 	          </div>
 	          <div>
 	            <label>Task Key</label>
@@ -3830,15 +4140,39 @@ def _render_scheduled_tasks_demo_page(
 	            <label>Offset Minutes</label>
 	            <input name="offset_minutes" value="{html.escape(str(current_entry.get('offset_minutes', '0')))}" placeholder="0">
 	          </div>
-	          <div>
-	            <label>Timezone</label>
-	            <input name="timezone" value="{html.escape(str(current_entry.get('timezone', 'Asia/Bangkok')))}">
-	          </div>
-	          <div class="full">
-	            <label>Notes</label>
-	            <textarea name="notes" placeholder="Optional internal note">{html.escape(str(current_entry.get('notes', '')))}</textarea>
-	          </div>
-	        </div>
+		          <div>
+		            <label>Timezone</label>
+		            <input name="timezone" value="{html.escape(str(current_entry.get('timezone', 'Asia/Bangkok')))}">
+		          </div>
+					          <div class="manual-time-field" id="manual-schedule-time"{manual_controls_hidden}>
+					            <label>Manual Time</label>
+					            <input type="hidden" id="manual_time_value" name="run_time" value="{html.escape(manual_time_parts['value'])}">
+					            <div class="time-picker" id="manual_time_picker" data-hour="{html.escape(manual_time_parts['hour'])}" data-minute="{html.escape(manual_time_parts['minute'])}" data-period="{html.escape(manual_time_parts['period'])}">
+					              <div class="time-picker-value" id="manual_time_control" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false">
+					                <span id="manual_time_display">{html.escape(manual_time_parts['value'])}</span>
+					              </div>
+					              <div class="time-picker-menu" id="manual_time_menu" hidden>
+					                {_render_schedule_time_picker_options(manual_time_parts)}
+					              </div>
+					            </div>
+					          </div>
+					          <div class="manual-days-field" id="manual-schedule-days"{manual_controls_hidden}>
+					            <label>Manual Days</label>
+					            <select class="weekday-native-select" id="manual_weekday_select" name="weekday" multiple>{_render_schedule_weekday_options(str(current_entry.get('weekday', '')))}</select>
+					            <div class="weekday-picker" id="manual_weekday_picker">
+					              <div class="weekday-picker-control" id="manual_weekday_control" role="button" tabindex="0" aria-haspopup="listbox" aria-expanded="false">
+					                <span class="weekday-placeholder">Select days</span>
+					              </div>
+					              <div class="weekday-picker-menu" id="manual_weekday_menu" hidden>
+					                {_render_schedule_weekday_picker_options()}
+					              </div>
+					            </div>
+					          </div>
+		          <div class="full">
+		            <label>Notes</label>
+		            <textarea name="notes" placeholder="Optional internal note">{html.escape(str(current_entry.get('notes', '')))}</textarea>
+		          </div>
+		        </div>
 	        <div id="scheduled-pipeline-section" class="scheduled-pipeline-section"{pipeline_hidden_attr}>
 	          <div id="template-module-fallback">{fallback_module_list_html}</div>
 	          <div id="command-config-app"></div>
@@ -3898,19 +4232,201 @@ def _render_scheduled_tasks_demo_page(
 	    if (window.EtraxConfigVue && typeof window.EtraxConfigVue.mount === "function") {{
 	      window.EtraxConfigVue.mount("#command-config-app", "#command-config-state");
 	    }}
-	    (function () {{
-	      var manualTaskKey = "{_SCHEDULE_MANUAL_PIPELINE_TASK_KEY}";
-	      var taskSelect = document.querySelector("select[name='task_key']");
-	      var pipelineSection = document.getElementById("scheduled-pipeline-section");
-	      if (!taskSelect || !pipelineSection) {{
-	        return;
-	      }}
-	      function syncPipelineVisibility() {{
-	        pipelineSection.hidden = taskSelect.value !== manualTaskKey;
-	      }}
-	      taskSelect.addEventListener("change", syncPipelineVisibility);
-	      syncPipelineVisibility();
-	    }})();
+		    (function () {{
+		      var manualTaskKey = "{_SCHEDULE_MANUAL_PIPELINE_TASK_KEY}";
+		      var taskSelect = document.querySelector("select[name='task_key']");
+		      var pipelineSection = document.getElementById("scheduled-pipeline-section");
+		      var runWhenSelect = document.getElementById("schedule_run_when");
+		      var sourceTypeInput = document.getElementById("schedule_source_type");
+		      var sourceIdInput = document.getElementById("schedule_source_id");
+		      var recurrenceInput = document.getElementById("schedule_recurrence");
+		      var manualDaySection = document.getElementById("manual-schedule-days");
+		      var manualTimeSection = document.getElementById("manual-schedule-time");
+			      var weekdaySelect = document.getElementById("manual_weekday_select");
+			      var weekdayPicker = document.getElementById("manual_weekday_picker");
+			      var weekdayControl = document.getElementById("manual_weekday_control");
+			      var weekdayMenu = document.getElementById("manual_weekday_menu");
+			      var timeInput = document.getElementById("manual_time_value");
+			      var timePicker = document.getElementById("manual_time_picker");
+			      var timeControl = document.getElementById("manual_time_control");
+			      var timeMenu = document.getElementById("manual_time_menu");
+			      var timeDisplay = document.getElementById("manual_time_display");
+		      if (!taskSelect || !pipelineSection) {{
+		        return;
+		      }}
+		      function syncPipelineVisibility() {{
+		        pipelineSection.hidden = taskSelect.value !== manualTaskKey;
+		      }}
+		      function syncRunWhenControls() {{
+		        if (!runWhenSelect || !sourceTypeInput || !sourceIdInput || !recurrenceInput) {{
+		          return;
+		        }}
+		        var isManual = runWhenSelect.value === "manual";
+		        sourceTypeInput.value = isManual ? "manual" : "working_hours";
+		        sourceIdInput.value = isManual ? "" : "working_hours";
+		        recurrenceInput.value = isManual ? "weekly" : "working_day";
+		        if (manualDaySection) {{
+		          manualDaySection.hidden = !isManual;
+		        }}
+		        if (manualTimeSection) {{
+		          manualTimeSection.hidden = !isManual;
+		        }}
+		      }}
+		      function selectedWeekdayOptions() {{
+		        if (!weekdaySelect) {{
+		          return [];
+		        }}
+		        return Array.prototype.slice.call(weekdaySelect.options).filter(function (option) {{
+		          return option.selected;
+		        }});
+		      }}
+			      function closeWeekdayMenu() {{
+		        if (!weekdayMenu || !weekdayControl) {{
+		          return;
+		        }}
+		        weekdayMenu.hidden = true;
+			        weekdayControl.setAttribute("aria-expanded", "false");
+			      }}
+			      function closeTimeMenu() {{
+			        if (!timeMenu || !timeControl) {{
+			          return;
+			        }}
+			        timeMenu.hidden = true;
+			        timeControl.setAttribute("aria-expanded", "false");
+			      }}
+		      function renderWeekdayPicker() {{
+		        if (!weekdaySelect || !weekdayControl || !weekdayMenu) {{
+		          return;
+		        }}
+		        var selectedOptions = selectedWeekdayOptions();
+		        weekdayControl.innerHTML = "";
+		        if (!selectedOptions.length) {{
+		          var placeholder = document.createElement("span");
+		          placeholder.className = "weekday-placeholder";
+		          placeholder.textContent = "Select days";
+		          weekdayControl.appendChild(placeholder);
+		        }} else {{
+		          selectedOptions.forEach(function (option) {{
+		            var chip = document.createElement("span");
+		            chip.className = "weekday-chip";
+		            chip.textContent = option.value;
+		            var removeButton = document.createElement("button");
+		            removeButton.type = "button";
+		            removeButton.setAttribute("aria-label", "Remove " + option.value);
+		            removeButton.textContent = "x";
+		            removeButton.addEventListener("click", function (event) {{
+		              event.stopPropagation();
+		              option.selected = false;
+		              renderWeekdayPicker();
+		            }});
+		            chip.appendChild(removeButton);
+		            weekdayControl.appendChild(chip);
+		          }});
+		        }}
+		        Array.prototype.slice.call(weekdayMenu.querySelectorAll("input[type='checkbox']")).forEach(function (checkbox) {{
+		          var matchingOption = Array.prototype.slice.call(weekdaySelect.options).find(function (option) {{
+		            return option.value === checkbox.value;
+		          }});
+		          checkbox.checked = Boolean(matchingOption && matchingOption.selected);
+		        }});
+		      }}
+			      function setupWeekdayPicker() {{
+		        if (!weekdaySelect || !weekdayPicker || !weekdayControl || !weekdayMenu) {{
+		          return;
+		        }}
+		        weekdayControl.addEventListener("click", function () {{
+		          weekdayMenu.hidden = !weekdayMenu.hidden;
+		          weekdayControl.setAttribute("aria-expanded", weekdayMenu.hidden ? "false" : "true");
+		        }});
+		        weekdayControl.addEventListener("keydown", function (event) {{
+		          if (event.key === "Enter" || event.key === " ") {{
+		            event.preventDefault();
+		            weekdayControl.click();
+		          }}
+		          if (event.key === "Escape") {{
+		            closeWeekdayMenu();
+		          }}
+		        }});
+		        Array.prototype.slice.call(weekdayMenu.querySelectorAll("input[type='checkbox']")).forEach(function (checkbox) {{
+		          checkbox.addEventListener("change", function () {{
+		            Array.prototype.slice.call(weekdaySelect.options).forEach(function (option) {{
+		              if (option.value === checkbox.value) {{
+		                option.selected = checkbox.checked;
+		              }}
+		            }});
+		            renderWeekdayPicker();
+		          }});
+		        }});
+		        document.addEventListener("click", function (event) {{
+		          if (!weekdayPicker.contains(event.target)) {{
+		            closeWeekdayMenu();
+		          }}
+		        }});
+			        renderWeekdayPicker();
+			      }}
+			      function formatManualTime() {{
+			        if (!timePicker) {{
+			          return "06:00 AM";
+			        }}
+			        return `${{timePicker.dataset.hour || "06"}}:${{timePicker.dataset.minute || "00"}} ${{timePicker.dataset.period || "AM"}}`;
+			      }}
+			      function renderTimePicker() {{
+			        if (!timePicker || !timeInput || !timeDisplay || !timeMenu) {{
+			          return;
+			        }}
+			        var value = formatManualTime();
+			        timeInput.value = value;
+			        timeDisplay.textContent = value;
+			        Array.prototype.slice.call(timeMenu.querySelectorAll(".time-picker-option")).forEach(function (button) {{
+			          var part = button.getAttribute("data-time-part");
+			          var valueForPart = button.getAttribute("data-time-value");
+			          button.classList.toggle("is-selected", Boolean(part && timePicker.dataset[part] === valueForPart));
+			        }});
+			      }}
+			      function setupTimePicker() {{
+			        if (!timePicker || !timeControl || !timeMenu) {{
+			          return;
+			        }}
+			        timeControl.addEventListener("click", function () {{
+			          timeMenu.hidden = !timeMenu.hidden;
+			          timeControl.setAttribute("aria-expanded", timeMenu.hidden ? "false" : "true");
+			        }});
+			        timeControl.addEventListener("keydown", function (event) {{
+			          if (event.key === "Enter" || event.key === " ") {{
+			            event.preventDefault();
+			            timeControl.click();
+			          }}
+			          if (event.key === "Escape") {{
+			            closeTimeMenu();
+			          }}
+			        }});
+			        Array.prototype.slice.call(timeMenu.querySelectorAll(".time-picker-option")).forEach(function (button) {{
+			          button.addEventListener("click", function (event) {{
+			            event.preventDefault();
+			            var part = button.getAttribute("data-time-part");
+			            var value = button.getAttribute("data-time-value");
+			            if (part && value) {{
+			              timePicker.dataset[part] = value;
+			              renderTimePicker();
+			            }}
+			          }});
+			        }});
+			        document.addEventListener("click", function (event) {{
+			          if (!timePicker.contains(event.target)) {{
+			            closeTimeMenu();
+			          }}
+			        }});
+			        renderTimePicker();
+			      }}
+		      taskSelect.addEventListener("change", syncPipelineVisibility);
+		      if (runWhenSelect) {{
+		        runWhenSelect.addEventListener("change", syncRunWhenControls);
+		      }}
+			      syncPipelineVisibility();
+			      syncRunWhenControls();
+			      setupWeekdayPicker();
+			      setupTimePicker();
+			    }})();
 	  </script>
 </body>
 </html>"""
@@ -4532,6 +5048,8 @@ def _find_standalone_ui_entry(
 
 
 _TEMPLATE_STATUS_OPTIONS = ("draft", "active", "archived")
+_BUILTIN_TEMPLATE_PREFIX = "builtin-"
+_CHANGE_LANGUAGE_TEMPLATE_KEY = "change_language_command"
 
 
 def _default_template_form_entry() -> dict[str, object]:
@@ -4550,7 +5068,107 @@ def _default_template_form_entry() -> dict[str, object]:
         "temporary_commands": "",
         "load_bot_id": "",
         "load_command": "",
+        "builtin": False,
     }
+
+
+def _with_builtin_template_entries(raw_entries: Iterable[object]) -> list[dict[str, object]]:
+    """Return user templates plus built-in starters, unless a user template overrides the key."""
+    entries = _normalize_template_entries(raw_entries)
+    existing_keys = {str(entry.get("template_key", "")).strip() for entry in entries}
+    for builtin in _builtin_template_entries():
+        if str(builtin.get("template_key", "")).strip() not in existing_keys:
+            entries.append(builtin)
+    return _normalize_template_entries(entries)
+
+
+def _builtin_template_entries() -> list[dict[str, object]]:
+    """Return built-in reusable templates shipped with the standalone UI."""
+    return [_build_change_language_template_entry()]
+
+
+def _build_change_language_template_entry() -> dict[str, object]:
+    """Build the starter `/language` command template."""
+    pipeline_text = "\n".join(
+        [
+            json.dumps(
+                {
+                    "module_type": "inline_button",
+                    "text_template": "Choose your language.",
+                    "parse_mode": "",
+                    "buttons": [
+                        {"text": "Khmer", "callback_data": "set_language_km", "row": 1, "actual_value": "km"},
+                        {"text": "English", "callback_data": "set_language_en", "row": 1, "actual_value": "en"},
+                        {"text": "Thai", "callback_data": "set_language_th", "row": 2, "actual_value": "th"},
+                    ],
+                    "save_callback_data_to_key": "preferred_language",
+                    "remove_inline_buttons_on_click": True,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        ]
+    )
+    callback_payload = {
+        "set_language_km": {
+            "pipeline": [
+                {
+                    "module_type": "send_message",
+                    "text_template": "Language saved: Khmer.",
+                    "parse_mode": "",
+                }
+            ],
+            "temporary_commands": [],
+        },
+        "set_language_en": {
+            "pipeline": [
+                {
+                    "module_type": "send_message",
+                    "text_template": "Language saved: English.",
+                    "parse_mode": "",
+                }
+            ],
+            "temporary_commands": [],
+        },
+        "set_language_th": {
+            "pipeline": [
+                {
+                    "module_type": "send_message",
+                    "text_template": "Language saved: Thai.",
+                    "parse_mode": "",
+                }
+            ],
+            "temporary_commands": [],
+        },
+    }
+    entry = _normalize_template_entry(
+        {
+            "id": f"{_BUILTIN_TEMPLATE_PREFIX}{_CHANGE_LANGUAGE_TEMPLATE_KEY}",
+            "name": "Change Language Command",
+            "template_key": _CHANGE_LANGUAGE_TEMPLATE_KEY,
+            "category": "Translation",
+            "status": "active",
+            "description": (
+                "Starter /language flow with inline buttons for Khmer, English, and Thai. "
+                "The selected language code is saved to preferred_language."
+            ),
+            "module_count": "1",
+            "updated_at": "builtin",
+            "process_pipeline": pipeline_text,
+            "callback_modules": json.dumps(callback_payload, ensure_ascii=False, separators=(",", ":")),
+            "temporary_commands": "",
+            "load_bot_id": "",
+            "load_command": "language",
+            "builtin": True,
+        }
+    )
+    if entry is None:
+        raise RuntimeError("built-in change language template is invalid")
+    return entry
+
+
+def _is_builtin_template_id(entry_id: str) -> bool:
+    return str(entry_id or "").strip().startswith(_BUILTIN_TEMPLATE_PREFIX)
 
 
 def _normalize_template_entry(raw: object) -> dict[str, object] | None:
@@ -4576,6 +5194,7 @@ def _normalize_template_entry(raw: object) -> dict[str, object] | None:
         "temporary_commands": str(raw.get("temporary_commands", "")).strip(),
         "load_bot_id": str(raw.get("load_bot_id", "")).strip(),
         "load_command": str(raw.get("load_command", "")).strip(),
+        "builtin": bool(raw.get("builtin", False)),
     }
 
 
@@ -4760,7 +5379,7 @@ def _build_config_template_options(
 ) -> list[dict[str, object]]:
     """Build compact template payloads that Bot Config can load into an editor."""
     options: list[dict[str, object]] = []
-    for entry in _normalize_template_entries(entries):
+    for entry in _with_builtin_template_entries(entries):
         if str(entry.get("status", "")).strip() == "archived":
             continue
         pipeline_text = str(entry.get("process_pipeline", "")).strip()
@@ -4908,17 +5527,34 @@ def _render_template_table_row(item: dict[str, object]) -> str:
     template_key = html.escape(str(item.get("template_key", "")))
     category = html.escape(str(item.get("category", "") or "-"))
     status = html.escape(str(item.get("status", "draft")))
+    is_builtin = bool(item.get("builtin", False))
     module_count = html.escape(str(item.get("module_count", "0")))
     updated_at = html.escape(_format_template_updated_at(str(item.get("updated_at", ""))))
     description = str(item.get("description", "")).strip()
+    builtin_html = " <span class='pill'>Built-in</span>" if is_builtin else ""
     description_html = (
         f"<div class='hint'>{html.escape(description)}</div>"
         if description
         else ""
     )
+    edit_html = (
+        ""
+        if is_builtin
+        else f"<a class='button secondary mini' href='/ui/templates?template_id={quote_plus(str(item['id']))}'>Edit</a>"
+    )
+    delete_html = (
+        ""
+        if is_builtin
+        else (
+            "<form method='post' action='/ui/templates/delete'>"
+            f"<input type='hidden' name='entry_id' value='{entry_id}'>"
+            "<button class='button delete mini' type='submit'>Delete</button>"
+            "</form>"
+        )
+    )
     return (
         "<tr>"
-        f"<td data-label='Name'><strong>{name}</strong>{description_html}</td>"
+        f"<td data-label='Name'><strong>{name}</strong>{builtin_html}{description_html}</td>"
         f"<td data-label='Key'>{template_key}</td>"
         f"<td data-label='Category'>{category}</td>"
         f"<td data-label='Status'><span class='pill'>{status}</span></td>"
@@ -4927,15 +5563,12 @@ def _render_template_table_row(item: dict[str, object]) -> str:
         "<td data-label='Action'>"
         "<div class='action-stack'>"
         f"<a class='button mini' href='/ui/templates/config?template_id={quote_plus(str(item['id']))}'>Config</a>"
-        f"<a class='button secondary mini' href='/ui/templates?template_id={quote_plus(str(item['id']))}'>Edit</a>"
+        f"{edit_html}"
         "<form method='post' action='/ui/templates/duplicate'>"
         f"<input type='hidden' name='entry_id' value='{entry_id}'>"
         "<button class='button secondary mini' type='submit'>Copy</button>"
         "</form>"
-        "<form method='post' action='/ui/templates/delete'>"
-        f"<input type='hidden' name='entry_id' value='{entry_id}'>"
-        "<button class='button delete mini' type='submit'>Delete</button>"
-        "</form>"
+        f"{delete_html}"
         "</div>"
         "</td>"
         "</tr>"
@@ -5022,11 +5655,12 @@ def _normalize_schedule_form_entry(raw: object) -> dict[str, object] | None:
     recurrence = _normalize_choice(raw.get("recurrence"), _SCHEDULE_RECURRENCE_OPTIONS, default_recurrence)
     target_scope = _normalize_choice(raw.get("target_scope"), _SCHEDULE_TARGET_SCOPE_OPTIONS, "all_users")
     task_type = _normalize_choice(raw.get("task_type"), _SCHEDULE_TASK_TYPE_OPTIONS, "command")
-    weekday = (
-        ""
-        if source_type == "working_hours"
-        else _normalize_choice(raw.get("weekday"), _WORKING_DAY_OPTIONS, "Monday")
-    )
+    weekday = ""
+    if source_type != "working_hours":
+        weekdays = _normalize_schedule_weekdays(raw.get("weekday"))
+        if not weekdays:
+            weekdays = ["Monday"]
+        weekday = ",".join(weekdays)
     task_key = str(raw.get("task_key", "")).strip()
     run_time = str(raw.get("run_time", "")).strip()
     if not task_key:
@@ -5073,7 +5707,7 @@ def _normalize_schedule_entries(raw_entries: Iterable[object]) -> list[dict[str,
     return sorted(
         normalized_entries,
         key=lambda item: (
-            _working_day_index(str(item.get("weekday", ""))),
+            _working_day_index((_normalize_schedule_weekdays(item.get("weekday", "")) or [""])[0]),
             str(item.get("run_time", "")),
             str(item.get("name", "")),
             str(item.get("id", "")),
@@ -5157,6 +5791,27 @@ def _normalize_schedule_enabled(raw: object) -> bool:
     return value not in {"", "0", "false", "no", "off", "disabled"}
 
 
+def _normalize_schedule_weekdays(raw: object) -> list[str]:
+    """Normalize one or more selected weekdays in weekly order."""
+    if isinstance(raw, (list, tuple, set)):
+        raw_values = [str(item) for item in raw]
+    else:
+        raw_values = str(raw or "").replace(";", ",").split(",")
+    selected: list[str] = []
+    seen: set[str] = set()
+    allowed_by_lower = {day.lower(): day for day in _WORKING_DAY_OPTIONS}
+    for raw_value in raw_values:
+        normalized = str(raw_value or "").strip()
+        if not normalized:
+            continue
+        day = allowed_by_lower.get(normalized.lower())
+        if day is None or day in seen:
+            continue
+        seen.add(day)
+        selected.append(day)
+    return sorted(selected, key=_working_day_index)
+
+
 def _normalize_schedule_source_event(raw: object, *, source_type: str) -> str:
     value = str(raw or "").strip()
     if source_type == "working_hours":
@@ -5235,6 +5890,90 @@ def _render_schedule_working_event_options(selected_value: str) -> str:
             for event in _SCHEDULE_WORKING_HOURS_EVENTS
         )
     )
+
+
+def _render_schedule_run_when_options(selected_value: str) -> str:
+    """Render schedule timing source options, including manual weekday/time."""
+    selected = str(selected_value or "").strip() or "work_start"
+    options = [("manual", "Manual")]
+    options.extend((event, _SCHEDULE_WORKING_HOURS_EVENT_LABELS[event]) for event in _SCHEDULE_WORKING_HOURS_EVENTS)
+    return "".join(
+        (
+            f"<option value='{html.escape(value, quote=True)}' selected>{html.escape(label)}</option>"
+            if value == selected
+            else f"<option value='{html.escape(value, quote=True)}'>{html.escape(label)}</option>"
+        )
+        for value, label in options
+    )
+
+
+def _render_schedule_weekday_options(selected_value: str) -> str:
+    """Render a multi-select weekday list for manual schedules."""
+    selected_days = set(_normalize_schedule_weekdays(selected_value))
+    if not selected_days:
+        selected_days = {"Monday"}
+    return "".join(
+        (
+            f"<option value='{html.escape(day, quote=True)}' selected>{html.escape(day)}</option>"
+            if day in selected_days
+            else f"<option value='{html.escape(day, quote=True)}'>{html.escape(day)}</option>"
+        )
+        for day in _WORKING_DAY_OPTIONS
+    )
+
+
+def _render_schedule_weekday_picker_options() -> str:
+    """Render checkbox rows used by the enhanced manual weekday picker."""
+    return "".join(
+        (
+            f"<label class='weekday-option'><input type='checkbox' value='{html.escape(day, quote=True)}'>"
+            f"<span>{html.escape(day)}</span></label>"
+        )
+        for day in _WORKING_DAY_OPTIONS
+    )
+
+
+def _schedule_time_picker_parts(raw: str) -> dict[str, str]:
+    """Return normalized hour/minute/period parts for the manual time picker."""
+    value = str(raw or "").strip() or "06:00 AM"
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})\s*(AM|PM)", value, flags=re.IGNORECASE)
+    if match is None:
+        return {"hour": "06", "minute": "00", "period": "AM", "value": "06:00 AM"}
+    hour = max(1, min(12, int(match.group(1))))
+    minute = max(0, min(59, int(match.group(2))))
+    period = match.group(3).upper()
+    normalized = {
+        "hour": f"{hour:02d}",
+        "minute": f"{minute:02d}",
+        "period": period,
+    }
+    normalized["value"] = f"{normalized['hour']}:{normalized['minute']} {normalized['period']}"
+    return normalized
+
+
+def _render_schedule_time_picker_options(selected_parts: dict[str, str]) -> str:
+    """Render hour, minute, and AM/PM option columns for the manual time picker."""
+    hour_options = [f"{hour:02d}" for hour in range(1, 13)]
+    minute_options = [f"{minute:02d}" for minute in range(0, 60)]
+    period_options = ["AM", "PM"]
+    return (
+        _render_schedule_time_picker_column("hour", hour_options, selected_parts.get("hour", "06"))
+        + _render_schedule_time_picker_column("minute", minute_options, selected_parts.get("minute", "00"))
+        + _render_schedule_time_picker_column("period", period_options, selected_parts.get("period", "AM"))
+    )
+
+
+def _render_schedule_time_picker_column(part: str, values: Iterable[str], selected_value: str) -> str:
+    selected = str(selected_value or "").strip()
+    buttons = "".join(
+        (
+            f"<button type='button' class='time-picker-option is-selected' data-time-part='{html.escape(part, quote=True)}' data-time-value='{html.escape(value, quote=True)}'>{html.escape(value)}</button>"
+            if value == selected
+            else f"<button type='button' class='time-picker-option' data-time-part='{html.escape(part, quote=True)}' data-time-value='{html.escape(value, quote=True)}'>{html.escape(value)}</button>"
+        )
+        for value in values
+    )
+    return f"<div class='time-picker-column'>{buttons}</div>"
 
 
 def _render_schedule_task_key_options(
@@ -5348,7 +6087,8 @@ def _schedule_time_label(item: dict[str, object]) -> str:
     elif recurrence == "daily":
         prefix = "Daily"
     else:
-        prefix = str(item.get("weekday", "")).strip() or "Weekly"
+        weekdays = _normalize_schedule_weekdays(item.get("weekday", ""))
+        prefix = ", ".join(weekdays) if weekdays else "Weekly"
     offset = str(item.get("offset_minutes", "0")).strip()
     offset_label = "" if offset in {"", "0"} else f" offset {offset}m"
     time_label = f" at {run_time}" if run_time else ""
@@ -6537,6 +7277,7 @@ def _render_config_page(
           <button class="{toggle_class}" type="submit">{toggle_label} Runtime</button>
         </form>
         <a class="button secondary" href="/ui/schedules?bot_id={quote_plus(bot_id)}">Scheduled Setup</a>
+        <a class="button secondary" href="/ui/translations?bot_id={quote_plus(bot_id)}">Translate</a>
         <a class="button secondary" href="/ui/working-hours">Working Hours</a>
         <a class="button secondary" href="/ui/locations">Locations</a>
         <button
@@ -6800,6 +7541,334 @@ def _render_config_page(
   </script>
 </body>
 </html>"""
+
+
+def _render_translation_page(
+    *,
+    bot_id: str,
+    config_path: Path,
+    translation_file: Path,
+    rows: list[dict[str, str]],
+    language_code: str,
+    available_languages: Iterable[str],
+    message: str,
+    level: str,
+) -> str:
+    """Render the standalone translation editor for one bot config."""
+    normalized_language = str(language_code or "").strip().lower().replace("_", "-") or "km"
+    status_html = _render_status_html(message=message, level=level)
+    language_options = "".join(
+        f"<option value='{html.escape(str(language))}'></option>"
+        for language in available_languages
+        if str(language).strip()
+    )
+    row_count = len(rows)
+    translated_count = sum(1 for row in rows if str(row.get("translation_text", "")).strip())
+    rows_html = _render_translation_rows_html(rows)
+    if not rows_html:
+        rows_html = (
+            "<tr>"
+            "<td colspan='4' class='empty'>No translatable module text found in this bot config.</td>"
+            "</tr>"
+        )
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Translate - {html.escape(bot_id)}</title>
+  <style>
+    :root {{
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #1e2a39;
+      --muted: #5f6f83;
+      --line: #d6deea;
+      --ok: #0a7a4d;
+      --err: #b42318;
+      --info: #0b63c7;
+      --accent: #0f4ea5;
+      --accent-hover: #0b3d81;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at top, #edf3ff 0%, var(--bg) 60%);
+      color: var(--text);
+    }}
+    .container {{
+      width: min(1280px, calc(100% - 32px));
+      margin: 20px auto;
+    }}
+    .panel {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(15, 32, 62, 0.08);
+    }}
+    h1 {{
+      margin: 0 0 6px;
+      font-size: 1.25rem;
+    }}
+    p, .meta, .hint {{
+      color: var(--muted);
+    }}
+    p {{
+      margin: 0;
+    }}
+    .meta {{
+      margin-top: 8px;
+      font-size: 0.88rem;
+      word-break: break-word;
+    }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 12px;
+    }}
+    .toolbar {{
+      display: grid;
+      grid-template-columns: minmax(180px, 260px) auto 1fr;
+      gap: 10px;
+      align-items: end;
+    }}
+    label {{
+      display: block;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #344054;
+    }}
+    input, textarea {{
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }}
+    textarea {{
+      min-height: 94px;
+      resize: vertical;
+      line-height: 1.4;
+    }}
+    button, .button {{
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 14px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+    }}
+    button:hover, .button:hover {{
+      background: var(--accent-hover);
+    }}
+    .button.secondary, button.secondary {{
+      background: #475467;
+    }}
+    .button.secondary:hover, button.secondary:hover {{
+      background: #344054;
+    }}
+    .button.back {{
+      background: #6b7280;
+    }}
+    .summary {{
+      justify-self: end;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding-bottom: 10px;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }}
+    th, td {{
+      border-bottom: 1px solid var(--line);
+      padding: 12px;
+      vertical-align: top;
+      text-align: left;
+    }}
+    th {{
+      background: #eef4ff;
+      color: #22314a;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }}
+    tr:last-child td {{
+      border-bottom: 0;
+    }}
+    .source-meta {{
+      min-width: 220px;
+      font-weight: 700;
+      color: #22314a;
+    }}
+    .source-path {{
+      margin-top: 6px;
+      font-size: 0.78rem;
+      font-family: Consolas, "Courier New", monospace;
+      color: var(--muted);
+      word-break: break-word;
+    }}
+    .source-text {{
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-width: 280px;
+      line-height: 1.4;
+    }}
+    .translation-cell {{
+      min-width: 320px;
+      width: 42%;
+    }}
+    .status {{
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      background: #eef6ff;
+    }}
+    .status.success {{
+      border-color: #abefc6;
+      background: #ecfdf3;
+      color: var(--ok);
+    }}
+    .status.error {{
+      border-color: #fecaca;
+      background: #fff1f2;
+      color: var(--err);
+    }}
+    .empty {{
+      color: var(--muted);
+      text-align: center;
+      padding: 20px;
+    }}
+    @media (max-width: 820px) {{
+      .toolbar {{
+        grid-template-columns: 1fr;
+      }}
+      .summary {{
+        justify-self: start;
+        padding-bottom: 0;
+      }}
+      table, thead, tbody, th, td, tr {{
+        display: block;
+      }}
+      thead {{
+        display: none;
+      }}
+      tr {{
+        border-bottom: 1px solid var(--line);
+      }}
+      td {{
+        border-bottom: 0;
+      }}
+      .translation-cell {{
+        min-width: 0;
+        width: 100%;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="panel">
+      <h1>Translate: {html.escape(bot_id)}</h1>
+      <p>Standalone translation catalog for workflow module text.</p>
+      <div class="meta">Config file: {html.escape(str(config_path))}</div>
+      <div class="meta">Translation file: {html.escape(str(translation_file))}</div>
+      <div class="actions">
+        <a class="button secondary" href="/config?bot_id={quote_plus(bot_id)}">Bot Config</a>
+        <a class="button secondary" href="/ui/schedules?bot_id={quote_plus(bot_id)}">Scheduled Setup</a>
+        <a class="button back" href="/">Back to Home</a>
+      </div>
+    </div>
+    {status_html}
+    <div class="panel">
+      <form method="get" action="/ui/translations" class="toolbar">
+        <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
+        <label>
+          Target Language
+          <input name="language" list="translation-language-options" value="{html.escape(normalized_language)}" maxlength="32">
+        </label>
+        <button class="secondary" type="submit">Load Language</button>
+        <div class="summary">{translated_count} of {row_count} rows translated</div>
+        <datalist id="translation-language-options">{language_options}</datalist>
+      </form>
+    </div>
+    <form method="post" action="/ui/translations/save">
+      <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
+      <input type="hidden" name="language_code" value="{html.escape(normalized_language)}">
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>English</th>
+              <th>Translation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows_html}
+          </tbody>
+        </table>
+        <div class="actions">
+          <button type="submit">Save Translations</button>
+          <a class="button back" href="/ui/translations?bot_id={quote_plus(bot_id)}&language={quote_plus(normalized_language)}">Cancel</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</body>
+</html>"""
+
+
+def _render_translation_rows_html(rows: list[dict[str, str]]) -> str:
+    """Render translation source rows for the standalone Translate page."""
+    rendered: list[str] = []
+    for row in rows:
+        source_id = str(row.get("id", "")).strip()
+        if not source_id:
+            continue
+        label = str(row.get("source_label", "")).strip() or "Translation source"
+        module_type = str(row.get("module_type", "")).strip()
+        field_name = str(row.get("field_name", "")).strip()
+        source_path = str(row.get("source_path", "")).strip()
+        source_text = str(row.get("source_text", ""))
+        translation_text = str(row.get("translation_text", ""))
+        meta_parts = [part for part in (module_type, field_name) if part]
+        meta_html = f"<div class='hint'>{html.escape(' / '.join(meta_parts))}</div>" if meta_parts else ""
+        rendered.append(
+            "<tr>"
+            "<td>"
+            f"<div class='source-meta'>{html.escape(label)}</div>"
+            f"{meta_html}"
+            f"<div class='source-path'>{html.escape(source_path)}</div>"
+            f"<input type='hidden' name='source_key' value='{html.escape(source_id)}'>"
+            "</td>"
+            f"<td class='source-text'>{html.escape(source_text)}</td>"
+            "<td class='translation-cell'>"
+            f"<textarea name='translation_text'>{html.escape(translation_text)}</textarea>"
+            "</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
 
 
 def _render_status_html(*, message: str, level: str) -> str:

@@ -197,6 +197,57 @@ def test_wait_keyboard_reply_runs_callback_matching_selected_value() -> None:
     assert store.values == {}
 
 
+def test_wait_keyboard_reply_matches_translated_button_text_and_routes_by_value() -> None:
+    gateway = FakeGateway()
+    store = FakeKeyboardReplyStore()
+    callback = CaptureModule()
+
+    def resolve_text(source_text: str, context: dict[str, object], bot_id: str) -> str:
+        assert bot_id == "bot"
+        assert context["preferred_language"] == "km"
+        return {
+            "Choose": "ជ្រើសរើស",
+            "Clock In": "ចូលធ្វើការ",
+        }.get(source_text, source_text)
+
+    module = WaitKeyboardReplyModule(
+        token_resolver=FakeTokenService(),
+        gateway=gateway,
+        keyboard_reply_request_store=store,
+        config=WaitKeyboardReplyConfig(
+            bot_id="bot",
+            text_template="Choose",
+            buttons=({"text": "Clock In", "value": "etrex_process", "row": 1},),
+            save_reply_to_key="keyboard_reply",
+            success_text_template="",
+            text_template_resolver=resolve_text,
+        ),
+    )
+    module.execute({"chat_id": "123", "user_id": "42", "preferred_language": "km"})
+
+    assert gateway.messages[0]["text"] == "ជ្រើសរើស"
+    assert gateway.messages[0]["reply_markup"] == {
+        "keyboard": [[{"text": "ចូលធ្វើការ"}]],
+        "resize_keyboard": True,
+        "one_time_keyboard": True,
+    }
+
+    sent_count = handle_keyboard_reply_message_update(
+        {"message": {"text": "ចូលធ្វើការ", "chat": {"id": "123"}, "from": {"id": "42"}}},
+        bot_id="bot",
+        gateway=gateway,
+        bot_token="token-bot",
+        keyboard_reply_request_store=store,
+        callback_modules={"etrex_process": [callback]},
+    )
+
+    assert sent_count == 1
+    assert callback.contexts[0]["keyboard_reply"] == "etrex_process"
+    assert callback.contexts[0]["keyboard_reply_text"] == "ចូលធ្វើការ"
+    assert callback.contexts[0]["keyboard_reply_value"] == "etrex_process"
+    assert store.values == {}
+
+
 def test_wait_keyboard_reply_activates_temporary_menu_for_matching_callback() -> None:
     gateway = FakeGateway()
     store = FakeKeyboardReplyStore()

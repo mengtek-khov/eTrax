@@ -269,8 +269,8 @@ def _schedule_run_at(
     if run_time is None:
         return None
     if recurrence == "weekly":
-        weekday = str(schedule.get("weekday", "")).strip()
-        if weekday and weekday.lower() != local_now.strftime("%A").lower():
+        weekdays = _parse_weekdays(schedule.get("weekday"))
+        if weekdays and local_now.strftime("%A").lower() not in weekdays:
             return None
     return datetime.combine(local_now.date(), run_time, tzinfo=local_now.tzinfo)
 
@@ -389,6 +389,15 @@ def _parse_run_date(raw: object) -> Any:
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _parse_weekdays(raw: object) -> set[str]:
+    """Parse one weekday or a comma-separated weekday list."""
+    if isinstance(raw, (list, tuple, set)):
+        raw_values = [str(item) for item in raw]
+    else:
+        raw_values = str(raw or "").replace(";", ",").split(",")
+    return {value.strip().lower() for value in raw_values if value and value.strip()}
 
 
 def _parse_int(raw: object, *, default: int = 0) -> int:

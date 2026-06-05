@@ -1,0 +1,559 @@
+{
+  "entries": [
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "description",
+      "id": "tr-02fd0e67c82a773a",
+      "module_type": "command",
+      "source_label": "Command /reset description",
+      "source_path": "command_menu.commands[0].description",
+      "source_text": "forgot user",
+      "translations": {
+        "km": "បំភ្លេចពត៍មានអ្នកប្រើ"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "description",
+      "id": "tr-9c83e8dcb9be419e",
+      "module_type": "command",
+      "source_label": "Command /getinfo description",
+      "source_path": "command_menu.commands[1].description",
+      "source_text": "Getinfo",
+      "translations": {
+        "km": "ទាញយកពត៍មានអ្នកប្រើ"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "description",
+      "id": "tr-17e809f495429139",
+      "module_type": "command",
+      "source_label": "Command /clock description",
+      "source_path": "command_menu.commands[2].description",
+      "source_text": "Clock",
+      "translations": {
+        "km": "ម៉ោងធ្វើការ"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "description",
+      "id": "tr-651abacb415aa66b",
+      "module_type": "command",
+      "source_label": "Command /lang description",
+      "source_path": "command_menu.commands[3].description",
+      "source_text": "Lang",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-fdf4f9ed2cdccf7d",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /clock step 1 wait_keyboard_reply text",
+      "source_path": "command_menu.command_modules.clock.pipeline[0].buttons[0].text",
+      "source_text": "🟢 Clock In 🟢",
+      "translations": {
+        "km": "🟢 ចូលធ្វើការ 🟢"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "invalid_text_template",
+      "id": "tr-6a870d21b161b0d2",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /clock step 1 wait_keyboard_reply invalid_text_template",
+      "source_path": "command_menu.command_modules.clock.pipeline[0].invalid_text_template",
+      "source_text": "Please choose from the keyboard.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-2562287659479898",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /clock step 1 wait_keyboard_reply text_template",
+      "source_path": "command_menu.command_modules.clock.pipeline[0].text_template",
+      "source_text": "Click the button bellow to clock in.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "empty_text_template",
+      "id": "tr-e03c30a32893e4a5",
+      "module_type": "userinfo",
+      "source_label": "Command /getinfo step 1 userinfo empty_text_template",
+      "source_path": "command_menu.command_modules.getinfo.pipeline[0].empty_text_template",
+      "source_text": "No user information has been gathered yet.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "title",
+      "id": "tr-c5d9f6906f581412",
+      "module_type": "userinfo",
+      "source_label": "Command /getinfo step 1 userinfo title",
+      "source_path": "command_menu.command_modules.getinfo.pipeline[0].title",
+      "source_text": "Current User Information",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-5f3eee2656f08535",
+      "module_type": "send_message",
+      "source_label": "Command /lang step 1 send_message text_template",
+      "source_path": "command_menu.command_modules.lang.pipeline[0].text_template",
+      "source_text": "Command /lang received.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-b3d5cb5ece1699b4",
+      "module_type": "send_message",
+      "source_label": "Command /reset step 2 send_message text_template",
+      "source_path": "command_menu.command_modules.reset.pipeline[1].text_template",
+      "source_text": "Your Data has been removed please click /start to use this system again",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "start_returning_text_template",
+      "id": "tr-2723784981498e3f",
+      "module_type": "send_message",
+      "source_label": "Command /start step 1 send_message start_returning_text_template",
+      "source_path": "command_menu.command_modules.start.pipeline[0].start_returning_text_template",
+      "source_text": "សួស្តី {user_first_name} ស្វាគមន៍ត្រលប់មកវិញពី {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-2d6ff630cd23d608",
+      "module_type": "send_message",
+      "source_label": "Command /start step 1 send_message text_template",
+      "source_path": "command_menu.command_modules.start.pipeline[0].text_template",
+      "source_text": "សូមស្វាគមន៍មកកាន់ {bot_name}\r\nWelcome to {bot_name}",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "welcome_back_template",
+      "id": "tr-c6102fa61efa0d49",
+      "module_type": "send_message",
+      "source_label": "Command /start step 1 send_message welcome_back_template",
+      "source_path": "command_menu.command_modules.start.pipeline[0].welcome_back_template",
+      "source_text": "សួស្តី {user_first_name} ស្វាគមន៍ត្រលប់មកវិញពី {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-c340af4f2caed71c",
+      "module_type": "inline_button",
+      "source_label": "Command /start step 2 inline_button text",
+      "source_path": "command_menu.command_modules.start.pipeline[1].buttons[0].text",
+      "source_text": "Yes, Sure.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-2d95a91781793f94",
+      "module_type": "inline_button",
+      "source_label": "Command /start step 2 inline_button text",
+      "source_path": "command_menu.command_modules.start.pipeline[1].buttons[1].text",
+      "source_text": "Remind me later",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-053ea69bfd48572a",
+      "module_type": "inline_button",
+      "source_label": "Command /start step 2 inline_button text_template",
+      "source_path": "command_menu.command_modules.start.pipeline[1].text_template",
+      "source_text": "តើអ្នកចង់ចែករំលែកលេខទូរស័ព្ទរបស់អ្នកទេ?\nPlease share your telegram contact profile",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-6a7e489bf806eebf",
+      "module_type": "inline_button",
+      "source_label": "Command /start step 3 inline_button text",
+      "source_path": "command_menu.command_modules.start.pipeline[2].buttons[0].text",
+      "source_text": "✅ I am 18+",
+      "translations": {
+        "km": "✅ ខ្ញុំអាយុ 18+"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-759a14bcb1b80d0e",
+      "module_type": "inline_button",
+      "source_label": "Command /start step 3 inline_button text",
+      "source_path": "command_menu.command_modules.start.pipeline[2].buttons[1].text",
+      "source_text": "❌ I am under 18",
+      "translations": {
+        "km": "❌ ខ្ញុំអាយុក្រោម 18"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-ef683009b7d40fb2",
+      "module_type": "inline_button",
+      "source_label": "Command /start step 3 inline_button text_template",
+      "source_path": "command_menu.command_modules.start.pipeline[2].text_template",
+      "source_text": "🔞 Age Verification Required\n\nBefore continuing, please confirm that you are 18+.\n\nThis helps us ensure a safe and appropriate experience for all users.\n\n👇 Tap the button below to proceed:",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-2cc78e9748bb14de",
+      "module_type": "send_message",
+      "source_label": "Callback Clock_In step 2 send_message text_template",
+      "source_path": "command_menu.callback_modules.Clock_In.pipeline[1].text_template",
+      "source_text": "✅ Clock-in received at {keyboard_reply_clicked_at}.",
+      "translations": {
+        "km": "✅ ចូលធ្វើការនៅ ម៉ោង {keyboard_reply_clicked_at}."
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-b38100b1cfa8894b",
+      "module_type": "inline_button",
+      "source_label": "Callback Lang step 1 inline_button text",
+      "source_path": "command_menu.callback_modules.Lang.pipeline[0].buttons[0].text",
+      "source_text": "Khmer",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-c7a6b31cdc493266",
+      "module_type": "inline_button",
+      "source_label": "Callback Lang step 1 inline_button text",
+      "source_path": "command_menu.callback_modules.Lang.pipeline[0].buttons[1].text",
+      "source_text": "English",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-a042f865cf7bc3ce",
+      "module_type": "inline_button",
+      "source_label": "Callback Lang step 1 inline_button text",
+      "source_path": "command_menu.callback_modules.Lang.pipeline[0].buttons[2].text",
+      "source_text": "Thai",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-fc03dbc85fcb7a72",
+      "module_type": "inline_button",
+      "source_label": "Callback Lang step 1 inline_button text_template",
+      "source_path": "command_menu.callback_modules.Lang.pipeline[0].text_template",
+      "source_text": "Choose your language.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-e36fa1d3fc17c378",
+      "module_type": "inline_button",
+      "source_label": "Callback age verify step 1 inline_button text",
+      "source_path": "command_menu.callback_modules.\"age verify\".pipeline[0].buttons[0].text",
+      "source_text": "✅ I am 18+",
+      "translations": {
+        "km": "✅ ខ្ញុំអាយុ 18+"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text",
+      "id": "tr-397a039c812b6c2b",
+      "module_type": "inline_button",
+      "source_label": "Callback age verify step 1 inline_button text",
+      "source_path": "command_menu.callback_modules.\"age verify\".pipeline[0].buttons[1].text",
+      "source_text": "❌ I am under 18",
+      "translations": {
+        "km": "❌ ខ្ញុំអាយុក្រោម 18"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-9fbb2fe4b7a3ba98",
+      "module_type": "inline_button",
+      "source_label": "Callback age verify step 1 inline_button text_template",
+      "source_path": "command_menu.callback_modules.\"age verify\".pipeline[0].text_template",
+      "source_text": "🔞 Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n👇 Tap the button below to proceed:",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-0b4cfbbfdc4eb079",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_cancel step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.clock_out_cancel.pipeline[0].text_template",
+      "source_text": "❎ Clock-Out process canceled. Thank you!",
+      "translations": {
+        "km": "❎ អ្នកបានបោះបង់ការចេញពីធ្វើ"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-2f474e32dace73b0",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_now step 2 send_message text_template",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[1].text_template",
+      "source_text": "☑️  Clock-out received at {keyboard_reply_clicked_at}.",
+      "translations": {
+        "km": "☑️  ចេញពីធ្វើការនៅ ម៉ោង {keyboard_reply_clicked_at}."
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "button_text",
+      "id": "tr-c8ea947b66946521",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location button_text",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].button_text",
+      "source_text": "Share My Location",
+      "translations": {
+        "km": "ផ្ញើរទីតាំងរបស់ខ្ញុំ"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "finish_current_command_text_template",
+      "id": "tr-670e297ae7621102",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location finish_current_command_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].finish_current_command_text_template",
+      "source_text": "❌ Incorrect response!",
+      "translations": {
+        "km": "❌ ការឆ្លើយតបមិនត្រឹមត្រូវ!"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "success_text_template",
+      "id": "tr-3c1340ba0041f33e",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location success_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].success_text_template",
+      "source_text": "Thanks, your location was received.",
+      "translations": {
+        "km": "អរគុណ! សម្រាប់ការផ្ញើទីតាំង"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-0e0adeb9aaf6caab",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].text_template",
+      "source_text": "🗺 Please share your LIVE location to clock in.",
+      "translations": {
+        "km": "🗺 ផ្ញើរទីតាំងបច្ចុប្បន្នរបស់អ្នក ដើម្បីចូលធ្វើការ."
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "finish_current_command_text_template",
+      "id": "tr-d46fa7317edbea95",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie finish_current_command_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].finish_current_command_text_template",
+      "source_text": "❌ Incorrect response!",
+      "translations": {
+        "km": "❌ ការឆ្លើយតបមិនត្រឹមត្រូវ!"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "invalid_text_template",
+      "id": "tr-1fbff67daef7ebf0",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie invalid_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].invalid_text_template",
+      "source_text": "Please send a selfie photo.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "success_text_template",
+      "id": "tr-7f6d7fc237e6e263",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie success_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].success_text_template",
+      "source_text": "Thanks, your selfie was received.",
+      "translations": {
+        "km": "អរគុណ! សម្រាប់ការផ្ញើរូបភាបរបស់អ្នក"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-5146fbf1bf4c0ff1",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].text_template",
+      "source_text": "📷 Please share a selfie to complete clock-in.",
+      "translations": {
+        "km": "📷 ផ្ញើររូបភាបរបស់អ្នកដើម្បីចូលធ្វើការ."
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-87b3e3aa36d36544",
+      "module_type": "send_message",
+      "source_label": "Callback i_am_18 step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.i_am_18.pipeline[0].text_template",
+      "source_text": "Thank you!",
+      "translations": {
+        "km": "អរគុណ!"
+      },
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-51164f8bc1548ed6",
+      "module_type": "send_message",
+      "source_label": "Callback i_am_not_18 step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.i_am_not_18.pipeline[0].text_template",
+      "source_text": "🚫 Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-0e29ff724345e53e",
+      "module_type": "send_message",
+      "source_label": "Callback set_language_en step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.set_language_en.pipeline[0].text_template",
+      "source_text": "Language saved: English.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-459a22836abac323",
+      "module_type": "send_message",
+      "source_label": "Callback set_language_km step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.set_language_km.pipeline[0].text_template",
+      "source_text": "Language saved: Khmer.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-7400b2ef228472db",
+      "module_type": "send_message",
+      "source_label": "Callback set_language_th step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.set_language_th.pipeline[0].text_template",
+      "source_text": "Language saved: Thai.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "button_text",
+      "id": "tr-888324b70f91d478",
+      "module_type": "share_contact",
+      "source_label": "Callback share_contact step 1 share_contact button_text",
+      "source_path": "command_menu.callback_modules.share_contact.pipeline[0].button_text",
+      "source_text": "Share My Contact",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "invalid_text_template",
+      "id": "tr-8eec2f81597ed30c",
+      "module_type": "share_contact",
+      "source_label": "Callback share_contact step 1 share_contact invalid_text_template",
+      "source_path": "command_menu.callback_modules.share_contact.pipeline[0].invalid_text_template",
+      "source_text": "Please share your own contact using the button below.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "success_text_template",
+      "id": "tr-4cfcf669f41248e0",
+      "module_type": "share_contact",
+      "source_label": "Callback share_contact step 1 share_contact success_text_template",
+      "source_path": "command_menu.callback_modules.share_contact.pipeline[0].success_text_template",
+      "source_text": "Thanks {contact_first_name}, your contact was verified.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    },
+    {
+      "bot_id": "eTrax Bot V1",
+      "field_name": "text_template",
+      "id": "tr-9fd61967485a74d4",
+      "module_type": "share_contact",
+      "source_label": "Callback share_contact step 1 share_contact text_template",
+      "source_path": "command_menu.callback_modules.share_contact.pipeline[0].text_template",
+      "source_text": "សូមចែករំលែកទំនាក់ទំនងរបស់អ្នកដោយប្រើប៊ូតុងខាងក្រោម។\r\nPlease share your contact using the button below.",
+      "translations": {},
+      "updated_at": "2026-06-03T08:25:31.989196+00:00"
+    }
+  ]
+}

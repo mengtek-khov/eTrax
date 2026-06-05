@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 from ..flow import FlowModule, ModuleOutcome
 from .context_conditions import context_rule_matches
@@ -34,6 +34,7 @@ class SendInlineButtonConfig:
     click_timestamp_format: str = "%Y-%m-%d %H:%M:%S"
     require_finish_current_command: bool = False
     finish_current_command_text_template: str | None = None
+    text_template_resolver: Callable[[str, dict[str, Any], str], str] | None = None
 
     @property
     def static_reply_markup(self) -> dict[str, object]:
@@ -138,6 +139,7 @@ class SendTelegramInlineButtonModule:
                 context_parse_mode_key=self._config.context_parse_mode_key,
                 static_reply_markup=reply_markup,
                 context_result_key=self._config.context_result_key,
+                text_template_resolver=self._config.text_template_resolver,
             ),
         )
         outcome = message_module.execute(context)
@@ -195,6 +197,7 @@ class SendTelegramInlineButtonModule:
                 click_timestamp_format=next_config.click_timestamp_format,
                 require_finish_current_command=next_config.require_finish_current_command,
                 finish_current_command_text_template=next_config.finish_current_command_text_template,
+                text_template_resolver=next_config.text_template_resolver,
             )
         return SendTelegramInlineButtonModule(
             token_resolver=self._token_resolver,
