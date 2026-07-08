@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 
+TEMPLATE_TRANSLATION_PREFIX = "template:"
+
 TRANSLATABLE_FIELD_NAMES = {
     "button_text",
     "breadcrumb_ended_text_template",
@@ -185,6 +187,35 @@ def merge_translation_sources(
     return merged
 
 
+def template_translation_bot_id(template_key: str) -> str:
+    """Return the pseudo bot id used to store one template's translations."""
+    normalized_key = str(template_key or "").strip()
+    if not normalized_key:
+        raise ValueError("template key is required")
+    return f"{TEMPLATE_TRANSLATION_PREFIX}{normalized_key}"
+
+
+def _lookup_template_translation(
+    entries: list[dict[str, Any]],
+    *,
+    source_text: str,
+    language_code: str,
+) -> str:
+    """Find a template-scoped translation matching one source text exactly."""
+    for entry in entries:
+        if not str(entry.get("bot_id", "")).strip().startswith(TEMPLATE_TRANSLATION_PREFIX):
+            continue
+        if str(entry.get("source_text", "")) != source_text:
+            continue
+        translations = entry.get("translations", {})
+        if not isinstance(translations, dict):
+            continue
+        translated = str(translations.get(language_code, "")).strip()
+        if translated:
+            return translated
+    return ""
+
+
 def build_translation_rows(
     *,
     sources: list[dict[str, str]],
@@ -201,6 +232,12 @@ def build_translation_rows(
         translated_text = ""
         if isinstance(translations, dict):
             translated_text = str(translations.get(normalized_language, ""))
+        if not translated_text.strip() and not str(source.get("bot_id", "")).startswith(TEMPLATE_TRANSLATION_PREFIX):
+            translated_text = _lookup_template_translation(
+                entries,
+                source_text=str(source.get("source_text", "")),
+                language_code=normalized_language,
+            )
         rows.append({**source, "translation_text": translated_text})
     return rows
 
@@ -265,6 +302,13 @@ def translate_runtime_text(
         translated = str(translations.get(normalized_language, "")).strip()
         if translated:
             return translated
+    template_translated = _lookup_template_translation(
+        entries,
+        source_text=normalized_source,
+        language_code=normalized_language,
+    )
+    if template_translated:
+        return template_translated
     return normalized_source
 
 

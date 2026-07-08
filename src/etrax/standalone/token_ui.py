@@ -37,6 +37,7 @@ from etrax.standalone.translation_registry import (
     merge_translation_sources,
     save_translation_entries,
     scan_bot_config_translation_sources,
+    template_translation_bot_id,
 )
 
 
@@ -217,8 +218,12 @@ def _build_handler(
                         template=template_entry,
                         message=message,
                         level=level,
+                        target_options=_load_template_target_options(service, bot_config_dir),
                     ),
                 )
+                return
+            if parsed.path == "/ui/templates/translate":
+                self._handle_template_translations_page(parsed)
                 return
             if parsed.path == "/ui/schedules":
                 params = parse_qs(parsed.query)
@@ -327,6 +332,9 @@ def _build_handler(
                 return
             if parsed.path == "/module-wait-keyboard-reply.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("wait_keyboard_reply_module.js"))
+                return
+            if parsed.path == "/module-ask-text-reply.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("ask_text_reply_module.js"))
                 return
             if parsed.path == "/module-share-contact.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_contact_module.js"))
@@ -453,6 +461,9 @@ def _build_handler(
             if parsed.path == "/ui/translations/save":
                 self._handle_translations_save(form)
                 return
+            if parsed.path == "/ui/templates/translate/save":
+                self._handle_template_translations_save(form)
+                return
 
             self._send_text(HTTPStatus.NOT_FOUND, "Not Found")
 
@@ -492,7 +503,10 @@ def _build_handler(
             try:
                 config_path, payload = _load_bot_config(scaffold_store, bot_config_dir, bot_id)
                 runtime_status = runtime_manager.status_by_bot_id(bot_id)
-                context_key_options = _load_profile_log_context_keys(profile_log_file, bot_id=bot_id)
+                context_key_options = _build_context_key_options(
+                    _load_profile_log_context_keys(profile_log_file, bot_id=bot_id),
+                    payload,
+                )
                 custom_code_function_options = load_custom_code_function_names()
                 template_entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
                 html_payload = _render_config_page(
@@ -617,6 +631,92 @@ def _build_handler(
             except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
                 _print_terminal_error("translations-save", str(exc))
                 self._redirect(_with_message(next_url or "/", "error", str(exc)))
+
+        def _handle_template_translations_page(self, parsed) -> None:
+            """Render the per-template translation management page."""
+            params = parse_qs(parsed.query)
+            template_id = params.get("template_id", [""])[0].strip()
+            if not template_id:
+                self._redirect(_with_message("/ui/templates", "error", "template_id is required for Translate"))
+                return
+            message = params.get("message", [""])[0]
+            level = params.get("level", ["info"])[0]
+            selected_language = (
+                params.get("language", params.get("language_code", [""]))[0].strip().lower().replace("_", "-")
+            )
+            try:
+                template_entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
+                template_entry = _find_standalone_ui_entry(template_entries, template_id)
+                if template_entry is None:
+                    raise ValueError("template entry not found")
+                sources = _scan_template_translation_sources(template_entry)
+                entries = load_translation_entries(translations_file)
+                template_bot_id = _template_translation_bot_id(template_entry)
+                languages = available_translation_languages(entries, bot_id=template_bot_id)
+                if not selected_language:
+                    selected_language = languages[0] if languages else "km"
+                rows = build_translation_rows(
+                    sources=sources,
+                    entries=entries,
+                    language_code=selected_language,
+                )
+                self._send_html(
+                    HTTPStatus.OK,
+                    _render_translation_page(
+                        bot_id=template_bot_id,
+                        config_path=templates_file,
+                        translation_file=translations_file,
+                        rows=rows,
+                        language_code=selected_language,
+                        available_languages=languages,
+                        message=message,
+                        level=level,
+                        page_kind="template",
+                        template_id=template_id,
+                        template_name=str(template_entry.get("name", "")).strip(),
+                    ),
+                )
+            except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                _print_terminal_error("template-translations-load", str(exc))
+                self._redirect(_with_message("/ui/templates", "error", str(exc)))
+
+        def _handle_template_translations_save(self, form: dict[str, list[str]]) -> None:
+            """Persist one target language for the current template translation sources."""
+            template_id = form.get("template_id", [""])[0].strip()
+            language_code = form.get("language_code", [""])[0].strip().lower().replace("_", "-")
+            next_url = (
+                f"/ui/templates/translate?template_id={quote_plus(template_id)}&language={quote_plus(language_code)}"
+            )
+            try:
+                if not template_id:
+                    raise ValueError("template_id is required")
+                if not language_code:
+                    raise ValueError("language code is required")
+                template_entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
+                template_entry = _find_standalone_ui_entry(template_entries, template_id)
+                if template_entry is None:
+                    raise ValueError("template entry not found")
+                sources = _scan_template_translation_sources(template_entry)
+                source_keys = form.get("source_key", [])
+                translation_texts = form.get("translation_text", [])
+                submitted = {
+                    str(source_key).strip(): str(translation_texts[index]).strip()
+                    for index, source_key in enumerate(source_keys)
+                    if index < len(translation_texts) and str(source_key).strip()
+                }
+                existing_entries = load_translation_entries(translations_file)
+                merged_entries = merge_translation_sources(
+                    sources=sources,
+                    entries=existing_entries,
+                    language_code=language_code,
+                    submitted_translations=submitted,
+                )
+                save_translation_entries(translations_file, merged_entries)
+                saved_count = sum(1 for value in submitted.values() if value.strip())
+                self._redirect(_with_message(next_url, "success", f"Saved {saved_count} translations for {language_code}"))
+            except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                _print_terminal_error("template-translations-save", str(exc))
+                self._redirect(_with_message(next_url if template_id else "/ui/templates", "error", str(exc)))
 
         def _handle_working_hours_save(self, form: dict[str, list[str]]) -> None:
             """Create or update one working-hours row in the standalone demo page."""
@@ -2964,11 +3064,89 @@ def _render_template_list_page(
 </html>"""
 
 
+def _template_translation_bot_id(template: dict[str, object]) -> str:
+    """Return the pseudo bot id used to store translations for one template."""
+    template_key = str(template.get("template_key", "")).strip() or str(template.get("id", "")).strip()
+    return template_translation_bot_id(template_key)
+
+
+def _scan_template_translation_sources(template: dict[str, object]) -> list[dict[str, str]]:
+    """Scan one template's pipeline, callbacks, and temporary commands for translatable text."""
+    pipeline_text = str(template.get("process_pipeline", "")).strip()
+    pipeline_steps = _template_pipeline_text_to_steps(pipeline_text) if pipeline_text else []
+    callback_modules: dict[str, object] = {}
+    callback_text = str(template.get("callback_modules", "")).strip()
+    if callback_text:
+        try:
+            parsed_callbacks = json.loads(callback_text)
+        except json.JSONDecodeError:
+            parsed_callbacks = None
+        if isinstance(parsed_callbacks, dict):
+            for callback_key, raw_config in parsed_callbacks.items():
+                normalized_key = str(callback_key or "").strip()
+                if not normalized_key:
+                    continue
+                if isinstance(raw_config, list):
+                    callback_modules[normalized_key] = {
+                        "pipeline": [step for step in raw_config if isinstance(step, dict)]
+                    }
+                elif isinstance(raw_config, dict):
+                    callback_modules[normalized_key] = raw_config
+    temporary_commands = _template_temporary_command_text_to_rows(str(template.get("temporary_commands", "")))
+    template_module: dict[str, object] = {"pipeline": pipeline_steps}
+    if temporary_commands:
+        template_module["temporary_commands"] = temporary_commands
+    command_modules: dict[str, object] = {}
+    if pipeline_steps or temporary_commands:
+        command_modules["template_pipeline"] = template_module
+    payload = {
+        "command_menu": {
+            "command_modules": command_modules,
+            "callback_modules": callback_modules,
+        }
+    }
+    return scan_bot_config_translation_sources(
+        bot_id=_template_translation_bot_id(template),
+        payload=payload,
+    )
+
+
+def _load_template_target_options(
+    service: BotTokenService,
+    bot_config_dir: Path,
+) -> list[dict[str, object]]:
+    """List configured bot ids with their command names for template load targets."""
+    options: list[dict[str, object]] = []
+    for item in service.list_token_metadata():
+        bot_id = str(item.get("bot_id", "")).strip()
+        if not bot_id:
+            continue
+        commands: list[str] = []
+        config_path = bot_config_dir / f"{_to_safe_filename(bot_id)}.json"
+        if config_path.is_file():
+            try:
+                payload = json.loads(config_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = None
+            command_menu = payload.get("command_menu") if isinstance(payload, dict) else None
+            raw_commands = command_menu.get("commands") if isinstance(command_menu, dict) else None
+            if isinstance(raw_commands, list):
+                for row in raw_commands:
+                    if not isinstance(row, dict):
+                        continue
+                    command_name = str(row.get("command", "")).strip().lstrip("/")
+                    if command_name and command_name not in commands:
+                        commands.append(command_name)
+        options.append({"bot_id": bot_id, "commands": commands})
+    return options
+
+
 def _render_template_config_page(
     *,
     template: dict[str, object],
     message: str = "",
     level: str = "info",
+    target_options: list[dict[str, object]] | None = None,
 ) -> str:
     """Render the dedicated one-pipeline template config page."""
     entry_id = str(template.get("id", "")).strip()
@@ -3005,6 +3183,31 @@ def _render_template_config_page(
     ).replace("</", "<\\/")
     asset_version = html.escape(_config_editor_asset_version())
     fallback_module_list_html = _render_template_pipeline_fallback(command_row)
+    target_command_map: dict[str, list[str]] = {}
+    for option_row in target_options or []:
+        option_bot_id = str(option_row.get("bot_id", "")).strip()
+        if not option_bot_id:
+            continue
+        raw_option_commands = option_row.get("commands")
+        option_commands = (
+            [str(command).strip() for command in raw_option_commands if str(command).strip()]
+            if isinstance(raw_option_commands, list)
+            else []
+        )
+        target_command_map[option_bot_id] = option_commands
+    if load_bot_id and load_bot_id not in target_command_map:
+        target_command_map[load_bot_id] = []
+    if load_bot_id and load_command and load_command not in target_command_map[load_bot_id]:
+        target_command_map[load_bot_id] = [*target_command_map[load_bot_id], load_command]
+    load_bot_options_html = '<option value="">Select bot</option>' + "".join(
+        f'<option value="{html.escape(bot)}"{" selected" if bot == load_bot_id else ""}>{html.escape(bot)}</option>'
+        for bot in target_command_map
+    )
+    load_command_options_html = '<option value="">Select command</option>' + "".join(
+        f'<option value="{html.escape(command)}"{" selected" if command == load_command else ""}>{html.escape(command)}</option>'
+        for command in target_command_map.get(load_bot_id, [])
+    )
+    target_command_map_json = json.dumps(target_command_map, ensure_ascii=False).replace("</", "<\\/")
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -3411,6 +3614,7 @@ def _render_template_config_page(
 		      <p>Configure one reusable process pipeline. This template is not attached to a command until it is loaded into a bot command.</p>
 		      <div class="meta">Template key: {html.escape(template_key)}</div>
 		      <div class="actions">
+		        <a class="button secondary" href="/ui/templates/translate?template_id={quote_plus(entry_id)}">Translate</a>
 		        <a class="button back" href="/ui/templates">Back to Templates</a>
 		      </div>
 	    </div>
@@ -3423,11 +3627,11 @@ def _render_template_config_page(
 	        <div class="config-grid template-target-grid">
 	          <div class="field">
 	            <label>Target Bot ID</label>
-	            <input name="load_bot_id" value="{html.escape(load_bot_id)}" placeholder="attendance-bot">
+	            <select id="load-bot-select" name="load_bot_id">{load_bot_options_html}</select>
 	          </div>
 	          <div class="field">
 	            <label>Target Command</label>
-	            <input name="load_command" value="{html.escape(load_command)}" placeholder="clock_in">
+	            <select id="load-command-select" name="load_command">{load_command_options_html}</select>
 	          </div>
 	        </div>
 		        <div class="actions">
@@ -3448,6 +3652,7 @@ def _render_template_config_page(
 	  <script src="/module-inline-button.js?v={asset_version}"></script>
 	  <script src="/module-keyboard-button.js?v={asset_version}"></script>
 	  <script src="/module-wait-keyboard-reply.js?v={asset_version}"></script>
+	  <script src="/module-ask-text-reply.js?v={asset_version}"></script>
 	  <script src="/module-share-contact.js?v={asset_version}"></script>
 	  <script src="/module-ask-selfie.js?v={asset_version}"></script>
 	  <script src="/module-custom-code.js?v={asset_version}"></script>
@@ -3471,6 +3676,37 @@ def _render_template_config_page(
 	    if (window.EtraxConfigVue && typeof window.EtraxConfigVue.mount === "function") {{
 	      window.EtraxConfigVue.mount("#command-config-app", "#command-config-state");
 	    }}
+	  </script>
+	  <script id="template-target-command-map" type="application/json">{target_command_map_json}</script>
+	  <script>
+	    (function () {{
+	      var botSelect = document.getElementById("load-bot-select");
+	      var commandSelect = document.getElementById("load-command-select");
+	      var mapNode = document.getElementById("template-target-command-map");
+	      if (!botSelect || !commandSelect || !mapNode) {{
+	        return;
+	      }}
+	      var commandMap = {{}};
+	      try {{
+	        commandMap = JSON.parse(mapNode.textContent || "{{}}") || {{}};
+	      }} catch (err) {{
+	        commandMap = {{}};
+	      }}
+	      botSelect.addEventListener("change", function () {{
+	        var commands = commandMap[botSelect.value] || [];
+	        commandSelect.innerHTML = "";
+	        var placeholder = document.createElement("option");
+	        placeholder.value = "";
+	        placeholder.textContent = "Select command";
+	        commandSelect.appendChild(placeholder);
+	        commands.forEach(function (command) {{
+	          var option = document.createElement("option");
+	          option.value = command;
+	          option.textContent = command;
+	          commandSelect.appendChild(option);
+	        }});
+	      }});
+	    }})();
 	  </script>
 </body>
 </html>"""
@@ -4209,6 +4445,7 @@ def _render_scheduled_tasks_demo_page(
   <script src="/module-inline-button.js?v={asset_version}"></script>
   <script src="/module-keyboard-button.js?v={asset_version}"></script>
   <script src="/module-wait-keyboard-reply.js?v={asset_version}"></script>
+  <script src="/module-ask-text-reply.js?v={asset_version}"></script>
   <script src="/module-share-contact.js?v={asset_version}"></script>
   <script src="/module-ask-selfie.js?v={asset_version}"></script>
   <script src="/module-custom-code.js?v={asset_version}"></script>
@@ -5563,6 +5800,7 @@ def _render_template_table_row(item: dict[str, object]) -> str:
         "<td data-label='Action'>"
         "<div class='action-stack'>"
         f"<a class='button mini' href='/ui/templates/config?template_id={quote_plus(str(item['id']))}'>Config</a>"
+        f"<a class='button secondary mini' href='/ui/templates/translate?template_id={quote_plus(str(item['id']))}'>Translate</a>"
         f"{edit_html}"
         "<form method='post' action='/ui/templates/duplicate'>"
         f"<input type='hidden' name='entry_id' value='{entry_id}'>"
@@ -7338,6 +7576,7 @@ def _render_config_page(
   <script src="/module-inline-button.js?v={asset_version}"></script>
   <script src="/module-keyboard-button.js?v={asset_version}"></script>
   <script src="/module-wait-keyboard-reply.js?v={asset_version}"></script>
+  <script src="/module-ask-text-reply.js?v={asset_version}"></script>
   <script src="/module-share-contact.js?v={asset_version}"></script>
   <script src="/module-ask-selfie.js?v={asset_version}"></script>
   <script src="/module-custom-code.js?v={asset_version}"></script>
@@ -7553,8 +7792,11 @@ def _render_translation_page(
     available_languages: Iterable[str],
     message: str,
     level: str,
+    page_kind: str = "bot",
+    template_id: str = "",
+    template_name: str = "",
 ) -> str:
-    """Render the standalone translation editor for one bot config."""
+    """Render the standalone translation editor for one bot config or template."""
     normalized_language = str(language_code or "").strip().lower().replace("_", "-") or "km"
     status_html = _render_status_html(message=message, level=level)
     language_options = "".join(
@@ -7565,19 +7807,46 @@ def _render_translation_page(
     row_count = len(rows)
     translated_count = sum(1 for row in rows if str(row.get("translation_text", "")).strip())
     rows_html = _render_translation_rows_html(rows)
+    is_template_page = page_kind == "template"
     if not rows_html:
+        empty_scope = "template" if is_template_page else "bot config"
         rows_html = (
             "<tr>"
-            "<td colspan='4' class='empty'>No translatable module text found in this bot config.</td>"
+            f"<td colspan='4' class='empty'>No translatable module text found in this {empty_scope}.</td>"
             "</tr>"
         )
+    if is_template_page:
+        page_title = f"Translate Template: {template_name or template_id}"
+        load_action = "/ui/templates/translate"
+        save_action = "/ui/templates/translate/save"
+        hidden_id_input = f'<input type="hidden" name="template_id" value="{html.escape(template_id)}">'
+        intro_text = "Standalone translation catalog for this template. Translations apply automatically wherever the template text is used by a bot."
+        nav_links_html = (
+            f'<a class="button secondary" href="/ui/templates/config?template_id={quote_plus(template_id)}">Template Config</a>'
+            '<a class="button back" href="/ui/templates">Back to Templates</a>'
+        )
+        cancel_href = (
+            f"/ui/templates/translate?template_id={quote_plus(template_id)}&language={quote_plus(normalized_language)}"
+        )
+    else:
+        page_title = f"Translate: {bot_id}"
+        load_action = "/ui/translations"
+        save_action = "/ui/translations/save"
+        hidden_id_input = f'<input type="hidden" name="bot_id" value="{html.escape(bot_id)}">'
+        intro_text = "Standalone translation catalog for workflow module text."
+        nav_links_html = (
+            f'<a class="button secondary" href="/config?bot_id={quote_plus(bot_id)}">Bot Config</a>'
+            f'<a class="button secondary" href="/ui/schedules?bot_id={quote_plus(bot_id)}">Scheduled Setup</a>'
+            '<a class="button back" href="/">Back to Home</a>'
+        )
+        cancel_href = f"/ui/translations?bot_id={quote_plus(bot_id)}&language={quote_plus(normalized_language)}"
 
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Translate - {html.escape(bot_id)}</title>
+  <title>{html.escape(page_title)}</title>
   <style>
     :root {{
       --bg: #f5f7fb;
@@ -7789,20 +8058,18 @@ def _render_translation_page(
 <body>
   <div class="container">
     <div class="panel">
-      <h1>Translate: {html.escape(bot_id)}</h1>
-      <p>Standalone translation catalog for workflow module text.</p>
+      <h1>{html.escape(page_title)}</h1>
+      <p>{html.escape(intro_text)}</p>
       <div class="meta">Config file: {html.escape(str(config_path))}</div>
       <div class="meta">Translation file: {html.escape(str(translation_file))}</div>
       <div class="actions">
-        <a class="button secondary" href="/config?bot_id={quote_plus(bot_id)}">Bot Config</a>
-        <a class="button secondary" href="/ui/schedules?bot_id={quote_plus(bot_id)}">Scheduled Setup</a>
-        <a class="button back" href="/">Back to Home</a>
+        {nav_links_html}
       </div>
     </div>
     {status_html}
     <div class="panel">
-      <form method="get" action="/ui/translations" class="toolbar">
-        <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
+      <form method="get" action="{load_action}" class="toolbar">
+        {hidden_id_input}
         <label>
           Target Language
           <input name="language" list="translation-language-options" value="{html.escape(normalized_language)}" maxlength="32">
@@ -7812,8 +8079,8 @@ def _render_translation_page(
         <datalist id="translation-language-options">{language_options}</datalist>
       </form>
     </div>
-    <form method="post" action="/ui/translations/save">
-      <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
+    <form method="post" action="{save_action}">
+      {hidden_id_input}
       <input type="hidden" name="language_code" value="{html.escape(normalized_language)}">
       <div class="panel">
         <table>
@@ -7830,7 +8097,7 @@ def _render_translation_page(
         </table>
         <div class="actions">
           <button type="submit">Save Translations</button>
-          <a class="button back" href="/ui/translations?bot_id={quote_plus(bot_id)}&language={quote_plus(normalized_language)}">Cancel</a>
+          <a class="button back" href="{cancel_href}">Cancel</a>
         </div>
       </div>
     </form>
@@ -8120,6 +8387,104 @@ def _load_profile_log_context_keys(profile_log_file: Path, *, bot_id: str) -> li
     if not found_profile:
         return []
     return ["profile", *sorted(key for key in seen if key != "profile")]
+
+
+_CONFIG_CONTEXT_KEY_VALUE_FIELDS = {
+    "message_id_context_key",
+    "save_callback_data_to_key",
+    "save_reply_to_key",
+    "source_result_key",
+}
+_CONFIG_PROFILE_CONTEXT_KEY_VALUE_FIELDS = {"save_callback_data_to_key", "save_reply_to_key"}
+_CONFIG_CONTEXT_KEY_RULE_FIELDS = {"run_if_context_keys", "skip_if_context_keys"}
+
+
+def _build_context_key_options(profile_log_keys: Iterable[str], payload: dict[str, object]) -> list[str]:
+    """Merge runtime profile keys with context keys declared by the bot config."""
+    options: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw_value: object) -> None:
+        value = _normalize_context_key_option(raw_value)
+        if value and value not in seen:
+            seen.add(value)
+            options.append(value)
+
+    for key in profile_log_keys:
+        add(key)
+    for key in _collect_config_context_keys(payload):
+        add(key)
+    for key in _collect_config_profile_context_keys(payload):
+        add(key)
+        add(f"profile.{key}")
+    return options
+
+
+def _collect_config_context_keys(payload: dict[str, object]) -> list[str]:
+    """Return context keys explicitly read or written by a bot workflow config."""
+    return _collect_config_context_keys_for_fields(
+        payload,
+        value_fields=_CONFIG_CONTEXT_KEY_VALUE_FIELDS,
+        include_rule_fields=True,
+        include_profile_keys=True,
+    )
+
+
+def _collect_config_profile_context_keys(payload: dict[str, object]) -> list[str]:
+    """Return config-declared keys that can be checked through persisted profile context."""
+    return _collect_config_context_keys_for_fields(
+        payload,
+        value_fields=_CONFIG_PROFILE_CONTEXT_KEY_VALUE_FIELDS,
+        include_rule_fields=False,
+        include_profile_keys=False,
+    )
+
+
+def _collect_config_context_keys_for_fields(
+    payload: dict[str, object],
+    *,
+    value_fields: set[str],
+    include_rule_fields: bool,
+    include_profile_keys: bool,
+) -> list[str]:
+    found: set[str] = set()
+
+    def add(raw_value: object) -> None:
+        value = _normalize_context_key_option(raw_value)
+        if value and (include_profile_keys or not value.startswith("profile.")):
+            found.add(value)
+
+    def collect(value: object) -> None:
+        if isinstance(value, dict):
+            for key, nested_value in value.items():
+                key_name = str(key).strip()
+                if key_name in value_fields:
+                    add(nested_value)
+                elif include_rule_fields and key_name in _CONFIG_CONTEXT_KEY_RULE_FIELDS:
+                    for context_key in _iter_context_key_values(nested_value):
+                        add(context_key)
+                collect(nested_value)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(payload)
+    return sorted(found)
+
+
+def _iter_context_key_values(raw_value: object) -> list[object]:
+    if isinstance(raw_value, list):
+        return list(raw_value)
+    if raw_value is None:
+        return []
+    return str(raw_value).splitlines()
+
+
+def _normalize_context_key_option(raw_value: object) -> str:
+    value = str(raw_value or "").strip()
+    if not value:
+        return ""
+    return value.partition("=")[0].strip()
 
 
 def _to_safe_filename(bot_id: str) -> str:
@@ -9719,6 +10084,17 @@ def _build_module_step(
         )
         return step
 
+    if normalized_module_type == "ask_text_reply":
+        return _parse_ask_text_reply_chain_step(
+            text_template=text_template.strip(),
+            parse_mode=parse_mode_value or "",
+            save_reply_to_key=contact_button_text,
+            success_text_template=contact_success_text,
+            invalid_text_template=contact_invalid_text,
+            require_finish_current_command=require_finish_current_command_text,
+            finish_current_command_text=finish_current_command_text,
+        )
+
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
         if not target_callback_key:
@@ -10138,6 +10514,17 @@ def _build_callback_module_step(
             finish_current_command_text,
         )
         return step
+
+    if normalized_module_type == "ask_text_reply":
+        return _parse_ask_text_reply_chain_step(
+            text_template=text_template.strip(),
+            parse_mode=parse_mode_value or "",
+            save_reply_to_key=contact_button_text,
+            success_text_template=contact_success_text,
+            invalid_text_template=contact_invalid_text,
+            require_finish_current_command=require_finish_current_command_text,
+            finish_current_command_text=finish_current_command_text,
+        )
 
     if normalized_module_type == "callback_module":
         target_callback_key = callback_target_key.strip()
@@ -12513,6 +12900,29 @@ def _parse_ask_selfie_chain_step(
     )
 
 
+def _parse_ask_text_reply_chain_step(
+    *,
+    text_template: str,
+    parse_mode: str,
+    save_reply_to_key: object = "",
+    success_text_template: object = "",
+    invalid_text_template: object = "",
+    require_finish_current_command: object = "",
+    finish_current_command_text: object = "",
+) -> dict[str, object]:
+    """Build a normalized ask_text_reply chain step."""
+    step = {
+        "module_type": "ask_text_reply",
+        "text_template": text_template or "Please reply with text.",
+        "parse_mode": parse_mode or None,
+        "save_reply_to_key": str(save_reply_to_key or "").strip() or "text_reply",
+        "success_text_template": str(success_text_template or "").strip(),
+        "invalid_text_template": str(invalid_text_template or "").strip() or "Please reply with a text message.",
+    }
+    _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
+    return step
+
+
 def _parse_wait_keyboard_reply_chain_step(
     *,
     route_label: str,
@@ -12912,6 +13322,19 @@ def _parse_route_chain_steps(
                     )
                 )
                 continue
+            if module_type == "ask_text_reply":
+                steps.append(
+                    _parse_ask_text_reply_chain_step(
+                        text_template=str(serialized.get("text_template", "")),
+                        parse_mode=parse_mode,
+                        save_reply_to_key=serialized.get("save_reply_to_key", ""),
+                        success_text_template=serialized.get("success_text_template", ""),
+                        invalid_text_template=serialized.get("invalid_text_template", ""),
+                        require_finish_current_command=serialized.get("require_finish_current_command", ""),
+                        finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
+                    )
+                )
+                continue
             if module_type == "wait_keyboard_reply":
                 steps.append(
                     _parse_wait_keyboard_reply_chain_step(
@@ -13130,7 +13553,7 @@ def _parse_route_chain_steps(
                 )
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -13292,6 +13715,17 @@ def _parse_route_chain_steps(
                     parse_mode=parse_mode,
                     success_text_template=parts[2] if len(parts) >= 3 else "",
                     invalid_text_template=parts[3] if len(parts) >= 4 else "",
+                )
+            )
+            continue
+        if module_type == "ask_text_reply":
+            steps.append(
+                _parse_ask_text_reply_chain_step(
+                    text_template=parts[1] if len(parts) >= 2 else "",
+                    parse_mode=parts[5] if len(parts) >= 6 else "",
+                    save_reply_to_key=parts[2] if len(parts) >= 3 else "",
+                    success_text_template=parts[3] if len(parts) >= 4 else "",
+                    invalid_text_template=parts[4] if len(parts) >= 5 else "",
                 )
             )
             continue
@@ -13510,7 +13944,7 @@ def _parse_route_chain_steps(
             )
             continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
         )
     return steps
 
@@ -13692,6 +14126,23 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["original_capture_invalid_text_template"] = str(
                     step.get("original_capture_invalid_text_template", "")
                 ).strip()
+            if bool(step.get("require_finish_current_command", False)):
+                payload["require_finish_current_command"] = True
+            if str(step.get("finish_current_command_text_template", "")).strip():
+                payload["finish_current_command_text_template"] = str(
+                    step.get("finish_current_command_text_template", "")
+                ).strip()
+        elif module_type == "ask_text_reply":
+            payload = {
+                "module_type": "ask_text_reply",
+                "text_template": str(step.get("text_template", "Please reply with text.")),
+                "parse_mode": parse_mode,
+                "save_reply_to_key": str(step.get("save_reply_to_key", "text_reply")).strip() or "text_reply",
+                "success_text_template": str(step.get("success_text_template", "")),
+                "invalid_text_template": str(
+                    step.get("invalid_text_template", "Please reply with a text message.")
+                ),
+            }
             if bool(step.get("require_finish_current_command", False)):
                 payload["require_finish_current_command"] = True
             if str(step.get("finish_current_command_text_template", "")).strip():

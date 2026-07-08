@@ -19,6 +19,7 @@ from etrax.standalone.token_ui import (
     _extract_command_module_form_values,
     _load_standalone_ui_entries,
     _load_profile_log_context_keys,
+    _build_context_key_options,
     _build_schedule_entries_from_working_hours,
     _merge_generated_schedule_entries,
     _normalize_schedule_entries,
@@ -30,6 +31,8 @@ from etrax.standalone.token_ui import (
     _render_template_list_page,
     _render_translation_page,
     _render_working_hours_demo_page,
+    _scan_template_translation_sources,
+    _template_translation_bot_id,
     _next_template_key,
     _available_working_day_options,
     _next_available_working_day,
@@ -183,6 +186,40 @@ def test_parse_chain_steps_supports_userinfo_json() -> None:
             "parse_mode": "HTML",
         }
     ]
+
+
+def test_parse_chain_steps_supports_ask_text_reply_json() -> None:
+    raw = json.dumps(
+        {
+            "module_type": "ask_text_reply",
+            "text_template": "What is your name?",
+            "parse_mode": "HTML",
+            "save_reply_to_key": "customer_name",
+            "success_text_template": "Saved {customer_name}.",
+            "invalid_text_template": "Text only.",
+            "require_finish_current_command": True,
+            "finish_current_command_text_template": "Please answer first.",
+        },
+        separators=(",", ":"),
+    )
+
+    steps = _parse_chain_steps(command_name="start", raw=raw)
+
+    assert steps == [
+        {
+            "module_type": "ask_text_reply",
+            "text_template": "What is your name?",
+            "parse_mode": "HTML",
+            "save_reply_to_key": "customer_name",
+            "success_text_template": "Saved {customer_name}.",
+            "invalid_text_template": "Text only.",
+            "require_finish_current_command": True,
+            "finish_current_command_text_template": "Please answer first.",
+        }
+    ]
+    serialized = _pipeline_to_chain_steps([{"module_type": "send_message", "text_template": "First"}, *steps])
+    assert json.loads(serialized)["module_type"] == "ask_text_reply"
+    assert json.loads(serialized)["save_reply_to_key"] == "customer_name"
 
 
 def test_build_command_module_entry_supports_bind_code() -> None:
@@ -671,6 +708,86 @@ def test_render_translation_page_includes_language_form_and_rows() -> None:
     assert "Welcome" in html
     assert "សូមស្វាគមន៍" in html
     assert "1 of 1 rows translated" in html
+
+
+def test_render_translation_page_template_mode_uses_template_actions() -> None:
+    html = _render_translation_page(
+        bot_id="template:attendance_clock_in",
+        config_path=Path("data/templates_ui.json"),
+        translation_file=Path("data/translations_ui.json"),
+        language_code="km",
+        available_languages=["km"],
+        rows=[
+            {
+                "id": "tr-456",
+                "source_label": "Command /template_pipeline step 1 send_message text_template",
+                "module_type": "send_message",
+                "field_name": "text_template",
+                "source_path": "command_menu.command_modules.template_pipeline.pipeline[0].text_template",
+                "source_text": "Clock in now",
+                "translation_text": "",
+            }
+        ],
+        message="",
+        level="info",
+        page_kind="template",
+        template_id="tpl-1",
+        template_name="Attendance Clock In",
+    )
+
+    assert "Translate Template: Attendance Clock In" in html
+    assert '<form method="get" action="/ui/templates/translate" class="toolbar">' in html
+    assert '<input type="hidden" name="template_id" value="tpl-1">' in html
+    assert '<form method="post" action="/ui/templates/translate/save">' in html
+    assert 'href="/ui/templates/config?template_id=tpl-1"' in html
+    assert 'href="/ui/templates"' in html
+    assert "Clock in now" in html
+    assert 'name="bot_id"' not in html
+
+
+def test_scan_template_translation_sources_collects_all_template_text() -> None:
+    template = {
+        "id": "tpl-1",
+        "name": "Attendance Clock In",
+        "template_key": "attendance_clock_in",
+        "process_pipeline": "\n".join(
+            [
+                json.dumps({"module_type": "send_message", "text_template": "Clock in now"}),
+                json.dumps(
+                    {
+                        "module_type": "inline_button",
+                        "text_template": "Confirm clock in?",
+                        "buttons": [{"text": "Yes", "callback_data": "confirm_clock_in"}],
+                    }
+                ),
+            ]
+        ),
+        "callback_modules": json.dumps(
+            {
+                "confirm_clock_in": [
+                    {"module_type": "send_message", "text_template": "Clock in recorded."}
+                ]
+            }
+        ),
+        "temporary_commands": json.dumps(
+            [{"command": "clock_out", "description": "Clock out now"}]
+        ),
+    }
+
+    sources = _scan_template_translation_sources(template)
+
+    source_texts = {source["source_text"] for source in sources}
+    assert {
+        "Clock in now",
+        "Confirm clock in?",
+        "Yes",
+        "Clock in recorded.",
+        "Clock out now",
+    }.issubset(source_texts)
+    assert "confirm_clock_in" not in source_texts
+    expected_bot_id = _template_translation_bot_id(template)
+    assert expected_bot_id == "template:attendance_clock_in"
+    assert all(source["bot_id"] == expected_bot_id for source in sources)
 
 
 def test_standalone_ui_entries_round_trip() -> None:
@@ -1540,6 +1657,56 @@ def test_load_profile_log_context_keys_uses_active_bot_profile_fields_only(tmp_p
         "profile.preferences.favorite_color",
         "profile.telegram_user_id",
     ]
+
+
+def test_build_context_key_options_includes_config_saved_reply_keys() -> None:
+    payload = {
+        "command_menu": {
+            "command_modules": {
+                "start": {
+                    "pipeline": [
+                        {
+                            "module_type": "wait_keyboard_reply",
+                            "save_reply_to_key": "preferred_language",
+                        },
+                        {
+                            "module_type": "callback_module",
+                            "skip_if_context_keys": ["preferred_language"],
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    keys = _build_context_key_options(["profile.phone_number"], payload)
+
+    assert keys == ["profile.phone_number", "preferred_language", "profile.preferred_language"]
+
+
+def test_build_context_key_options_keeps_existing_profile_rules_without_double_prefix() -> None:
+    payload = {
+        "command_menu": {
+            "command_modules": {
+                "start": {
+                    "pipeline": [
+                        {
+                            "module_type": "inline_button",
+                            "save_callback_data_to_key": "profile.selected_plan",
+                        },
+                        {
+                            "module_type": "callback_module",
+                            "skip_if_context_keys": ["profile.selected_plan=gold"],
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    keys = _build_context_key_options([], payload)
+
+    assert keys == ["profile.selected_plan"]
 
 
 def test_pipeline_to_chain_steps_round_trips_multiline_inline_button_step() -> None:

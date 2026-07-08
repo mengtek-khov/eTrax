@@ -10,6 +10,7 @@ from etrax.standalone.translation_registry import (
     resolve_runtime_language,
     save_translation_entries,
     scan_bot_config_translation_sources,
+    template_translation_bot_id,
     translate_runtime_text,
 )
 
@@ -222,3 +223,77 @@ def test_translate_runtime_text_uses_preferred_language_with_english_fallback() 
         )
         == "Missing source"
     )
+
+
+def test_translate_runtime_text_falls_back_to_template_translations() -> None:
+    entries = [
+        {
+            "id": "tr-template",
+            "bot_id": template_translation_bot_id("attendance_clock_in"),
+            "source_text": "Clock in now",
+            "translations": {"km": "ចុះឈ្មោះចូលឥឡូវនេះ"},
+        }
+    ]
+
+    assert (
+        translate_runtime_text(
+            bot_id="Demo Bot",
+            source_text="Clock in now",
+            language_code="km",
+            entries=entries,
+        )
+        == "ចុះឈ្មោះចូលឥឡូវនេះ"
+    )
+
+
+def test_translate_runtime_text_prefers_bot_translation_over_template() -> None:
+    entries = [
+        {
+            "id": "tr-template",
+            "bot_id": template_translation_bot_id("attendance_clock_in"),
+            "source_text": "Clock in now",
+            "translations": {"km": "template-km"},
+        },
+        {
+            "id": "tr-bot",
+            "bot_id": "Demo Bot",
+            "source_text": "Clock in now",
+            "translations": {"km": "bot-km"},
+        },
+    ]
+
+    assert (
+        translate_runtime_text(
+            bot_id="Demo Bot",
+            source_text="Clock in now",
+            language_code="km",
+            entries=entries,
+        )
+        == "bot-km"
+    )
+
+
+def test_build_translation_rows_prefills_from_template_translations() -> None:
+    payload = {
+        "command_menu": {
+            "command_modules": {
+                "clock_in": {
+                    "module_type": "send_message",
+                    "text_template": "Clock in now",
+                }
+            }
+        }
+    }
+    sources = scan_bot_config_translation_sources(bot_id="Demo Bot", payload=payload)
+    entries = [
+        {
+            "id": "tr-template",
+            "bot_id": template_translation_bot_id("attendance_clock_in"),
+            "source_text": "Clock in now",
+            "translations": {"km": "template-km"},
+        }
+    ]
+
+    rows = build_translation_rows(sources=sources, entries=entries, language_code="km")
+
+    assert rows[0]["translation_text"] == "template-km"
