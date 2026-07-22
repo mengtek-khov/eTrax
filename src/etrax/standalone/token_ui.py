@@ -212,15 +212,18 @@ def _build_handler(
                 if template_entry is None:
                     self._redirect(_with_message("/ui/templates", "error", "template entry not found"))
                     return
-                self._send_html(
-                    HTTPStatus.OK,
-                    _render_template_config_page(
+                try:
+                    payload = _render_template_config_page(
                         template=template_entry,
                         message=message,
                         level=level,
                         target_options=_load_template_target_options(service, bot_config_dir),
-                    ),
-                )
+                    )
+                except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
+                    _print_terminal_error("template-config-page", str(exc))
+                    self._redirect(_with_message("/ui/templates", "error", str(exc)))
+                    return
+                self._send_html(HTTPStatus.OK, payload)
                 return
             if parsed.path == "/ui/templates/translate":
                 self._handle_template_translations_page(parsed)
@@ -351,6 +354,9 @@ def _build_handler(
             if parsed.path == "/module-check-username.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("check_username_module.js"))
                 return
+            if parsed.path == "/module-set-variable.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("set_variable_module.js"))
+                return
             if parsed.path == "/module-share-location.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("share_location_module.js"))
                 return
@@ -442,6 +448,9 @@ def _build_handler(
                 return
             if parsed.path == "/ui/templates/config/save":
                 self._handle_templates_config_save(form)
+                return
+            if parsed.path == "/ui/templates/config/load-to-command":
+                self._handle_templates_load_to_command(form)
                 return
             if parsed.path == "/ui/schedules/save":
                 self._handle_schedules_save(form)
@@ -867,44 +876,67 @@ def _build_handler(
                     _upsert_standalone_ui_entry(entries, normalized_entry)
                 )
                 _save_standalone_ui_entries(templates_file, saved_entries)
+                copied_translations = 0
+                try:
+                    copied_translations = _copy_bot_translations_to_template(
+                        template=normalized_entry,
+                        source_bot_id=str(payload.get("bot_id", "")),
+                        translations_file=translations_file,
+                    )
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    _print_terminal_error("template-save-translations", str(exc))
+                message = f"Template saved: {normalized_entry['name']}"
+                if copied_translations:
+                    message += f" | translations copied: {copied_translations}"
                 self._send_json(
                     HTTPStatus.OK,
                     {
                         "ok": True,
                         "template_id": str(normalized_entry.get("id", "")),
                         "template_key": str(normalized_entry.get("template_key", "")),
-                        "message": f"Template saved: {normalized_entry['name']}",
+                        "message": message,
                     },
                 )
             except (json.JSONDecodeError, ValueError) as exc:
                 _print_terminal_error("template-save-pipeline", str(exc))
                 self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
 
+        def _save_template_config_entry(self, form: dict[str, list[str]]) -> dict[str, object]:
+            """Persist the Template Config form state and return the saved entry."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            if not entry_id:
+                raise ValueError("template id is required")
+            entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
+            template_entry = _find_standalone_ui_entry(entries, entry_id)
+            if template_entry is None:
+                # First save of a built-in starter persists an editable copy
+                # that overrides the built-in via its template_key.
+                template_entry = _find_standalone_ui_entry(_builtin_template_entries(), entry_id)
+            if template_entry is None:
+                raise ValueError("template entry not found")
+            pipeline_text = form.get("process_pipeline", [""])[0].strip()
+            callback_text = form.get("callback_modules", [""])[0].strip()
+            temporary_command_text = form.get("temporary_commands", [""])[0].strip()
+            load_bot_id = form.get("load_bot_id", [""])[0].strip()
+            load_command = form.get("load_command", [""])[0].strip()
+            updated_entry = dict(template_entry)
+            updated_entry["builtin"] = False
+            updated_entry["process_pipeline"] = pipeline_text
+            updated_entry["callback_modules"] = callback_text
+            updated_entry["temporary_commands"] = temporary_command_text
+            updated_entry["load_bot_id"] = load_bot_id
+            updated_entry["load_command"] = load_command
+            updated_entry["module_count"] = str(max(1, _count_template_pipeline_steps(pipeline_text)))
+            updated_entry["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
+            saved_entries = _normalize_template_entries(_upsert_standalone_ui_entry(entries, updated_entry))
+            _save_standalone_ui_entries(templates_file, saved_entries)
+            return updated_entry
+
         def _handle_templates_config_save(self, form: dict[str, list[str]]) -> None:
             """Persist the single process pipeline and related template config fields."""
             entry_id = form.get("entry_id", [""])[0].strip()
             try:
-                if not entry_id:
-                    raise ValueError("template id is required")
-                entries = _normalize_template_entries(_load_standalone_ui_entries(templates_file))
-                template_entry = _find_standalone_ui_entry(entries, entry_id)
-                if template_entry is None:
-                    raise ValueError("template entry not found")
-                pipeline_text = form.get("process_pipeline", [""])[0].strip()
-                callback_text = form.get("callback_modules", [""])[0].strip()
-                temporary_command_text = form.get("temporary_commands", [""])[0].strip()
-                load_bot_id = form.get("load_bot_id", [""])[0].strip()
-                load_command = form.get("load_command", [""])[0].strip()
-                updated_entry = dict(template_entry)
-                updated_entry["process_pipeline"] = pipeline_text
-                updated_entry["callback_modules"] = callback_text
-                updated_entry["temporary_commands"] = temporary_command_text
-                updated_entry["load_bot_id"] = load_bot_id
-                updated_entry["load_command"] = load_command
-                updated_entry["module_count"] = str(max(1, _count_template_pipeline_steps(pipeline_text)))
-                updated_entry["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
-                saved_entries = _normalize_template_entries(_upsert_standalone_ui_entry(entries, updated_entry))
-                _save_standalone_ui_entries(templates_file, saved_entries)
+                self._save_template_config_entry(form)
                 self._redirect(
                     _with_message(
                         f"/ui/templates/config?template_id={quote_plus(entry_id)}",
@@ -914,6 +946,47 @@ def _build_handler(
                 )
             except ValueError as exc:
                 _print_terminal_error("template-config-save", str(exc))
+                path = f"/ui/templates/config?template_id={quote_plus(entry_id)}" if entry_id else "/ui/templates"
+                self._redirect(_with_message(path, "error", str(exc)))
+
+        def _handle_templates_load_to_command(self, form: dict[str, list[str]]) -> None:
+            """Save the template, then load its pipeline into the selected bot command."""
+            entry_id = form.get("entry_id", [""])[0].strip()
+            try:
+                load_bot_id = form.get("load_bot_id", [""])[0].strip()
+                load_command = form.get("load_command", [""])[0].strip()
+                if not load_bot_id:
+                    raise ValueError("select a target bot first")
+                if not load_command:
+                    raise ValueError("select a target command first")
+                saved_entry = self._save_template_config_entry(form)
+                config_path, payload = _load_bot_config(scaffold_store, bot_config_dir, load_bot_id)
+                applied_callbacks = _apply_template_pipeline_to_bot_config(
+                    payload=payload,
+                    command_name=load_command,
+                    pipeline_text=str(saved_entry.get("process_pipeline", "")),
+                    callback_text=str(saved_entry.get("callback_modules", "")),
+                )
+                payload["updated_at"] = datetime.now(tz=timezone.utc).isoformat()
+                config_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+                message = f"Template pipeline loaded into {load_bot_id} /{load_command.lstrip('/')}"
+                if applied_callbacks:
+                    message += f" | callbacks: {applied_callbacks}"
+                sync_error = _sync_command_menu_now(service=service, bot_id=load_bot_id, payload=payload)
+                level = "success"
+                if sync_error:
+                    _print_terminal_error("template-load-to-command-sync", sync_error)
+                    level = "info"
+                    message += f" (menu sync pending: {sync_error})"
+                self._redirect(
+                    _with_message(
+                        f"/ui/templates/config?template_id={quote_plus(entry_id)}",
+                        level,
+                        message,
+                    )
+                )
+            except (ValueError, RuntimeError, OSError) as exc:
+                _print_terminal_error("template-load-to-command", str(exc))
                 path = f"/ui/templates/config?template_id={quote_plus(entry_id)}" if entry_id else "/ui/templates"
                 self._redirect(_with_message(path, "error", str(exc)))
 
@@ -3111,6 +3184,67 @@ def _scan_template_translation_sources(template: dict[str, object]) -> list[dict
     )
 
 
+def _copy_bot_translations_to_template(
+    *,
+    template: dict[str, object],
+    source_bot_id: str,
+    translations_file: Path,
+) -> int:
+    """Copy a source bot's saved translations for template texts into the template scope."""
+    normalized_bot_id = str(source_bot_id or "").strip()
+    if not normalized_bot_id:
+        return 0
+    sources = _scan_template_translation_sources(template)
+    if not sources:
+        return 0
+    entries = load_translation_entries(translations_file)
+    bot_translations_by_text: dict[str, dict[str, str]] = {}
+    for entry in entries:
+        if str(entry.get("bot_id", "")).strip() != normalized_bot_id:
+            continue
+        translations = entry.get("translations", {})
+        if not isinstance(translations, dict) or not translations:
+            continue
+        merged = bot_translations_by_text.setdefault(str(entry.get("source_text", "")), {})
+        for language_code, translated_text in translations.items():
+            if str(translated_text).strip():
+                merged.setdefault(str(language_code).strip(), str(translated_text))
+    if not bot_translations_by_text:
+        return 0
+    entries_by_id = {str(entry.get("id", "")).strip(): entry for entry in entries}
+    now = datetime.now(tz=timezone.utc).isoformat()
+    copied_count = 0
+    for source in sources:
+        matched_translations = bot_translations_by_text.get(str(source.get("source_text", "")))
+        if not matched_translations:
+            continue
+        existing_entry = entries_by_id.get(source["id"])
+        existing_translations = (
+            dict(existing_entry.get("translations", {}))
+            if existing_entry is not None and isinstance(existing_entry.get("translations"), dict)
+            else {}
+        )
+        updated_translations = dict(existing_translations)
+        for language_code, translated_text in matched_translations.items():
+            updated_translations.setdefault(language_code, translated_text)
+        if updated_translations == existing_translations:
+            continue
+        updated_entry = {
+            **source,
+            "translations": updated_translations,
+            "updated_at": now,
+        }
+        if existing_entry is not None:
+            entries[entries.index(existing_entry)] = updated_entry
+        else:
+            entries.append(updated_entry)
+        entries_by_id[source["id"]] = updated_entry
+        copied_count += 1
+    if copied_count:
+        save_translation_entries(translations_file, entries)
+    return copied_count
+
+
 def _load_template_target_options(
     service: BotTokenService,
     bot_config_dir: Path,
@@ -3575,6 +3709,34 @@ def _render_template_config_page(
 	    .chain-raw, .module-type-hidden {{
 	      display: none;
 	    }}
+	    button.success, .template-config-page .template-toolbar button.success, .module-list-actions button.success {{
+	      background: #0a7a4d;
+	    }}
+	    button.success:hover, .template-config-page .template-toolbar button.success:hover, .module-list-actions button.success:hover {{
+	      background: #08623f;
+	    }}
+	    button.danger, .template-config-page .template-toolbar button.danger, .module-list-actions button.danger {{
+	      background: #b42318;
+	    }}
+	    button.danger:hover, .template-config-page .template-toolbar button.danger:hover, .module-list-actions button.danger:hover {{
+	      background: #912018;
+	    }}
+	    button.warning, .template-config-page .template-toolbar button.warning, .module-list-actions button.warning {{
+	      background: #b8860b;
+	    }}
+	    button.warning:hover, .template-config-page .template-toolbar button.warning:hover, .module-list-actions button.warning:hover {{
+	      background: #9a6f09;
+	    }}
+	    button.primary, .template-config-page .template-toolbar button.primary, .module-list-actions button.primary {{
+	      background: var(--accent);
+	    }}
+	    button.primary:hover, .template-config-page .template-toolbar button.primary:hover, .module-list-actions button.primary:hover {{
+	      background: var(--accent-hover);
+	    }}
+	    button:disabled {{
+	      opacity: 0.58;
+	      cursor: not-allowed;
+	    }}
 		    .command-panel-title {{
 		      margin: 0 0 8px;
 		      font-size: 0.95rem;
@@ -3624,6 +3786,14 @@ def _render_template_config_page(
 	      <div class="panel template-editor-panel">
 	        <div id="template-module-fallback">{fallback_module_list_html}</div>
 	        <div id="command-config-app"></div>
+		        <div class="actions">
+		          <button class="success" type="submit">Save Pipeline To Template</button>
+		          <a class="back" href="/ui/templates">Cancel</a>
+		        </div>
+	      </div>
+	      <div class="panel template-load-panel">
+	        <h2>Load Template Into Bot Command</h2>
+	        <p class="hint">Pick a bot and one of its commands, then load this template's pipeline into that command. The command's current pipeline is replaced.</p>
 	        <div class="config-grid template-target-grid">
 	          <div class="field">
 	            <label>Target Bot ID</label>
@@ -3635,9 +3805,7 @@ def _render_template_config_page(
 	          </div>
 	        </div>
 		        <div class="actions">
-		          <button class="secondary" type="button" title="Next implementation step">Load Pipeline To Command</button>
-		          <button type="submit">Save Pipeline To Template</button>
-		          <a class="back" href="/ui/templates">Cancel</a>
+		          <button class="secondary" type="submit" formaction="/ui/templates/config/load-to-command" onclick='return confirm("Replace the target command pipeline with this template?");'>Load Pipeline To Command</button>
 		        </div>
 	      </div>
 	    </form>
@@ -3658,6 +3826,7 @@ def _render_template_config_page(
 	  <script src="/module-custom-code.js?v={asset_version}"></script>
 	  <script src="/module-bind-code.js?v={asset_version}"></script>
 	  <script src="/module-check-username.js?v={asset_version}"></script>
+  <script src="/module-set-variable.js?v={asset_version}"></script>
 	  <script src="/module-share-location.js?v={asset_version}"></script>
 	  <script src="/module-route.js?v={asset_version}"></script>
 	  <script src="/module-checkout.js?v={asset_version}"></script>
@@ -4267,6 +4436,14 @@ def _render_scheduled_tasks_demo_page(
       font-size: 0.82rem;
       background: #475467;
     }}
+    button.success, .module-list-actions button.success {{ background: #0a7a4d; }}
+    button.success:hover, .module-list-actions button.success:hover {{ background: #08623f; }}
+    button.danger, .module-list-actions button.danger {{ background: #9f1239; }}
+    button.danger:hover, .module-list-actions button.danger:hover {{ background: #881337; }}
+    button.warning, .module-list-actions button.warning {{ background: #b8860b; }}
+    button.warning:hover, .module-list-actions button.warning:hover {{ background: #9a6f09; }}
+    button.primary, .module-list-actions button.primary {{ background: var(--accent); }}
+    button.primary:hover, .module-list-actions button.primary:hover {{ background: var(--accent-hover); }}
     .module-editor {{
       margin-top: 10px;
       padding-top: 8px;
@@ -4451,6 +4628,7 @@ def _render_scheduled_tasks_demo_page(
   <script src="/module-custom-code.js?v={asset_version}"></script>
   <script src="/module-bind-code.js?v={asset_version}"></script>
   <script src="/module-check-username.js?v={asset_version}"></script>
+  <script src="/module-set-variable.js?v={asset_version}"></script>
   <script src="/module-share-location.js?v={asset_version}"></script>
   <script src="/module-route.js?v={asset_version}"></script>
   <script src="/module-checkout.js?v={asset_version}"></script>
@@ -5478,10 +5656,34 @@ def _default_template_pipeline_text() -> str:
 def _template_pipeline_text_to_steps(raw: str) -> list[dict[str, object]]:
     """Parse template JSON-lines pipeline text into module editor steps."""
     pipeline_text = str(raw or "").strip() or _default_template_pipeline_text()
-    steps = _parse_chain_steps(command_name="template", raw=pipeline_text)
+    try:
+        steps = _parse_chain_steps(command_name="template", raw=pipeline_text)
+    except ValueError:
+        # Draft templates may hold steps that fail strict runtime validation
+        # (e.g. open_mini_app without a URL). Keep them editable instead of
+        # crashing the Template Config page.
+        steps = _template_pipeline_text_to_raw_steps(pipeline_text)
     if steps:
         return steps
     return _parse_chain_steps(command_name="template", raw=_default_template_pipeline_text())
+
+
+def _template_pipeline_text_to_raw_steps(pipeline_text: str) -> list[dict[str, object]]:
+    """Parse pipeline JSON lines leniently so invalid draft steps stay editable."""
+    steps: list[dict[str, object]] = []
+    for line in str(pipeline_text or "").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            step = dict(parsed)
+            step["module_type"] = str(step.get("module_type", "send_message")).strip() or "send_message"
+            steps.append(step)
+    return steps
 
 
 def _template_pipeline_text_to_command_row(
@@ -5722,6 +5924,90 @@ def _build_template_entry_from_pipeline_payload(
     if normalized_entry is None:
         raise ValueError("template name is required")
     return normalized_entry
+
+
+def _apply_template_pipeline_to_bot_config(
+    *,
+    payload: dict[str, object],
+    command_name: str,
+    pipeline_text: str,
+    callback_text: str,
+) -> int:
+    """Load one template pipeline into a bot config command, returning the callback count."""
+    command_key = _normalize_command_value(str(command_name or ""))
+    if not command_key:
+        raise ValueError("target command is required")
+    steps = _parse_chain_steps(command_name=command_key, raw=str(pipeline_text or "").strip())
+    if not steps:
+        raise ValueError("template pipeline is empty")
+
+    command_menu_raw = payload.get("command_menu")
+    command_menu = command_menu_raw if isinstance(command_menu_raw, dict) else {}
+    payload["command_menu"] = command_menu
+    commands_raw = command_menu.get("commands")
+    commands = commands_raw if isinstance(commands_raw, list) else []
+    known_commands = {
+        _normalize_command_value(str(item.get("command", "")))
+        for item in commands
+        if isinstance(item, dict)
+    }
+    if command_key not in known_commands:
+        raise ValueError(f"command /{command_key} not found in target bot config")
+
+    command_modules_raw = command_menu.get("command_modules")
+    command_modules = command_modules_raw if isinstance(command_modules_raw, dict) else {}
+    command_menu["command_modules"] = command_modules
+    command_entry: dict[str, object] = dict(steps[0])
+    command_entry["pipeline"] = steps
+    command_modules[command_key] = command_entry
+
+    callback_payload = str(callback_text or "").strip()
+    if not callback_payload:
+        return 0
+    try:
+        callback_map = json.loads(callback_payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError("template callback modules must be valid JSON") from exc
+    if not isinstance(callback_map, dict):
+        return 0
+
+    callback_modules_raw = command_menu.get("callback_modules")
+    callback_modules = callback_modules_raw if isinstance(callback_modules_raw, dict) else {}
+    applied_callbacks = 0
+    for callback_key, raw_config in callback_map.items():
+        normalized_key = str(callback_key or "").strip()
+        if not normalized_key:
+            continue
+        if isinstance(raw_config, list):
+            raw_pipeline: list[object] = raw_config
+            temporary_rows: list[object] = []
+        elif isinstance(raw_config, dict):
+            pipeline_value = raw_config.get("pipeline", raw_config.get("steps", []))
+            raw_pipeline = pipeline_value if isinstance(pipeline_value, list) else []
+            temporary_value = raw_config.get("temporary_commands", [])
+            temporary_rows = temporary_value if isinstance(temporary_value, list) else []
+        else:
+            continue
+        step_lines = "\n".join(
+            json.dumps(step, ensure_ascii=False) for step in raw_pipeline if isinstance(step, dict)
+        )
+        callback_steps = _parse_callback_chain_steps(callback_key=normalized_key, raw=step_lines)
+        if not callback_steps:
+            continue
+        callback_entry: dict[str, object] = dict(callback_steps[0])
+        callback_entry["pipeline"] = callback_steps
+        temporary_commands, temporary_command_modules = _build_callback_temporary_command_entries(
+            callback_key=normalized_key,
+            raw=json.dumps(temporary_rows, ensure_ascii=False) if temporary_rows else "",
+        )
+        if temporary_commands and temporary_command_modules:
+            callback_entry["temporary_commands"] = temporary_commands
+            callback_entry["temporary_command_modules"] = temporary_command_modules
+        callback_modules[normalized_key] = callback_entry
+        applied_callbacks += 1
+    if callback_modules:
+        command_menu["callback_modules"] = callback_modules
+    return applied_callbacks
 
 
 def _slugify_template_key(value: str) -> str:
@@ -7463,6 +7749,34 @@ def _render_config_page(
     button.toggle-stop:hover {{
       background: #912018;
     }}
+    button.success, .template-toolbar button.success, .command-row button.success, .module-list-actions button.success {{
+      background: #0a7a4d;
+    }}
+    button.success:hover, .template-toolbar button.success:hover, .command-row button.success:hover, .module-list-actions button.success:hover {{
+      background: #08623f;
+    }}
+    button.danger, .template-toolbar button.danger, .command-row button.danger, .module-list-actions button.danger {{
+      background: #b42318;
+    }}
+    button.danger:hover, .template-toolbar button.danger:hover, .command-row button.danger:hover, .module-list-actions button.danger:hover {{
+      background: #912018;
+    }}
+    button.warning, .template-toolbar button.warning, .command-row button.warning, .module-list-actions button.warning {{
+      background: #b8860b;
+    }}
+    button.warning:hover, .template-toolbar button.warning:hover, .command-row button.warning:hover, .module-list-actions button.warning:hover {{
+      background: #9a6f09;
+    }}
+    button.primary, .template-toolbar button.primary, .command-row button.primary, .module-list-actions button.primary {{
+      background: var(--accent);
+    }}
+    button.primary:hover, .template-toolbar button.primary:hover, .command-row button.primary:hover, .module-list-actions button.primary:hover {{
+      background: var(--accent-hover);
+    }}
+    button:disabled {{
+      opacity: 0.58;
+      cursor: not-allowed;
+    }}
     .back {{
       background: #475467;
     }}
@@ -7549,7 +7863,7 @@ def _render_config_page(
             <div id="command-config-app"></div>
             <div class="actions">
               <span id="config-autosave-status" class="hint">Autosave ready.</span>
-              <button type="submit">Save Config</button>
+              <button class="success" type="submit">Save Config</button>
               <a class="button back" href="/">Back to Home</a>
             </div>
           </form>
@@ -7582,6 +7896,7 @@ def _render_config_page(
   <script src="/module-custom-code.js?v={asset_version}"></script>
   <script src="/module-bind-code.js?v={asset_version}"></script>
   <script src="/module-check-username.js?v={asset_version}"></script>
+  <script src="/module-set-variable.js?v={asset_version}"></script>
   <script src="/module-share-location.js?v={asset_version}"></script>
   <script src="/module-route.js?v={asset_version}"></script>
   <script src="/module-checkout.js?v={asset_version}"></script>
@@ -7799,10 +8114,18 @@ def _render_translation_page(
     """Render the standalone translation editor for one bot config or template."""
     normalized_language = str(language_code or "").strip().lower().replace("_", "-") or "km"
     status_html = _render_status_html(message=message, level=level)
+    language_values: list[str] = []
+    for language in available_languages:
+        normalized_option = str(language or "").strip().lower().replace("_", "-")
+        if normalized_option and normalized_option not in language_values:
+            language_values.append(normalized_option)
+    if normalized_language not in language_values:
+        language_values.append(normalized_language)
+    language_values.sort()
     language_options = "".join(
-        f"<option value='{html.escape(str(language))}'></option>"
-        for language in available_languages
-        if str(language).strip()
+        f"<option value='{html.escape(language)}'{' selected' if language == normalized_language else ''}>"
+        f"{html.escape(language)}</option>"
+        for language in language_values
     )
     row_count = len(rows)
     translated_count = sum(1 for row in rows if str(row.get("translation_text", "")).strip())
@@ -7903,7 +8226,7 @@ def _render_translation_page(
     }}
     .toolbar {{
       display: grid;
-      grid-template-columns: minmax(180px, 260px) auto 1fr;
+      grid-template-columns: minmax(180px, 260px) auto auto 1fr;
       gap: 10px;
       align-items: end;
     }}
@@ -7913,7 +8236,7 @@ def _render_translation_page(
       font-weight: 700;
       color: #344054;
     }}
-    input, textarea {{
+    input, select, textarea {{
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -8072,11 +8395,11 @@ def _render_translation_page(
         {hidden_id_input}
         <label>
           Target Language
-          <input name="language" list="translation-language-options" value="{html.escape(normalized_language)}" maxlength="32">
+          <select id="translation-language-select" name="language">{language_options}</select>
         </label>
         <button class="secondary" type="submit">Load Language</button>
+        <button class="secondary" type="button" id="add-language-button">Add Language</button>
         <div class="summary">{translated_count} of {row_count} rows translated</div>
-        <datalist id="translation-language-options">{language_options}</datalist>
       </form>
     </div>
     <form method="post" action="{save_action}">
@@ -8102,6 +8425,37 @@ def _render_translation_page(
       </div>
     </form>
   </div>
+  <script>
+    (function () {{
+      var addButton = document.getElementById("add-language-button");
+      var languageSelect = document.getElementById("translation-language-select");
+      if (!addButton || !languageSelect) {{
+        return;
+      }}
+      addButton.addEventListener("click", function () {{
+        var value = window.prompt("New language code (e.g. km, th, en-us):", "");
+        if (!value) {{
+          return;
+        }}
+        var normalized = value.trim().toLowerCase().replace(/_/g, "-");
+        if (normalized.length < 2 || normalized.length > 16 || !/^[a-z0-9-]+$/.test(normalized)) {{
+          window.alert("Invalid language code: " + value);
+          return;
+        }}
+        var exists = Array.prototype.slice.call(languageSelect.options).some(function (option) {{
+          return option.value === normalized;
+        }});
+        if (!exists) {{
+          var option = document.createElement("option");
+          option.value = normalized;
+          option.textContent = normalized;
+          languageSelect.appendChild(option);
+        }}
+        languageSelect.value = normalized;
+        languageSelect.form.submit();
+      }});
+    }})();
+  </script>
 </body>
 </html>"""
 
@@ -10222,6 +10576,13 @@ def _build_module_step(
             parse_mode_value=parse_mode_value,
         )
 
+    if normalized_module_type == "set_variable":
+        return _build_set_variable_step(
+            variable_name=contact_button_text,
+            value_template=text_template,
+            additional_variables_text=menu_items_text,
+        )
+
     if normalized_module_type == "share_location":
         return _attach_context_key_rules(
             _build_share_location_step(
@@ -10653,6 +11014,13 @@ def _build_callback_module_step(
             parse_mode_value=parse_mode_value,
         )
 
+    if normalized_module_type == "set_variable":
+        return _build_set_variable_step(
+            variable_name=contact_button_text,
+            value_template=text_template,
+            additional_variables_text=menu_items_text,
+        )
+
     if normalized_module_type == "share_location":
         return _attach_context_key_rules(
             _build_share_location_step(
@@ -10897,6 +11265,36 @@ def _build_check_username_step(
         or "Please set a Telegram username before continuing.",
         "parse_mode": parse_mode_value,
     }
+
+
+def _parse_variable_assignment_lines(raw: str) -> list[str]:
+    """Return 'name = value template' lines, trimmed and stripped of blanks."""
+    return [line.strip() for line in str(raw or "").splitlines() if line.strip()]
+
+
+def _build_set_variable_step(
+    *,
+    variable_name: str,
+    value_template: str,
+    additional_variables_text: str = "",
+) -> dict[str, object]:
+    """Build a normalized set_variable step payload.
+
+    Additional variables (beyond the primary variable_name/text_template pair)
+    are stored under the same 'items' key the menu module uses for its list of
+    lines, so they round-trip through the shared per-row editor plumbing (menu
+    items form field, normalizeStep, Save As Template) without adding an
+    entirely new generic field end to end.
+    """
+    step: dict[str, object] = {
+        "module_type": "set_variable",
+        "variable_name": str(variable_name or "").strip(),
+        "text_template": str(value_template or ""),
+    }
+    items = _parse_variable_assignment_lines(additional_variables_text)
+    if items:
+        step["items"] = items
+    return step
 
 
 def _normalize_share_location_live_mode(
@@ -11322,6 +11720,8 @@ def _extract_command_module_form_values(
         text_default = ""
     elif module_type == "bind_code":
         text_default = ""
+    elif module_type == "set_variable":
+        text_default = ""
     elif module_type == "check_username":
         text_default = "Please set a Telegram username before continuing."
     elif module_type == "share_location":
@@ -11353,7 +11753,7 @@ def _extract_command_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", module.get("failure_text_template", text_default))).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "set_variable", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -11407,6 +11807,8 @@ def _extract_command_module_form_values(
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
     if module_type == "check_username":
         contact_button_text = str(module.get("required_username", "")).strip()
+    elif module_type == "set_variable":
+        contact_button_text = str(module.get("variable_name", "")).strip()
     else:
         contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
@@ -11604,6 +12006,8 @@ def _extract_callback_module_form_values(
         text_default = ""
     elif module_type == "bind_code":
         text_default = ""
+    elif module_type == "set_variable":
+        text_default = ""
     elif module_type == "check_username":
         text_default = "Please set a Telegram username before continuing."
     elif module_type == "share_location":
@@ -11635,7 +12039,7 @@ def _extract_callback_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", module.get("failure_text_template", text_default))).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "set_variable", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
@@ -11686,6 +12090,8 @@ def _extract_callback_module_form_values(
     location_longitude = str(module.get("location_longitude", module.get("longitude", ""))).strip()
     if module_type == "check_username":
         contact_button_text = str(module.get("required_username", "")).strip()
+    elif module_type == "set_variable":
+        contact_button_text = str(module.get("variable_name", "")).strip()
     else:
         contact_button_text = str(module.get("save_reply_to_key", module.get("button_text", ""))).strip()
     mini_app_button_text = str(module.get("button_text", "")).strip()
@@ -13389,6 +13795,20 @@ def _parse_route_chain_steps(
                     )
                 )
                 continue
+            if module_type == "set_variable":
+                serialized_items = serialized.get("items", [])
+                steps.append(
+                    _build_set_variable_step(
+                        variable_name=str(serialized.get("variable_name", "")),
+                        value_template=str(serialized.get("text_template", "")),
+                        additional_variables_text=(
+                            "\n".join(str(item) for item in serialized_items)
+                            if isinstance(serialized_items, list)
+                            else ""
+                        ),
+                    )
+                )
+                continue
             if module_type == "share_location":
                 steps.append(
                     _parse_share_location_chain_step(
@@ -13553,7 +13973,7 @@ def _parse_route_chain_steps(
                 )
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., set_variable|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -13755,6 +14175,14 @@ def _parse_route_chain_steps(
                     required_username=parts[1] if len(parts) >= 2 else "",
                     failure_text_template=parts[2] if len(parts) >= 3 else "",
                     parse_mode_value=parts[3] if len(parts) >= 4 and parts[3] else None,
+                )
+            )
+            continue
+        if module_type == "set_variable":
+            steps.append(
+                _build_set_variable_step(
+                    variable_name=parts[1] if len(parts) >= 2 else "",
+                    value_template=parts[2] if len(parts) >= 3 else "",
                 )
             )
             continue
@@ -14191,6 +14619,15 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 or "Please set a Telegram username before continuing.",
                 "parse_mode": parse_mode,
             }
+        elif module_type == "set_variable":
+            payload = {
+                "module_type": "set_variable",
+                "variable_name": str(step.get("variable_name", "")).strip(),
+                "text_template": str(step.get("text_template", "")),
+            }
+            items = _coerce_chain_menu_items(step.get("items", []))
+            if items:
+                payload["items"] = items
         elif module_type == "share_location":
             (
                 find_closest_saved_location,

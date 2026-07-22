@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from etrax.adapters.local.json_user_profile_log_store import JsonUserProfileLogStore
 from etrax.core.flow import ModuleOutcome
 from etrax.core.telegram import WaitKeyboardReplyConfig, WaitKeyboardReplyModule
 from etrax.standalone.runtime_modules.wait_keyboard_reply_module import handle_keyboard_reply_message_update
@@ -105,6 +106,38 @@ def test_wait_keyboard_reply_saves_selected_value_and_continues() -> None:
     assert len(str(continuation.contexts[0]["keyboard_reply_clicked_at"])) == 4
     assert str(continuation.contexts[0]["keyboard_reply_clicked_unix"]).isdigit()
     assert store.values == {}
+
+
+def test_wait_keyboard_reply_persists_saved_value_to_profile_log(tmp_path) -> None:
+    gateway = FakeGateway()
+    store = FakeKeyboardReplyStore()
+    profile_log_store = JsonUserProfileLogStore(tmp_path / "profile_log.json")
+    module = WaitKeyboardReplyModule(
+        token_resolver=FakeTokenService(),
+        gateway=gateway,
+        keyboard_reply_request_store=store,
+        config=WaitKeyboardReplyConfig(
+            bot_id="bot",
+            text_template="Choose your language.",
+            buttons=({"text": "Khmer", "value": "km", "row": 1},),
+            save_reply_to_key="preferred_language",
+        ),
+    )
+    module.execute({"chat_id": "123", "user_id": "42"})
+
+    sent_count = handle_keyboard_reply_message_update(
+        {"message": {"text": "Khmer", "chat": {"id": "123"}, "from": {"id": "42"}}},
+        bot_id="bot",
+        gateway=gateway,
+        bot_token="token-bot",
+        keyboard_reply_request_store=store,
+        profile_log_store=profile_log_store,
+    )
+
+    assert sent_count == 1
+    profile = profile_log_store.get_profile(bot_id="bot", user_id="42")
+    assert profile is not None
+    assert profile["preferred_language"] == "km"
 
 
 def test_wait_keyboard_reply_retries_invalid_text() -> None:

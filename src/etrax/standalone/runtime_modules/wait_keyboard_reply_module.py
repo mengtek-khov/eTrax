@@ -17,6 +17,7 @@ from etrax.core.telegram import (
 )
 from etrax.core.token import BotTokenService
 
+from ..runtime_contracts import UserProfileLogStore
 from .utils import normalize_parse_mode
 
 
@@ -79,6 +80,7 @@ def handle_keyboard_reply_message_update(
     callback_continuation_by_message: dict[str, list[FlowModule]] | None = None,
     callback_context_updates_by_message: dict[str, dict[str, Any]] | None = None,
     inline_button_cleanup_by_message: dict[str, bool] | None = None,
+    profile_log_store: UserProfileLogStore | None = None,
 ) -> int:
     """Handle a text reply that completes a pending wait_keyboard_reply flow."""
     if keyboard_reply_request_store is None:
@@ -163,6 +165,18 @@ def handle_keyboard_reply_message_update(
     }
     context.update(context_updates)
     context[pending_request.context_result_key] = result_payload
+
+    if profile_log_store is not None:
+        saved_key = pending_request.save_reply_to_key
+        saved_value = context_updates.get(saved_key)
+        profile = context.get("profile")
+        if isinstance(profile, dict):
+            profile[saved_key] = saved_value
+        profile_log_store.upsert_profile(
+            bot_id=bot_id,
+            user_id=user_id,
+            profile_updates={saved_key: saved_value},
+        )
 
     sent_count = 0
     success_text = render_wait_keyboard_reply_text(

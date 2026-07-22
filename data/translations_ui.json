@@ -1,6 +1,637 @@
 {
   "entries": [
     {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "text_template",
+      "id": "tr-c2c980979e430451",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /template_pipeline step 1 wait_keyboard_reply text_template",
+      "source_path": "command_menu.command_modules.template_pipeline.pipeline[0].text_template",
+      "source_text": "Click the button bellow to clock in.",
+      "translations": {
+        "km": "ចុចប៊ូតុងខាងក្រោមដើម្បីម៉ោងធ្វើការ។"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "text",
+      "id": "tr-70db025cc4d86a00",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /template_pipeline step 1 wait_keyboard_reply text",
+      "source_path": "command_menu.command_modules.template_pipeline.pipeline[0].buttons[0].text",
+      "source_text": "🟢 Clock In 🟢",
+      "translations": {
+        "km": "🟢 ចូលធ្វើការ 🟢"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "invalid_text_template",
+      "id": "tr-91dad2f24cbcb801",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /template_pipeline step 1 wait_keyboard_reply invalid_text_template",
+      "source_path": "command_menu.command_modules.template_pipeline.pipeline[0].invalid_text_template",
+      "source_text": "Please choose from the keyboard.",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-9b469ccdd8f4cf3b",
+      "module_type": "callback_module",
+      "source_label": "Callback Clock_In step 1 callback_module title",
+      "source_path": "command_menu.callback_modules.Clock_In.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "text_template",
+      "id": "tr-75c7cd0176105073",
+      "module_type": "send_message",
+      "source_label": "Callback Clock_In step 2 send_message text_template",
+      "source_path": "command_menu.callback_modules.Clock_In.pipeline[1].text_template",
+      "source_text": "✅ Clock-in received at {keyboard_reply_clicked_at}.",
+      "translations": {
+        "km": "✅ ចូលធ្វើការនៅ ម៉ោង {keyboard_reply_clicked_at}."
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-de87fad9b0c82beb",
+      "module_type": "send_message",
+      "source_label": "Callback Clock_In step 2 send_message title",
+      "source_path": "command_menu.callback_modules.Clock_In.pipeline[1].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "description",
+      "id": "tr-306f4b428b5d6f9c",
+      "module_type": "temporary_command",
+      "source_label": "Callback Clock_In temporary command /clock_out description",
+      "source_path": "command_menu.callback_modules.Clock_In.temporary_commands[0].description",
+      "source_text": "Command",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "description",
+      "id": "tr-139df8c7605f41ea",
+      "module_type": "temporary_command",
+      "source_label": "Callback Clock_In temporary command /track_location description",
+      "source_path": "command_menu.callback_modules.Clock_In.temporary_commands[1].description",
+      "source_text": "Command",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "description",
+      "id": "tr-78d1e86a459e86b1",
+      "module_type": "temporary_command",
+      "source_label": "Callback Clock_In temporary command /restart description",
+      "source_path": "command_menu.callback_modules.Clock_In.temporary_commands[2].description",
+      "source_text": "Restart bot",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "text_template",
+      "id": "tr-de94051572360d76",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_cancel step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.clock_out_cancel.pipeline[0].text_template",
+      "source_text": "❎ Clock-Out process canceled. Thank you!",
+      "translations": {
+        "km": "❎ អ្នកបានបោះបង់ការចេញពីធ្វើ"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-718ab1d6546d1e8e",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_cancel step 1 send_message title",
+      "source_path": "command_menu.callback_modules.clock_out_cancel.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-3a7829c7b64b21da",
+      "module_type": "callback_module",
+      "source_label": "Callback clock_out_now step 1 callback_module title",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "text_template",
+      "id": "tr-0f1d8d977237289d",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_now step 2 send_message text_template",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[1].text_template",
+      "source_text": "☑️  Clock-out received at {keyboard_reply_clicked_at}.",
+      "translations": {
+        "km": "☑️  ចេញពីធ្វើការនៅ ម៉ោង {keyboard_reply_clicked_at}."
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-28c381cf9af5fcf5",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_now step 2 send_message title",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[1].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-746b7a3e2af1ce20",
+      "module_type": "reset_command_menu",
+      "source_label": "Callback clock_out_now step 3 reset_command_menu title",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[2].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "text_template",
+      "id": "tr-094911858408ec07",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].text_template",
+      "source_text": "🗺 Please share your LIVE location to clock in.",
+      "translations": {
+        "km": "🗺 ផ្ញើរទីតាំងបច្ចុប្បន្នរបស់អ្នក ដើម្បីចូលធ្វើការ."
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-000012843a27ba71",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location title",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "finish_current_command_text_template",
+      "id": "tr-844769ed1fc258a0",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location finish_current_command_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].finish_current_command_text_template",
+      "source_text": "❌ Incorrect response!",
+      "translations": {
+        "km": "❌ ការឆ្លើយតបមិនត្រឹមត្រូវ!"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "button_text",
+      "id": "tr-32e3d68de107d1af",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location button_text",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].button_text",
+      "source_text": "Share My Location",
+      "translations": {
+        "km": "ផ្ញើរទីតាំងរបស់ខ្ញុំ"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "success_text_template",
+      "id": "tr-8b173bdb8b214a50",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location success_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].success_text_template",
+      "source_text": "Thanks, your location was received.",
+      "translations": {
+        "km": "អរគុណ! សម្រាប់ការផ្ញើទីតាំង"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "text_template",
+      "id": "tr-3136c3c07ba7c0ef",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].text_template",
+      "source_text": "📷 Please share a selfie to complete clock-in.",
+      "translations": {
+        "km": "📷 ផ្ញើររូបភាបរបស់អ្នកដើម្បីចូលធ្វើការ."
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "title",
+      "id": "tr-a38eba2837dca02f",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie title",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "finish_current_command_text_template",
+      "id": "tr-b87c9ceda906c405",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie finish_current_command_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].finish_current_command_text_template",
+      "source_text": "❌ Incorrect response!",
+      "translations": {
+        "km": "❌ ការឆ្លើយតបមិនត្រឹមត្រូវ!"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "success_text_template",
+      "id": "tr-92db6c280e3d8881",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie success_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].success_text_template",
+      "source_text": "Thanks, your selfie was received.",
+      "translations": {
+        "km": "អរគុណ! សម្រាប់ការផ្ញើរូបភាបរបស់អ្នក"
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline",
+      "field_name": "invalid_text_template",
+      "id": "tr-377142fdb391c242",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie invalid_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].invalid_text_template",
+      "source_text": "📷 Please share a selfie to complete clock-in.",
+      "translations": {
+        "km": "📷 ផ្ញើររូបភាបរបស់អ្នកដើម្បីចូលធ្វើការ."
+      },
+      "updated_at": "2026-07-13T01:54:21.866256+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "text_template",
+      "id": "tr-adc6df80d95ae524",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /template_pipeline step 1 wait_keyboard_reply text_template",
+      "source_path": "command_menu.command_modules.template_pipeline.pipeline[0].text_template",
+      "source_text": "Click the button bellow to clock in.",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "text",
+      "id": "tr-6c4dd0a542026e77",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /template_pipeline step 1 wait_keyboard_reply text",
+      "source_path": "command_menu.command_modules.template_pipeline.pipeline[0].buttons[0].text",
+      "source_text": "🟢 Clock In 🟢",
+      "translations": {
+        "km": "🟢 ចូលធ្វើការ 🟢"
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "invalid_text_template",
+      "id": "tr-064a204be629977c",
+      "module_type": "wait_keyboard_reply",
+      "source_label": "Command /template_pipeline step 1 wait_keyboard_reply invalid_text_template",
+      "source_path": "command_menu.command_modules.template_pipeline.pipeline[0].invalid_text_template",
+      "source_text": "Please choose from the keyboard.",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "description",
+      "id": "tr-3ee2beba96c4c07d",
+      "module_type": "temporary_command",
+      "source_label": "Command /template_pipeline temporary command /clock_out description",
+      "source_path": "command_menu.command_modules.template_pipeline.temporary_commands[0].description",
+      "source_text": "Command",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "description",
+      "id": "tr-c6954193a6795b19",
+      "module_type": "temporary_command",
+      "source_label": "Command /template_pipeline temporary command /track_location description",
+      "source_path": "command_menu.command_modules.template_pipeline.temporary_commands[1].description",
+      "source_text": "Command",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "description",
+      "id": "tr-13f9358aaca83e2e",
+      "module_type": "temporary_command",
+      "source_label": "Command /template_pipeline temporary command /restart description",
+      "source_path": "command_menu.command_modules.template_pipeline.temporary_commands[2].description",
+      "source_text": "Restart bot",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-8ed2b47155e8107d",
+      "module_type": "callback_module",
+      "source_label": "Callback Clock_In step 1 callback_module title",
+      "source_path": "command_menu.callback_modules.Clock_In.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "text_template",
+      "id": "tr-7c28599d3f1e3012",
+      "module_type": "send_message",
+      "source_label": "Callback Clock_In step 2 send_message text_template",
+      "source_path": "command_menu.callback_modules.Clock_In.pipeline[1].text_template",
+      "source_text": "✅ Clock-in received at {keyboard_reply_clicked_at}.",
+      "translations": {
+        "km": "✅ ចូលធ្វើការនៅ ម៉ោង {keyboard_reply_clicked_at}."
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-408b977fd26c792c",
+      "module_type": "send_message",
+      "source_label": "Callback Clock_In step 2 send_message title",
+      "source_path": "command_menu.callback_modules.Clock_In.pipeline[1].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "description",
+      "id": "tr-422566e8eec1a0f4",
+      "module_type": "temporary_command",
+      "source_label": "Callback Clock_In temporary command /clock_out description",
+      "source_path": "command_menu.callback_modules.Clock_In.temporary_commands[0].description",
+      "source_text": "Command",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "description",
+      "id": "tr-ebd868439d4634dc",
+      "module_type": "temporary_command",
+      "source_label": "Callback Clock_In temporary command /track_location description",
+      "source_path": "command_menu.callback_modules.Clock_In.temporary_commands[1].description",
+      "source_text": "Command",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "description",
+      "id": "tr-3eab58a73bc766e8",
+      "module_type": "temporary_command",
+      "source_label": "Callback Clock_In temporary command /restart description",
+      "source_path": "command_menu.callback_modules.Clock_In.temporary_commands[2].description",
+      "source_text": "Restart bot",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "text_template",
+      "id": "tr-9741dcf6275ee9e1",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_cancel step 1 send_message text_template",
+      "source_path": "command_menu.callback_modules.clock_out_cancel.pipeline[0].text_template",
+      "source_text": "❎ Clock-Out process canceled. Thank you!",
+      "translations": {
+        "km": "❎ អ្នកបានបោះបង់ការចេញពីធ្វើ"
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-6b4ed551d63fcbee",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_cancel step 1 send_message title",
+      "source_path": "command_menu.callback_modules.clock_out_cancel.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-3877646fbb3b9044",
+      "module_type": "callback_module",
+      "source_label": "Callback clock_out_now step 1 callback_module title",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "text_template",
+      "id": "tr-95f8730d08f94059",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_now step 2 send_message text_template",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[1].text_template",
+      "source_text": "☑️  Clock-out received at {keyboard_reply_clicked_at}.",
+      "translations": {
+        "km": "☑️  ចេញពីធ្វើការនៅ ម៉ោង {keyboard_reply_clicked_at}."
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-707dbbbb471042b3",
+      "module_type": "send_message",
+      "source_label": "Callback clock_out_now step 2 send_message title",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[1].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-5c62d725f0b0d0d5",
+      "module_type": "reset_command_menu",
+      "source_label": "Callback clock_out_now step 3 reset_command_menu title",
+      "source_path": "command_menu.callback_modules.clock_out_now.pipeline[2].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "text_template",
+      "id": "tr-8ca757257f2f6c8d",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].text_template",
+      "source_text": "🗺 Please share your LIVE location to clock in.",
+      "translations": {
+        "km": "🗺 ផ្ញើរទីតាំងបច្ចុប្បន្នរបស់អ្នក ដើម្បីចូលធ្វើការ."
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-9912a52fa3e4accc",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location title",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "finish_current_command_text_template",
+      "id": "tr-ad30ed0c323d03d7",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location finish_current_command_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].finish_current_command_text_template",
+      "source_text": "❌ Incorrect response!",
+      "translations": {
+        "km": "❌ ការឆ្លើយតបមិនត្រឹមត្រូវ!"
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "button_text",
+      "id": "tr-027c3da9c40b8d68",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location button_text",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].button_text",
+      "source_text": "Share My Location",
+      "translations": {
+        "km": "ផ្ញើរទីតាំងរបស់ខ្ញុំ"
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "success_text_template",
+      "id": "tr-771fbedd2b4bc351",
+      "module_type": "share_location",
+      "source_label": "Callback etrex_process step 1 share_location success_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[0].success_text_template",
+      "source_text": "Thanks, your location was received.",
+      "translations": {
+        "km": "អរគុណ! សម្រាប់ការផ្ញើទីតាំង"
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "text_template",
+      "id": "tr-ae7e6b4c0dc1a163",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].text_template",
+      "source_text": "📷 Please share a selfie to complete clock-in.",
+      "translations": {
+        "km": "📷 ផ្ញើររូបភាបរបស់អ្នកដើម្បីចូលធ្វើការ."
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "title",
+      "id": "tr-5211eb215b5c1546",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie title",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].title",
+      "source_text": "Main Menu",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "finish_current_command_text_template",
+      "id": "tr-42d60a853de5d321",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie finish_current_command_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].finish_current_command_text_template",
+      "source_text": "❌ Incorrect response!",
+      "translations": {
+        "km": "❌ ការឆ្លើយតបមិនត្រឹមត្រូវ!"
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "success_text_template",
+      "id": "tr-41312c364d824aae",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie success_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].success_text_template",
+      "source_text": "Thanks, your selfie was received.",
+      "translations": {
+        "km": "អរគុណ! សម្រាប់ការផ្ញើរូបភាបរបស់អ្នក"
+      },
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
+      "bot_id": "template:clock_pipeline_2",
+      "field_name": "invalid_text_template",
+      "id": "tr-606355a4e8fa17d1",
+      "module_type": "ask_selfie",
+      "source_label": "Callback etrex_process step 2 ask_selfie invalid_text_template",
+      "source_path": "command_menu.callback_modules.etrex_process.pipeline[1].invalid_text_template",
+      "source_text": "Please send a selfie photo.",
+      "translations": {},
+      "updated_at": "2026-07-09T04:24:10.652279+00:00"
+    },
+    {
       "bot_id": "eTrax Bot V1",
       "field_name": "description",
       "id": "tr-02fd0e67c82a773a",

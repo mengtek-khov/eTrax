@@ -16,6 +16,7 @@ from etrax.core.telegram import (
     KeyboardReplyRequestStore,
     LocationRequestStore,
     SelfieRequestStore,
+    TextReplyRequestStore,
 )
 from etrax.core.token import BotTokenService
 from .runtime_module_registry import build_runtime_step_module, get_runtime_module_build_spec
@@ -32,6 +33,7 @@ def build_runtime_modules(
     selfie_request_store: SelfieRequestStore,
     location_request_store: LocationRequestStore,
     keyboard_reply_request_store: KeyboardReplyRequestStore | None = None,
+    text_reply_request_store: TextReplyRequestStore | None = None,
     inline_action_request_store: InlineButtonActionRequestStore | None = None,
     cart_configs: dict[str, CartButtonConfig] | None = None,
     checkout_modules: dict[str, CheckoutCartModule] | None = None,
@@ -56,6 +58,7 @@ def build_runtime_modules(
             "selfie_request_store": selfie_request_store,
             "location_request_store": location_request_store,
             "keyboard_reply_request_store": keyboard_reply_request_store,
+            "text_reply_request_store": text_reply_request_store,
             "inline_action_request_store": inline_action_request_store,
             "cart_configs": cart_configs or {},
             "checkout_modules": checkout_modules or {},
@@ -72,6 +75,7 @@ def build_runtime_modules(
                 selfie_request_store=selfie_request_store,
                 location_request_store=location_request_store,
                 keyboard_reply_request_store=keyboard_reply_request_store,
+                text_reply_request_store=text_reply_request_store,
                 inline_action_request_store=inline_action_request_store,
                 cart_configs=cart_configs or {},
                 checkout_modules=checkout_modules or {},

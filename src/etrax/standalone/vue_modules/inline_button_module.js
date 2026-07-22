@@ -229,10 +229,10 @@
         `<div class="module-list-row" v-for="(button, buttonIndex) in currentStepButtons(${ctx})" :key="'btn-' + buttonIndex">` +
         `<div class="module-list-meta">[[ inlineButtonLabel(button, buttonIndex) ]]</div>` +
         `<div class="module-list-actions">` +
-        `<button type="button" @click="editInlineButton(${ctx}, buttonIndex)">Edit</button>` +
+        `<button type="button" class="primary" @click="editInlineButton(${ctx}, buttonIndex)">Edit</button>` +
         `<button type="button" :disabled="buttonIndex === 0" @click="moveInlineButtonUp(${ctx}, buttonIndex)">Up</button>` +
         `<button type="button" :disabled="buttonIndex >= currentStepButtons(${ctx}).length - 1" @click="moveInlineButtonDown(${ctx}, buttonIndex)">Down</button>` +
-        `<button type="button" @click="removeInlineButton(${ctx}, buttonIndex)">Remove</button>` +
+        `<button type="button" class="danger" @click="removeInlineButton(${ctx}, buttonIndex)">Remove</button>` +
         `</div>` +
         `</div>` +
         `</div>`

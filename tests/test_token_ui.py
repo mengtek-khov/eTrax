@@ -4,8 +4,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from etrax.standalone.schedule_runtime import iter_due_scheduled_runs
 from etrax.standalone.token_ui import (
+    _apply_template_pipeline_to_bot_config,
     _build_callback_module_entry,
     _build_command_module_entry,
     _build_config_template_options,
@@ -29,7 +32,9 @@ from etrax.standalone.token_ui import (
     _render_scheduled_tasks_demo_page,
     _render_template_config_page,
     _render_template_list_page,
+    _copy_bot_translations_to_template,
     _render_translation_page,
+    _template_pipeline_text_to_steps,
     _render_working_hours_demo_page,
     _scan_template_translation_sources,
     _template_translation_bot_id,
@@ -402,6 +407,365 @@ def test_pipeline_to_chain_steps_round_trips_check_username_step() -> None:
     ]
 
 
+def test_parse_chain_steps_supports_set_variable_json() -> None:
+    raw = json.dumps(
+        {
+            "module_type": "set_variable",
+            "variable_name": "location_prompt",
+            "text_template": "Clock out prompt for {keyboard_reply_text}",
+        },
+        separators=(",", ":"),
+    )
+
+    steps = _parse_chain_steps(command_name="clock_out_now", raw=raw)
+
+    assert steps == [
+        {
+            "module_type": "set_variable",
+            "variable_name": "location_prompt",
+            "text_template": "Clock out prompt for {keyboard_reply_text}",
+        }
+    ]
+
+
+def test_parse_chain_steps_supports_set_variable_pipe_format() -> None:
+    steps = _parse_chain_steps(
+        command_name="clock_out_now",
+        raw="send_message | first\nset_variable | location_prompt | Clock out prompt",
+    )
+
+    assert steps == [
+        {"module_type": "send_message", "text_template": "first", "parse_mode": None},
+        {"module_type": "set_variable", "variable_name": "location_prompt", "text_template": "Clock out prompt"},
+    ]
+
+
+def test_build_command_module_entry_supports_set_variable() -> None:
+    entry = _build_command_module_entry(
+        command_name="etrex",
+        module_type="set_variable",
+        text_template="Clock in prompt",
+        returning_text_template="",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="location_prompt",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        custom_code_function_name="",
+        bind_code_prefix="",
+        bind_code_number_width="",
+        bind_code_start_number="",
+        location_latitude="",
+        location_longitude="",
+        require_live_location="",
+        find_closest_saved_location="",
+        match_closest_saved_location="",
+        closest_location_tolerance_meters="",
+        closest_location_group_action_type="",
+        closest_location_group_text="",
+        closest_location_group_callback_key="",
+        closest_location_group_custom_code_function_name="",
+        closest_location_group_send_timing="",
+        closest_location_group_send_after_step="",
+        location_invalid_text="",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
+        route_empty_text="",
+        route_max_link_points="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "set_variable"
+    assert entry["variable_name"] == "location_prompt"
+    assert entry["text_template"] == "Clock in prompt"
+    assert entry["pipeline"][0]["module_type"] == "set_variable"
+
+
+def test_pipeline_to_chain_steps_round_trips_set_variable_step() -> None:
+    serialized = _pipeline_to_chain_steps(
+        [
+            {"module_type": "callback_module", "target_callback_key": "etrex_process"},
+            {
+                "module_type": "set_variable",
+                "variable_name": "location_prompt",
+                "text_template": "Clock out prompt",
+            },
+        ]
+    )
+
+    assert serialized.startswith('{"module_type":"set_variable"')
+    parsed = _parse_chain_steps(command_name="clock_out_now", raw=serialized)
+    assert parsed == [
+        {
+            "module_type": "set_variable",
+            "variable_name": "location_prompt",
+            "text_template": "Clock out prompt",
+        }
+    ]
+
+
+def test_build_command_module_entry_supports_set_variable_with_additional_variables() -> None:
+    entry = _build_command_module_entry(
+        command_name="etrex",
+        module_type="set_variable",
+        text_template="Clock in prompt",
+        returning_text_template="",
+        hide_caption="",
+        parse_mode="",
+        menu_title="",
+        menu_items_text="second = two, after {location_prompt}\n\nthird=three",
+        inline_buttons_text="",
+        inline_run_if_context_keys_text="",
+        inline_skip_if_context_keys_text="",
+        inline_save_callback_data_to_key_text="",
+        callback_target_key="",
+        command_target_key="",
+        photo_url="",
+        contact_button_text="location_prompt",
+        mini_app_button_text="",
+        contact_success_text="",
+        contact_invalid_text="",
+        custom_code_function_name="",
+        bind_code_prefix="",
+        bind_code_number_width="",
+        bind_code_start_number="",
+        location_latitude="",
+        location_longitude="",
+        require_live_location="",
+        find_closest_saved_location="",
+        match_closest_saved_location="",
+        closest_location_tolerance_meters="",
+        closest_location_group_action_type="",
+        closest_location_group_text="",
+        closest_location_group_callback_key="",
+        closest_location_group_custom_code_function_name="",
+        closest_location_group_send_timing="",
+        closest_location_group_send_after_step="",
+        location_invalid_text="",
+        track_breadcrumb="",
+        store_history_by_day="",
+        breadcrumb_interval_minutes="",
+        breadcrumb_min_distance_meters="",
+        breadcrumb_started_text_template="",
+        breadcrumb_interrupted_text_template="",
+        breadcrumb_resumed_text_template="",
+        breadcrumb_ended_text_template="",
+        route_empty_text="",
+        route_max_link_points="",
+        checkout_empty_text="",
+        checkout_pay_button_text="",
+        checkout_pay_callback_data="",
+        payment_return_url="",
+        mini_app_url="",
+        payment_empty_text="",
+        payment_title_template="",
+        payment_description_template="",
+        payment_open_button_text="",
+        payment_web_button_text="",
+        payment_currency="",
+        payment_limit="",
+        payment_deep_link_prefix="",
+        payment_merchant_ref_prefix="",
+        cart_product_name="",
+        cart_product_key="",
+        cart_price="",
+        cart_qty="",
+        cart_min_qty="",
+        cart_max_qty="",
+        chain_steps_text="",
+    )
+
+    assert entry["module_type"] == "set_variable"
+    assert entry["variable_name"] == "location_prompt"
+    # Blank lines are dropped; each remaining line is preserved verbatim for editing.
+    assert entry["items"] == ["second = two, after {location_prompt}", "third=three"]
+
+
+def test_parse_chain_steps_supports_set_variable_json_with_items() -> None:
+    raw = json.dumps(
+        {
+            "module_type": "set_variable",
+            "variable_name": "first",
+            "text_template": "one",
+            "items": ["second = two", "third=three"],
+        },
+        separators=(",", ":"),
+    )
+
+    steps = _parse_chain_steps(command_name="clock_out_now", raw=raw)
+
+    assert steps == [
+        {
+            "module_type": "set_variable",
+            "variable_name": "first",
+            "text_template": "one",
+            "items": ["second = two", "third=three"],
+        }
+    ]
+
+
+def test_pipeline_to_chain_steps_round_trips_set_variable_items() -> None:
+    serialized = _pipeline_to_chain_steps(
+        [
+            {"module_type": "callback_module", "target_callback_key": "etrex_process"},
+            {
+                "module_type": "set_variable",
+                "variable_name": "first",
+                "text_template": "one",
+                "items": ["second = two", "  ", "third=three"],
+            },
+        ]
+    )
+
+    parsed = _parse_chain_steps(command_name="clock_out_now", raw=serialized)
+    assert parsed == [
+        {
+            "module_type": "set_variable",
+            "variable_name": "first",
+            "text_template": "one",
+            "items": ["second = two", "third=three"],
+        }
+    ]
+
+
+def test_extract_command_module_form_values_reverse_maps_set_variable() -> None:
+    values = _extract_command_module_form_values(
+        command_name="etrex",
+        raw_module={
+            "module_type": "set_variable",
+            "variable_name": "location_prompt",
+            "text_template": "Hi",
+            "items": ["second = two"],
+        },
+        default_text_template="",
+        default_menu_title="Menu",
+    )
+
+    assert values["contact_button_text"] == "location_prompt"
+    assert values["text_template"] == "Hi"
+    # Additional variables reverse-map through the same generic 'menu items' slot.
+    assert values["menu_items"] == "second = two"
+
+
+def test_extract_callback_module_form_values_reverse_maps_set_variable() -> None:
+    values = _extract_callback_module_form_values(
+        callback_key="Clock_In",
+        raw_module={
+            "module_type": "set_variable",
+            "variable_name": "location_prompt",
+            "text_template": "Hi",
+            "items": ["second = two"],
+        },
+    )
+
+    assert values["contact_button_text"] == "location_prompt"
+    assert values["text_template"] == "Hi"
+    assert values["menu_items"] == "second = two"
+
+
+def test_config_vue_registers_set_variable_module() -> None:
+    script = Path("src/etrax/standalone/vue_modules/set_variable_module.js").read_text(encoding="utf-8")
+
+    assert 'type: "set_variable"' in script
+    assert "variable_name" in script
+    assert "button_text" in script
+    # Additional Variables uses an inline-button-style Add/Update/Remove row
+    # UI, not a raw textarea.
+    assert "variableDraft(" in script
+    assert "saveVariable(" in script
+    assert "Add Variable" in script
+    assert "Update Variable" in script
+    assert "removeVariable(" in script
+    assert "moveVariableUp(" in script
+    assert "moveVariableDown(" in script
+    # Variable Name and Value Template live in one unified list (no separate
+    # top-level pair bound via currentStepField/updateCurrentStepField), each
+    # with its own label, and the value field is a textarea.
+    assert "currentStepField(${ctx}, 'variable_name')" not in script
+    assert "currentStepField(${ctx}, 'text_template')" not in script
+    assert "Additional Variables" not in script
+    assert ">Variable Name</label>" in script
+    assert ">Value Template</label>" in script
+    assert 'class="template-editor"' in script
+    # Value Template gets the same formatting toolbar as other template
+    # fields (send_message, inline_button), wired to the draft, not the step.
+    assert 'class="template-toolbar"' in script
+    assert "applyVariableDraftTemplateSnippet(" in script
+    assert "insertVariableDraftTemplateToken(" in script
+    assert ">Bold</button>" in script
+    assert "{bot_name}" in script
+
+
+def test_config_vue_defines_variable_draft_methods() -> None:
+    script = Path("src/etrax/standalone/config_vue.js").read_text(encoding="utf-8")
+
+    assert "emptyVariableDraft" in script
+    assert "saveVariable(editor) {" in script
+    assert "editVariable(editor, index) {" in script
+    assert "moveVariableUp(editor, index) {" in script
+    assert "moveVariableDown(editor, index) {" in script
+    assert "removeVariable(editor, index) {" in script
+    assert "cancelVariableEdit(editor) {" in script
+    # index 0 of the unified list maps to variable_name/text_template so the
+    # first variable stays backward compatible with the stored JSON shape.
+    assert "setVariableLineAt(editor, index, name, template) {" in script
+    assert "removeVariableLineAt(editor, index) {" in script
+    # Draft-aware formatting toolbar mirrors applyTemplateSnippet/
+    # insertTemplateToken but writes into the variable draft, not the step.
+    assert "applyVariableDraftTemplateSnippet(editor, field, before, after, event) {" in script
+    assert "insertVariableDraftTemplateToken(editor, field, token, event) {" in script
+
+
+def test_render_config_page_loads_set_variable_module_script() -> None:
+    html = _render_config_page(
+        bot_id="support-bot",
+        config_path=Path("data/bot_processes/support-bot.json"),
+        payload={"command_menu": {"enabled": True, "include_start": True, "command_modules": {}}},
+        runtime_status={"running": False, "status": "stopped"},
+        template_entries=[],
+        message="",
+        level="info",
+    )
+
+    assert "/module-set-variable.js" in html
+
+
 def test_build_command_module_entry_preserves_share_location_group_action_type_without_callback_key() -> None:
     entry = _build_command_module_entry(
         command_name="etrex",
@@ -548,6 +912,40 @@ def test_build_command_module_entry_prefers_callback_group_action_when_callback_
     assert "closest_location_group_text_template" not in entry
 
 
+def test_editor_buttons_use_function_based_colors() -> None:
+    script = Path("src/etrax/standalone/config_vue.js").read_text(encoding="utf-8")
+
+    # Save actions are green, destructive actions are red.
+    assert 'class="success" @click="saveEditorAsTemplate' in script
+    assert 'class="success" v-if="!isTemplateMode" @click="saveEditorAsTemplate' in script
+    assert 'class="danger" @click="removeModule(' in script
+    assert 'class="danger" @click="removeCallback(callbackIndex)"' in script
+    assert 'class="danger" @click="removeTemporaryCommand(entry, tempCommandIndex)"' in script
+    assert 'class="danger" @click="clearTemporaryCommands(entry)"' in script
+    assert 'class="danger" @click="resetCurrentModule(' in script
+    assert 'class="danger" @click="resetAllToStartDefault"' in script
+    assert 'class="secondary" @click="saveEditorAsTemplate' not in script
+
+    # Load Template, Edit, and Add Temporary Command are accent blue; add-command/callback actions are gold.
+    assert '<button type="button" v-if="canLoadTemplates" :disabled=' in script
+    assert 'class="secondary" v-if="canLoadTemplates"' not in script
+    assert 'class="primary" @click="editModule(' in script
+    assert '<button type="button" @click="addTemporaryCommand(entry)">' in script
+    assert 'class="warning" v-if="!isSinglePipelineMode" @click="addCommand"' in script
+    assert 'class="warning" @click="addCallback"' in script
+
+    # The temp-command example scaffold button is gone.
+    assert "addModuleWithTempCommandExample" not in script
+    assert "Add command with temp command" not in script
+
+    # Commands can be reordered.
+    assert '@click="moveCommandUp(commandIndex)"' in script
+    assert '@click="moveCommandDown(commandIndex)"' in script
+
+    keyboard_module = Path("src/etrax/standalone/vue_modules/wait_keyboard_reply_module.js").read_text(encoding="utf-8")
+    assert 'class="danger" @click="removeKeyboardButton(' in keyboard_module
+
+
 def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
     html = _render_config_page(
         bot_id="support-bot",
@@ -622,6 +1020,9 @@ def test_render_config_page_includes_runtime_error_toggle_markup() -> None:
     )
 
     assert '<button class="toggle-stop" type="submit">Stop Runtime</button>' in html
+    assert '<button class="success" type="submit">Save Config</button>' in html
+    assert "button.success" in html
+    assert "button.danger" in html
     assert '<a class="button secondary" href="/ui/schedules?bot_id=support-bot">Scheduled Setup</a>' in html
     assert '<a class="button secondary" href="/ui/translations?bot_id=support-bot">Translate</a>' in html
     assert '<a class="button secondary" href="/ui/working-hours">Working Hours</a>' in html
@@ -701,13 +1102,54 @@ def test_render_translation_page_includes_language_form_and_rows() -> None:
 
     assert '<form method="get" action="/ui/translations" class="toolbar">' in html
     assert '<input type="hidden" name="bot_id" value="support-bot">' in html
-    assert 'name="language" list="translation-language-options" value="km"' in html
+    assert '<select id="translation-language-select" name="language">' in html
+    assert "<option value='km' selected>km</option>" in html
+    assert "<option value='th'>th</option>" in html
+    assert 'id="add-language-button"' in html
+    assert "Add Language" in html
     assert '<form method="post" action="/ui/translations/save">' in html
     assert '<input type="hidden" name="language_code" value="km">' in html
     assert "Command /start step 1 send_message text_template" in html
     assert "Welcome" in html
     assert "សូមស្វាគមន៍" in html
     assert "1 of 1 rows translated" in html
+
+
+def test_template_pipeline_text_to_steps_keeps_invalid_draft_steps_editable() -> None:
+    # open_mini_app without a URL fails strict runtime validation, but a draft
+    # template must stay editable on the Template Config page.
+    pipeline_text = "\n".join(
+        [
+            json.dumps({"module_type": "send_message", "text_template": "Hello"}),
+            json.dumps({"module_type": "open_mini_app", "text_template": "Open app"}),
+        ]
+    )
+
+    steps = _template_pipeline_text_to_steps(pipeline_text)
+
+    assert [step.get("module_type") for step in steps] == ["send_message", "open_mini_app"]
+    assert steps[1].get("text_template") == "Open app"
+
+
+def test_render_template_config_page_survives_invalid_draft_pipeline() -> None:
+    html = _render_template_config_page(
+        template={
+            "id": "tpl-draft",
+            "name": "Draft Mini App",
+            "template_key": "draft_mini_app",
+            "status": "draft",
+            "process_pipeline": json.dumps({"module_type": "open_mini_app", "text_template": "Open app"}),
+            "callback_modules": "",
+            "temporary_commands": "",
+            "load_bot_id": "",
+            "load_command": "",
+        },
+        message="",
+        level="info",
+    )
+
+    assert "Template Config: Draft Mini App" in html
+    assert "open_mini_app" in html
 
 
 def test_render_translation_page_template_mode_uses_template_actions() -> None:
@@ -736,6 +1178,9 @@ def test_render_translation_page_template_mode_uses_template_actions() -> None:
     )
 
     assert "Translate Template: Attendance Clock In" in html
+    assert '<select id="translation-language-select" name="language">' in html
+    assert "<option value='km' selected>km</option>" in html
+    assert 'id="add-language-button"' in html
     assert '<form method="get" action="/ui/templates/translate" class="toolbar">' in html
     assert '<input type="hidden" name="template_id" value="tpl-1">' in html
     assert '<form method="post" action="/ui/templates/translate/save">' in html
@@ -788,6 +1233,108 @@ def test_scan_template_translation_sources_collects_all_template_text() -> None:
     expected_bot_id = _template_translation_bot_id(template)
     assert expected_bot_id == "template:attendance_clock_in"
     assert all(source["bot_id"] == expected_bot_id for source in sources)
+
+
+def test_copy_bot_translations_to_template_fills_template_scope(tmp_path) -> None:
+    from etrax.standalone.translation_registry import (
+        load_translation_entries as load_entries,
+        save_translation_entries as save_entries,
+    )
+
+    template = {
+        "id": "tpl-1",
+        "name": "Attendance Clock In",
+        "template_key": "attendance_clock_in",
+        "process_pipeline": json.dumps(
+            {"module_type": "send_message", "text_template": "Clock in now"}
+        ),
+        "callback_modules": "",
+        "temporary_commands": "",
+    }
+    translations_file = tmp_path / "translations_ui.json"
+    save_entries(
+        translations_file,
+        [
+            {
+                "id": "tr-bot-1",
+                "bot_id": "Demo Bot",
+                "source_path": "command_menu.command_modules.clock_in.text_template",
+                "source_label": "Command /clock_in send_message text_template",
+                "module_type": "send_message",
+                "field_name": "text_template",
+                "source_text": "Clock in now",
+                "translations": {"km": "km-clock-in", "th": "th-clock-in"},
+            },
+            {
+                "id": "tr-bot-2",
+                "bot_id": "Demo Bot",
+                "source_path": "command_menu.command_modules.other.text_template",
+                "source_label": "Command /other send_message text_template",
+                "module_type": "send_message",
+                "field_name": "text_template",
+                "source_text": "Unrelated text",
+                "translations": {"km": "km-unrelated"},
+            },
+        ],
+    )
+
+    copied = _copy_bot_translations_to_template(
+        template=template,
+        source_bot_id="Demo Bot",
+        translations_file=translations_file,
+    )
+
+    assert copied == 1
+    entries = load_entries(translations_file)
+    template_entries = [
+        entry for entry in entries if entry["bot_id"] == "template:attendance_clock_in"
+    ]
+    assert len(template_entries) == 1
+    assert template_entries[0]["source_text"] == "Clock in now"
+    assert template_entries[0]["translations"] == {"km": "km-clock-in", "th": "th-clock-in"}
+    assert any(entry["id"] == "tr-bot-1" for entry in entries)
+
+    # Second run is a no-op; existing template translations are not overwritten.
+    assert (
+        _copy_bot_translations_to_template(
+            template=template,
+            source_bot_id="Demo Bot",
+            translations_file=translations_file,
+        )
+        == 0
+    )
+
+
+def test_copy_bot_translations_to_template_without_bot_or_matches(tmp_path) -> None:
+    template = {
+        "id": "tpl-1",
+        "name": "Attendance Clock In",
+        "template_key": "attendance_clock_in",
+        "process_pipeline": json.dumps(
+            {"module_type": "send_message", "text_template": "Clock in now"}
+        ),
+        "callback_modules": "",
+        "temporary_commands": "",
+    }
+    translations_file = tmp_path / "translations_ui.json"
+
+    assert (
+        _copy_bot_translations_to_template(
+            template=template,
+            source_bot_id="",
+            translations_file=translations_file,
+        )
+        == 0
+    )
+    assert (
+        _copy_bot_translations_to_template(
+            template=template,
+            source_bot_id="Demo Bot",
+            translations_file=translations_file,
+        )
+        == 0
+    )
+    assert not translations_file.exists()
 
 
 def test_standalone_ui_entries_round_trip() -> None:
@@ -1117,9 +1664,89 @@ def test_render_template_config_page_has_single_pipeline_and_template_actions() 
     assert "confirm" in html
     assert "approve" in html
     assert "Load Pipeline To Command" in html
+    assert 'formaction="/ui/templates/config/load-to-command"' in html
+    # Load-to-command lives in its own panel so it does not read as a save action.
+    assert 'class="panel template-load-panel"' in html
+    assert "Load Template Into Bot Command" in html
+    assert html.index("Save Pipeline To Template") < html.index("Load Template Into Bot Command")
     assert "Save Pipeline To Template" in html
     assert "attendance-bot" in html
     assert "clock_in" in html
+
+
+def test_apply_template_pipeline_to_bot_config_replaces_command_and_callbacks() -> None:
+    payload: dict[str, object] = {
+        "bot_id": "attendance-bot",
+        "command_menu": {
+            "commands": [{"command": "clock", "description": "Clock"}],
+            "command_modules": {
+                "clock": {"module_type": "send_message", "text_template": "Old clock"},
+            },
+            "callback_modules": {
+                "Other": {"module_type": "send_message", "text_template": "Keep me"},
+            },
+        },
+    }
+    pipeline_text = json.dumps(
+        {
+            "module_type": "wait_keyboard_reply",
+            "text_template": "Click to clock in.",
+            "buttons": [{"text": "Clock In", "value": "Clock_In", "row": 1}],
+        }
+    )
+    callback_text = json.dumps(
+        {
+            "Clock_In": {
+                "pipeline": [
+                    {"module_type": "send_message", "text_template": "Clock-in received."},
+                ],
+                "temporary_commands": [
+                    {
+                        "command": "clock_out",
+                        "description": "Clock out",
+                        "module_type": "send_message",
+                        "text_template": "Clocked out.",
+                    }
+                ],
+            }
+        }
+    )
+
+    applied_callbacks = _apply_template_pipeline_to_bot_config(
+        payload=payload,
+        command_name="clock",
+        pipeline_text=pipeline_text,
+        callback_text=callback_text,
+    )
+
+    assert applied_callbacks == 1
+    command_menu = payload["command_menu"]
+    clock_entry = command_menu["command_modules"]["clock"]
+    assert clock_entry["module_type"] == "wait_keyboard_reply"
+    assert clock_entry["text_template"] == "Click to clock in."
+    assert [step["module_type"] for step in clock_entry["pipeline"]] == ["wait_keyboard_reply"]
+    callback_entry = command_menu["callback_modules"]["Clock_In"]
+    assert [step["module_type"] for step in callback_entry["pipeline"]] == ["send_message"]
+    assert [row["command"] for row in callback_entry["temporary_commands"]] == ["clock_out"]
+    assert "clock_out" in callback_entry["temporary_command_modules"]
+    # Unrelated callbacks stay untouched.
+    assert command_menu["callback_modules"]["Other"]["text_template"] == "Keep me"
+
+
+def test_apply_template_pipeline_to_bot_config_requires_existing_command() -> None:
+    payload: dict[str, object] = {
+        "command_menu": {
+            "commands": [{"command": "start", "description": "Start"}],
+        },
+    }
+
+    with pytest.raises(ValueError, match="not found in target bot config"):
+        _apply_template_pipeline_to_bot_config(
+            payload=payload,
+            command_name="clock",
+            pipeline_text=json.dumps({"module_type": "send_message", "text_template": "Hi"}),
+            callback_text="",
+        )
 
 
 def test_config_vue_keeps_template_pipeline_editor_visible() -> None:
@@ -1133,6 +1760,8 @@ def test_config_vue_keeps_template_pipeline_editor_visible() -> None:
     assert '@click="removeModule(entry.editor, moduleIndex)"' in script
     assert "collectRelatedTemplateParts" in script
     assert "collectCallbackKeysFromSteps" in script
+    # Keyboard reply buttons route by value to callback modules; template saves must follow them.
+    assert "addKey(button.value);" in script
     assert "loadTemplateIntoEditor" in script
     assert "Load Template" in script
     assert "templateOptions" in script

@@ -341,53 +341,6 @@
     };
   }
 
-  function createTemporaryMenuExampleCommand(command, description) {
-    const normalizedCommand = normalizeCommandKey(command);
-    return createCommandEntry({
-      command: normalizedCommand,
-      description: String(description || ""),
-      module_type: "send_message",
-      text_template: `Example /${normalizedCommand} temporary command. Replace this module with your real ${normalizedCommand} flow.`,
-      parse_mode: "",
-    });
-  }
-
-  function createModuleWithTempCommandExample() {
-    const temporaryCommands = [
-      createTemporaryMenuExampleCommand("command1", "Command 1"),
-      createTemporaryMenuExampleCommand("command2", "Command 2"),
-    ];
-    return {
-      commandEntry: createCommandEntry({
-        command: "temp_menu",
-        description: "Module with temp command",
-        module_type: "callback_module",
-        callback_target_key: "temp_menu",
-      }),
-      callbackEntry: createCallbackEntry({
-        callback_key: "temp_menu",
-        module_type: "send_message",
-        text_template:
-          "Temporary command menu is active for this chat. Use /command1 or /command2.",
-        temporary_commands: temporaryCommands.map((entry) => {
-          const serialized = {
-            command: entry.command,
-            description: entry.description,
-            module_type: "send_message",
-            text_template: "",
-          };
-          const editor = entry && entry.editor && typeof entry.editor === "object" ? entry.editor : null;
-          if (editor && Array.isArray(editor.steps) && editor.steps.length > 0) {
-            const step = editor.steps[0];
-            serialized.module_type = step && step.module_type ? String(step.module_type) : "send_message";
-            serialized.text_template = step && step.text_template ? String(step.text_template) : "";
-          }
-          return serialized;
-        }),
-      }),
-    };
-  }
-
   function parseState(rawState) {
     // Convert the server-provided JSON blob into the reactive Vue state shape.
     const parsed = rawState && typeof rawState === "object" ? rawState : {};
@@ -461,21 +414,21 @@
       <option v-for="option in availableModuleOptions" :key="'start-opt-' + option.type" :value="option.type">[[ option.label ]]</option>
     </select>
     <button type="button" class="secondary" @click="addModule(startEditor)">Add Module</button>
-    <button type="button" class="secondary" @click="saveEditorAsTemplate(startEditor, '/start Pipeline', 'start', '/start')">Save As Template</button>
+    <button type="button" class="success" @click="saveEditorAsTemplate(startEditor, '/start Pipeline', 'start', '/start')">Save As Template</button>
     <select v-if="canLoadTemplates" v-model="startEditor.selected_template_id">
       <option value="">Select Template</option>
       <option v-for="template in templateOptions" :key="'start-template-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
     </select>
-    <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!startEditor.selected_template_id" @click="loadTemplateIntoEditor(startEditor)">Load Template</button>
+    <button type="button" v-if="canLoadTemplates" :disabled="!startEditor.selected_template_id" @click="loadTemplateIntoEditor(startEditor)">Load Template</button>
   </div>
 	  <div class="module-list">
     <div v-for="(step, moduleIndex) in startEditor.steps" :key="'start-' + moduleIndex" :class="moduleRowClass(startEditor, moduleIndex)">
       <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(startEditor, moduleIndex)) ]]</div>
       <div class="module-list-actions">
-        <button type="button" @click="editModule(startEditor, moduleIndex)">Edit</button>
+        <button type="button" class="primary" @click="editModule(startEditor, moduleIndex)">Edit</button>
         <button type="button" :disabled="moduleIndex === 0" @click="moveModuleUp(startEditor, moduleIndex)">Up</button>
         <button type="button" :disabled="moduleIndex >= startEditor.steps.length - 1" @click="moveModuleDown(startEditor, moduleIndex)">Down</button>
-        <button type="button" @click="removeModule(startEditor, moduleIndex)">Remove</button>
+        <button type="button" class="danger" @click="removeModule(startEditor, moduleIndex)">Remove</button>
       </div>
     </div>
   </div>
@@ -492,7 +445,7 @@
       </div>
       <div>
         <label>Reset Current Module</label>
-        <button type="button" class="secondary" @click="resetCurrentModule(startEditor)">Reset To Default</button>
+        <button type="button" class="danger" @click="resetCurrentModule(startEditor)">Reset To Default</button>
       </div>
     </div>
 	    ${renderModuleEditorSections("startEditor", "start_")}
@@ -588,28 +541,32 @@
       <div :class="isSinglePipelineMode ? 'command-row no-action' : 'command-row'">
         <input placeholder="/help" v-model="entry.command" :readonly="isSinglePipelineMode">
         <input placeholder="Get help" v-model="entry.description" :readonly="isSinglePipelineMode">
-        <button type="button" v-if="!isSinglePipelineMode" @click="removeCommand(commandIndex)">Remove</button>
+        <div class="module-list-actions" v-if="!isSinglePipelineMode">
+          <button type="button" :disabled="commandIndex === 0" @click="moveCommandUp(commandIndex)">Up</button>
+          <button type="button" :disabled="commandIndex >= commandEntries.length - 1" @click="moveCommandDown(commandIndex)">Down</button>
+          <button type="button" class="danger" @click="removeCommand(commandIndex)">Remove</button>
+        </div>
       </div>
       <div class="module-list-tools">
         <select v-model="entry.editor.add_type">
           <option v-for="option in availableModuleOptions" :key="'cmd-opt-' + commandIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
         </select>
         <button type="button" class="secondary" @click="addModule(entry.editor)">Add Module</button>
-        <button type="button" class="secondary" v-if="!isTemplateMode" @click="saveEditorAsTemplate(entry.editor, (entry.command || 'Command') + ' Pipeline', 'command', entry.command)">Save As Template</button>
+        <button type="button" class="success" v-if="!isTemplateMode" @click="saveEditorAsTemplate(entry.editor, (entry.command || 'Command') + ' Pipeline', 'command', entry.command)">Save As Template</button>
         <select v-if="canLoadTemplates" v-model="entry.editor.selected_template_id">
           <option value="">Select Template</option>
           <option v-for="template in templateOptions" :key="'cmd-template-' + commandIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
         </select>
-        <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
+        <button type="button" v-if="canLoadTemplates" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
       </div>
       <div class="module-list">
         <div v-for="(step, moduleIndex) in entry.editor.steps" :key="'cmd-' + commandIndex + '-' + moduleIndex" :class="moduleRowClass(entry.editor, moduleIndex)">
           <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(entry.editor, moduleIndex)) ]]</div>
           <div class="module-list-actions">
-            <button type="button" @click="editModule(entry.editor, moduleIndex)">Edit</button>
+            <button type="button" class="primary" @click="editModule(entry.editor, moduleIndex)">Edit</button>
             <button type="button" :disabled="moduleIndex === 0" @click="moveModuleUp(entry.editor, moduleIndex)">Up</button>
             <button type="button" :disabled="moduleIndex >= entry.editor.steps.length - 1" @click="moveModuleDown(entry.editor, moduleIndex)">Down</button>
-            <button type="button" @click="removeModule(entry.editor, moduleIndex)">Remove</button>
+            <button type="button" class="danger" @click="removeModule(entry.editor, moduleIndex)">Remove</button>
           </div>
         </div>
       </div>
@@ -626,7 +583,7 @@
           </div>
           <div>
             <label>Reset Current Module</label>
-            <button type="button" class="secondary" @click="resetCurrentModule(entry.editor)">Reset To Default</button>
+            <button type="button" class="danger" @click="resetCurrentModule(entry.editor)">Reset To Default</button>
           </div>
         </div>
 	        ${renderModuleEditorSections("entry.editor", "")}
@@ -712,8 +669,7 @@
 	    </div>
 	  </div>
 	  <div class="actions">
-		    <button type="button" class="secondary" v-if="!isSinglePipelineMode" @click="addCommand">Add Command</button>
-		    <button type="button" class="secondary" v-if="!isSinglePipelineMode" @click="addModuleWithTempCommandExample">Add command with temp command</button>
+		    <button type="button" class="warning" v-if="!isSinglePipelineMode" @click="addCommand">Add Command</button>
 	  </div>
 		  <div v-if="isSinglePipelineMode">
 	    <input type="hidden" name="process_pipeline" :value="templateProcessPipeline">
@@ -745,28 +701,28 @@
 		          <option value="">Select callback_data from current module setup</option>
 		          <option v-for="callbackKey in callbackOptions" :key="'callback-select-' + callbackIndex + '-' + callbackKey" :value="callbackKey">[[ callbackKey ]]</option>
 			        </select>
-			        <button type="button" @click="removeCallback(callbackIndex)">Remove</button>
+			        <button type="button" class="danger" @click="removeCallback(callbackIndex)">Remove</button>
 			      </div>
 			      <div class="module-list-tools">
         <select v-model="entry.editor.add_type">
           <option v-for="option in availableModuleOptions" :key="'callback-module-opt-' + callbackIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
         </select>
         <button type="button" class="secondary" @click="addModule(entry.editor)">Add Module</button>
-        <button type="button" class="secondary" @click="saveEditorAsTemplate(entry.editor, (entry.callback_key || 'Callback') + ' Pipeline', 'callback', entry.callback_key)">Save As Template</button>
+        <button type="button" class="success" @click="saveEditorAsTemplate(entry.editor, (entry.callback_key || 'Callback') + ' Pipeline', 'callback', entry.callback_key)">Save As Template</button>
         <select v-if="canLoadTemplates" v-model="entry.editor.selected_template_id">
           <option value="">Select Template</option>
           <option v-for="template in templateOptions" :key="'callback-template-' + callbackIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
         </select>
-        <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
+        <button type="button" v-if="canLoadTemplates" :disabled="!entry.editor.selected_template_id" @click="loadTemplateIntoEditor(entry.editor)">Load Template</button>
       </div>
 			      <div class="module-list">
 	        <div v-for="(step, moduleIndex) in entry.editor.steps" :key="'callback-' + callbackIndex + '-' + moduleIndex" :class="moduleRowClass(entry.editor, moduleIndex)">
 	          <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(entry.editor, moduleIndex)) ]]</div>
 	          <div class="module-list-actions">
-	            <button type="button" @click="editModule(entry.editor, moduleIndex)">Edit</button>
+	            <button type="button" class="primary" @click="editModule(entry.editor, moduleIndex)">Edit</button>
 	            <button type="button" :disabled="moduleIndex === 0" @click="moveModuleUp(entry.editor, moduleIndex)">Up</button>
 	            <button type="button" :disabled="moduleIndex >= entry.editor.steps.length - 1" @click="moveModuleDown(entry.editor, moduleIndex)">Down</button>
-	            <button type="button" @click="removeModule(entry.editor, moduleIndex)">Remove</button>
+	            <button type="button" class="danger" @click="removeModule(entry.editor, moduleIndex)">Remove</button>
 	          </div>
 	        </div>
 	      </div>
@@ -783,7 +739,7 @@
 	          </div>
 	          <div>
 	            <label>Reset Current Module</label>
-	            <button type="button" class="secondary" @click="resetCurrentModule(entry.editor)">Reset To Default</button>
+	            <button type="button" class="danger" @click="resetCurrentModule(entry.editor)">Reset To Default</button>
 	          </div>
 	        </div>
 	        ${renderModuleEditorSections("entry.editor", "")}
@@ -792,7 +748,7 @@
         <label>Temporary Commands After This Callback</label>
         <p class="hint">When this callback runs, Telegram command menu switches to these commands for this chat only. After one of them finishes, the main command menu returns.</p>
         <div class="actions">
-          <button type="button" class="secondary" @click="clearTemporaryCommands(entry)">Clear Temporary Commands</button>
+          <button type="button" class="danger" @click="clearTemporaryCommands(entry)">Clear Temporary Commands</button>
         </div>
 	        <div class="command-list">
 	          <div class="command-entry" v-for="(tempEntry, tempCommandIndex) in entry.temporaryCommandEntries" :key="'callback-temp-' + tempEntry._entry_id">
@@ -804,7 +760,7 @@
 		            <div class="command-row">
 		              <input placeholder="/next" v-model="tempEntry.command">
 	              <input placeholder="Next step" v-model="tempEntry.description">
-	              <button type="button" @click="removeTemporaryCommand(entry, tempCommandIndex)">Remove</button>
+	              <button type="button" class="danger" @click="removeTemporaryCommand(entry, tempCommandIndex)">Remove</button>
 	            </div>
 	            <label class="checkbox">
 		              <input type="checkbox" v-model="tempEntry.restore_original_menu">
@@ -815,21 +771,21 @@
                 <option v-for="option in availableModuleOptions" :key="'callback-temp-opt-' + callbackIndex + '-' + tempCommandIndex + '-' + option.type" :value="option.type">[[ option.label ]]</option>
               </select>
               <button type="button" class="secondary" @click="addModule(tempEntry.editor)">Add Module</button>
-              <button type="button" class="secondary" @click="saveEditorAsTemplate(tempEntry.editor, (tempEntry.command || 'Temporary Command') + ' Pipeline', 'temporary_command', tempEntry.command)">Save As Template</button>
+              <button type="button" class="success" @click="saveEditorAsTemplate(tempEntry.editor, (tempEntry.command || 'Temporary Command') + ' Pipeline', 'temporary_command', tempEntry.command)">Save As Template</button>
               <select v-if="canLoadTemplates" v-model="tempEntry.editor.selected_template_id">
                 <option value="">Select Template</option>
                 <option v-for="template in templateOptions" :key="'temp-template-' + callbackIndex + '-' + tempCommandIndex + '-' + template.id" :value="template.id">[[ templateOptionLabel(template) ]]</option>
               </select>
-              <button type="button" class="secondary" v-if="canLoadTemplates" :disabled="!tempEntry.editor.selected_template_id" @click="loadTemplateIntoEditor(tempEntry.editor)">Load Template</button>
+              <button type="button" v-if="canLoadTemplates" :disabled="!tempEntry.editor.selected_template_id" @click="loadTemplateIntoEditor(tempEntry.editor)">Load Template</button>
             </div>
 		            <div class="module-list">
               <div v-for="(step, moduleIndex) in tempEntry.editor.steps" :key="'callback-temp-step-' + callbackIndex + '-' + tempCommandIndex + '-' + moduleIndex" :class="moduleRowClass(tempEntry.editor, moduleIndex)">
                 <div class="module-list-meta">[[ moduleRowLabel(step, moduleIndex, isEditing(tempEntry.editor, moduleIndex)) ]]</div>
                 <div class="module-list-actions">
-                  <button type="button" @click="editModule(tempEntry.editor, moduleIndex)">Edit</button>
+                  <button type="button" class="primary" @click="editModule(tempEntry.editor, moduleIndex)">Edit</button>
                   <button type="button" :disabled="moduleIndex === 0" @click="moveModuleUp(tempEntry.editor, moduleIndex)">Up</button>
                   <button type="button" :disabled="moduleIndex >= tempEntry.editor.steps.length - 1" @click="moveModuleDown(tempEntry.editor, moduleIndex)">Down</button>
-                  <button type="button" @click="removeModule(tempEntry.editor, moduleIndex)">Remove</button>
+                  <button type="button" class="danger" @click="removeModule(tempEntry.editor, moduleIndex)">Remove</button>
                 </div>
               </div>
             </div>
@@ -846,7 +802,7 @@
                 </div>
                 <div>
                   <label>Reset Current Module</label>
-                  <button type="button" class="secondary" @click="resetCurrentModule(tempEntry.editor)">Reset To Default</button>
+                  <button type="button" class="danger" @click="resetCurrentModule(tempEntry.editor)">Reset To Default</button>
                 </div>
               </div>
 	              ${renderModuleEditorSections("tempEntry.editor", "")}
@@ -856,7 +812,7 @@
         </div>
       </div>
 		      <div class="actions">
-		        <button type="button" class="secondary" @click="addTemporaryCommand(entry)">
+		        <button type="button" @click="addTemporaryCommand(entry)">
 	            [[ temporaryCommandsButtonLabel(entry) ]]
 	          </button>
 		      </div>
@@ -942,10 +898,10 @@
     </div>
   </div>
   <div class="actions">
-    <button type="button" class="secondary" @click="addCallback">Add Callback Module</button>
+    <button type="button" class="warning" @click="addCallback">Add Callback Module</button>
   </div>
   <div class="actions" v-if="!isSinglePipelineMode">
-    <button type="button" class="secondary" @click="resetAllToStartDefault">Reset Everything To /start Default</button>
+    <button type="button" class="danger" @click="resetAllToStartDefault">Reset Everything To /start Default</button>
   </div>
 </div>
 		`;
@@ -959,6 +915,11 @@
       value: "",
       actual_value: "",
       row: 1,
+      edit_index: null,
+    });
+    const emptyVariableDraft = Object.freeze({
+      variable_name: "",
+      text_template: "",
       edit_index: null,
     });
     return {
@@ -1376,6 +1337,201 @@
 	            draft.edit_index -= 1;
 	          }
 	        },
+        // set_variable shows ONE unified list of variables, Added/Edited/
+        // Removed/Moved like inline buttons. On disk the first variable is
+        // still the step's own variable_name/text_template pair (index 0
+        // below) and the rest live in the generic `items` array the menu
+        // module also uses (index 1+) - kept for backward compatibility with
+        // the runtime and Save As Template - but the editor UI treats them as
+        // one seamless list, so index 0 transparently reads/writes
+        // variable_name/text_template while index 1+ read/write items.
+        formatVariableLine(name, template) {
+          return `${String(name || "").trim()} = ${String(template || "")}`;
+        },
+        parseVariableLine(line) {
+          const text = String(line || "");
+          const equalsIndex = text.indexOf("=");
+          return {
+            name: (equalsIndex >= 0 ? text.slice(0, equalsIndex) : text).trim(),
+            template: equalsIndex >= 0 ? text.slice(equalsIndex + 1).trim() : "",
+          };
+        },
+        ensureStepVariableItems(editor) {
+          const step = this.currentStep(editor);
+          if (!Array.isArray(step.items)) {
+            step.items = [];
+          }
+          return step.items;
+        },
+        stepHasPrimaryVariable(step) {
+          return String(step.variable_name || "").trim().length > 0 || String(step.text_template || "").length > 0;
+        },
+        currentStepVariableItems(editor) {
+          const step = this.currentStep(editor);
+          const items = Array.isArray(step.items) ? step.items : [];
+          if (!this.stepHasPrimaryVariable(step)) {
+            return items.slice();
+          }
+          return [this.formatVariableLine(step.variable_name, step.text_template), ...items];
+        },
+        setVariableLineAt(editor, index, name, template) {
+          const step = this.currentStep(editor);
+          if (index === 0) {
+            step.variable_name = String(name || "").trim();
+            step.text_template = String(template || "");
+            step.button_text = step.variable_name;
+            return;
+          }
+          const items = this.ensureStepVariableItems(editor);
+          items[index - 1] = this.formatVariableLine(name, template);
+        },
+        appendVariableLine(editor, name, template) {
+          const step = this.currentStep(editor);
+          if (!this.stepHasPrimaryVariable(step)) {
+            step.variable_name = String(name || "").trim();
+            step.text_template = String(template || "");
+            step.button_text = step.variable_name;
+            return;
+          }
+          const items = this.ensureStepVariableItems(editor);
+          items.push(this.formatVariableLine(name, template));
+        },
+        removeVariableLineAt(editor, index) {
+          const step = this.currentStep(editor);
+          const items = this.ensureStepVariableItems(editor);
+          if (index === 0) {
+            if (items.length > 0) {
+              const promoted = this.parseVariableLine(items.shift());
+              step.variable_name = promoted.name;
+              step.text_template = promoted.template;
+              step.button_text = promoted.name;
+            } else {
+              step.variable_name = "";
+              step.text_template = "";
+              step.button_text = "";
+            }
+            return;
+          }
+          items.splice(index - 1, 1);
+        },
+        swapVariableLines(editor, indexA, indexB) {
+          const lines = this.currentStepVariableItems(editor);
+          if (indexA < 0 || indexB < 0 || indexA >= lines.length || indexB >= lines.length) {
+            return;
+          }
+          const a = this.parseVariableLine(lines[indexA]);
+          const b = this.parseVariableLine(lines[indexB]);
+          this.setVariableLineAt(editor, indexA, b.name, b.template);
+          this.setVariableLineAt(editor, indexB, a.name, a.template);
+        },
+        normalizeVariableDraft(rawDraft) {
+          const draft = rawDraft && typeof rawDraft === "object" ? rawDraft : {};
+          return {
+            variable_name: String(draft.variable_name || ""),
+            text_template: String(draft.text_template || ""),
+            edit_index: Number.isInteger(draft.edit_index) ? draft.edit_index : null,
+          };
+        },
+        variableDraft(editor) {
+          const step = this.currentStep(editor);
+          const draft = step._variable_draft;
+          return draft && typeof draft === "object" ? draft : emptyVariableDraft;
+        },
+        ensureVariableDraft(editor) {
+          const step = this.currentStep(editor);
+          step._variable_draft = this.normalizeVariableDraft(step._variable_draft);
+          return step._variable_draft;
+        },
+        updateVariableDraftField(editor, field, value) {
+          if (field !== "variable_name" && field !== "text_template") {
+            return;
+          }
+          const draft = this.ensureVariableDraft(editor);
+          draft[field] = String(value || "");
+        },
+        variableEntryLabel(line, index) {
+          const parsed = this.parseVariableLine(line);
+          const preview = String(parsed.template || "")
+            .replace(/\s+/g, " ")
+            .trim();
+          const truncated = preview.length > 40 ? `${preview.slice(0, 40)}...` : preview;
+          return `#${index + 1} ${parsed.name || "(unnamed variable)"} = ${truncated || "(empty value)"}`;
+        },
+        saveVariable(editor) {
+          const draft = this.ensureVariableDraft(editor);
+          const name = String(draft.variable_name || "").trim();
+          if (!name) {
+            return;
+          }
+          const lineCount = this.currentStepVariableItems(editor).length;
+          if (Number.isInteger(draft.edit_index) && draft.edit_index >= 0 && draft.edit_index < lineCount) {
+            this.setVariableLineAt(editor, draft.edit_index, name, draft.text_template);
+          } else {
+            this.appendVariableLine(editor, name, draft.text_template);
+          }
+          this.cancelVariableEdit(editor);
+        },
+        cancelVariableEdit(editor) {
+          const draft = this.ensureVariableDraft(editor);
+          draft.variable_name = "";
+          draft.text_template = "";
+          draft.edit_index = null;
+        },
+        editVariable(editor, index) {
+          const lines = this.currentStepVariableItems(editor);
+          if (index < 0 || index >= lines.length) {
+            return;
+          }
+          const parsed = this.parseVariableLine(lines[index]);
+          const draft = this.ensureVariableDraft(editor);
+          draft.variable_name = parsed.name;
+          draft.text_template = parsed.template;
+          draft.edit_index = index;
+        },
+        moveVariableUp(editor, index) {
+          const lines = this.currentStepVariableItems(editor);
+          if (index <= 0 || index >= lines.length) {
+            return;
+          }
+          this.swapVariableLines(editor, index - 1, index);
+          const draft = this.ensureVariableDraft(editor);
+          if (draft.edit_index === index) {
+            draft.edit_index = index - 1;
+          } else if (draft.edit_index === index - 1) {
+            draft.edit_index = index;
+          }
+        },
+        moveVariableDown(editor, index) {
+          const lines = this.currentStepVariableItems(editor);
+          if (index < 0 || index >= lines.length - 1) {
+            return;
+          }
+          this.swapVariableLines(editor, index, index + 1);
+          const draft = this.ensureVariableDraft(editor);
+          if (draft.edit_index === index) {
+            draft.edit_index = index + 1;
+          } else if (draft.edit_index === index + 1) {
+            draft.edit_index = index;
+          }
+        },
+        removeVariable(editor, index) {
+          const lines = this.currentStepVariableItems(editor);
+          if (index < 0 || index >= lines.length) {
+            return;
+          }
+          this.removeVariableLineAt(editor, index);
+          const draft = this.ensureVariableDraft(editor);
+          if (draft.edit_index == null) {
+            return;
+          }
+          if (draft.edit_index === index) {
+            this.cancelVariableEdit(editor);
+            return;
+          }
+          if (draft.edit_index > index) {
+            draft.edit_index -= 1;
+          }
+        },
         saveKeyboardButton(editor) {
           const buttons = this.ensureStepButtons(editor);
           const draft = this.ensureInlineButtonDraft(editor);
@@ -1481,6 +1637,36 @@
         },
         insertTemplateToken(editor, field, token, event) {
           this.applyTemplateSnippet(editor, field, String(token || ""), "", event);
+        },
+        applyVariableDraftTemplateSnippet(editor, field, before, after, event) {
+          const draft = this.ensureVariableDraft(editor);
+          const current = field in draft && draft[field] != null ? String(draft[field]) : "";
+          const toolbarButton = event && event.currentTarget ? event.currentTarget : null;
+          const container = toolbarButton ? toolbarButton.closest(".template-editor") : null;
+          const textarea = container ? container.querySelector("textarea") : null;
+          let nextValue = `${current}${before}${after}`;
+          let selectionStart = nextValue.length;
+          let selectionEnd = nextValue.length;
+          if (textarea && typeof textarea.selectionStart === "number" && typeof textarea.selectionEnd === "number") {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const selectedText = current.slice(start, end);
+            nextValue = `${current.slice(0, start)}${before}${selectedText}${after}${current.slice(end)}`;
+            selectionStart = start + before.length;
+            selectionEnd = selectionStart + selectedText.length;
+          }
+          draft[field] = nextValue;
+          if (textarea && typeof textarea.focus === "function" && typeof this.$nextTick === "function") {
+            this.$nextTick(() => {
+              textarea.focus();
+              if (typeof textarea.setSelectionRange === "function") {
+                textarea.setSelectionRange(selectionStart, selectionEnd);
+              }
+            });
+          }
+        },
+        insertVariableDraftTemplateToken(editor, field, token, event) {
+          this.applyVariableDraftTemplateSnippet(editor, field, String(token || ""), "", event);
         },
         updateCurrentStepMenuItems(editor, raw) {
           const step = this.currentStep(editor);
@@ -1621,6 +1807,14 @@
             const buttons = helpers.normalizeInlineButtons(step.buttons || []);
             for (const button of buttons) {
               addKey(button && button.callback_data ? button.callback_data : "");
+            }
+            // Keyboard reply buttons route by value to a callback module, so
+            // their values are related callback keys too (e.g. clock_out_now).
+            const rawButtons = Array.isArray(step.buttons) ? step.buttons : [];
+            for (const button of rawButtons) {
+              if (button && typeof button === "object") {
+                addKey(button.value);
+              }
             }
           }
           return callbackKeys;
@@ -1784,39 +1978,19 @@
         addCommand() {
           this.commandEntries.push(createCommandEntry({}));
         },
-        addModuleWithTempCommandExample() {
-          const example = createModuleWithTempCommandExample();
-          const commandKey = normalizeCommandKey(example.commandEntry.command);
-          const callbackKey = String(example.callbackEntry.callback_key || "").trim();
-          const existingCommandIndex = this.commandEntries.findIndex(
-            (entry) => normalizeCommandKey(entry && entry.command ? entry.command : "") === commandKey
-          );
-          const existingCallbackIndex = this.callbackEntries.findIndex(
-            (entry) => String(entry && entry.callback_key ? entry.callback_key : "").trim() === callbackKey
-          );
-          const hasConflict = existingCommandIndex >= 0 || existingCallbackIndex >= 0;
-          if (hasConflict && typeof window !== "undefined" && typeof window.confirm === "function") {
-            const confirmed = window.confirm(
-              "Replace the existing /temp_menu command or temp_menu callback with the temporary command example scaffold?"
-            );
-            if (!confirmed) {
-              return;
-            }
+        moveCommandUp(index) {
+          if (index <= 0 || index >= this.commandEntries.length) {
+            return;
           }
-          example.commandEntry.editor.visible = true;
-          example.commandEntry.editor.editing_index = 0;
-          example.callbackEntry.editor.visible = true;
-          example.callbackEntry.editor.editing_index = 0;
-          if (existingCommandIndex >= 0) {
-            this.commandEntries.splice(existingCommandIndex, 1, example.commandEntry);
-          } else {
-            this.commandEntries.push(example.commandEntry);
+          const entries = this.commandEntries;
+          [entries[index - 1], entries[index]] = [entries[index], entries[index - 1]];
+        },
+        moveCommandDown(index) {
+          if (index < 0 || index >= this.commandEntries.length - 1) {
+            return;
           }
-          if (existingCallbackIndex >= 0) {
-            this.callbackEntries.splice(existingCallbackIndex, 1, example.callbackEntry);
-          } else {
-            this.callbackEntries.push(example.callbackEntry);
-          }
+          const entries = this.commandEntries;
+          [entries[index], entries[index + 1]] = [entries[index + 1], entries[index]];
         },
         removeCommand(index) {
           if (index < 0 || index >= this.commandEntries.length) {

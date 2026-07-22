@@ -70,6 +70,50 @@
         ],
         "text_template": "\ud83d\udeab Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding."
       },
+      "set_language": {
+        "buttons": [
+          {
+            "row": 1,
+            "text": "\ud83c\uddf0\ud83c\udded \ud835\uddde\ud835\uddf5\ud835\uddfa\ud835\uddf2\ud835\uddff",
+            "value": "km"
+          },
+          {
+            "row": 1,
+            "text": "\ud83c\uddfa\ud83c\uddf8 \ud835\uddd8\ud835\uddfb\ud835\uddf4\ud835\uddf9\ud835\uddf6\ud835\ude00\ud835\uddf5",
+            "value": "en"
+          }
+        ],
+        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
+        "invalid_text_template": "Please choose from the keyboard.",
+        "module_type": "wait_keyboard_reply",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "buttons": [
+              {
+                "row": 1,
+                "text": "\ud83c\uddf0\ud83c\udded \ud835\uddde\ud835\uddf5\ud835\uddfa\ud835\uddf2\ud835\uddff",
+                "value": "km"
+              },
+              {
+                "row": 1,
+                "text": "\ud83c\uddfa\ud83c\uddf8 \ud835\uddd8\ud835\uddfb\ud835\uddf4\ud835\uddf9\ud835\uddf6\ud835\ude00\ud835\uddf5",
+                "value": "en"
+              }
+            ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
+            "invalid_text_template": "Please choose from the keyboard.",
+            "module_type": "wait_keyboard_reply",
+            "parse_mode": null,
+            "save_reply_to_key": "preferred_language",
+            "success_text_template": "Language saved: {keyboard_reply_text}.",
+            "text_template": "Choose your language."
+          }
+        ],
+        "save_reply_to_key": "preferred_language",
+        "success_text_template": "Language saved: {keyboard_reply_text}.",
+        "text_template": "Choose your language."
+      },
       "share_contact": {
         "button_text": "Share My Contact",
         "invalid_text_template": "Please share your own contact using the button below.",
@@ -132,6 +176,13 @@
             "start_returning_text_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
             "text_template": "\u179f\u17bc\u1798\u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u1798\u1780\u1780\u17b6\u1793\u17cb {bot_name}\r\nWelcome to {bot_name}",
             "welcome_back_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}"
+          },
+          {
+            "module_type": "callback_module",
+            "skip_if_context_keys": [
+              "preferred_language"
+            ],
+            "target_callback_key": "set_language"
           },
           {
             "buttons": [
@@ -201,11 +252,11 @@
     "commands": [
       {
         "command": "reset",
-        "description": "forgot user"
+        "description": "Forgot user (for demo only)"
       },
       {
         "command": "getinfo",
-        "description": "Getinfo"
+        "description": "Getinfo (for demo only)"
       }
     ]
   },
@@ -247,6 +298,6 @@
   "token_ref": {
     "bot_id": "Register Demo"
   },
-  "updated_at": "2026-05-25T09:36:11.091150+00:00",
+  "updated_at": "2026-07-14T02:44:17.443175+00:00",
   "version": 1
 }

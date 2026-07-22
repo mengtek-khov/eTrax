@@ -36,6 +36,7 @@ from .bind_code import (
 )
 from .forget_user_data import ForgetUserDataConfig, ForgetUserDataModule
 from .reset_command_menu import ResetCommandMenuConfig, ResetCommandMenuModule
+from .set_variable import SetVariableConfig, SetVariableModule
 from .delete_message import DeleteMessageConfig, DeleteTelegramMessageModule
 from .user_info import UserInfoConfig, UserInfoModule, render_user_info_text
 from .inline_button import (
@@ -91,6 +92,17 @@ from .ask_selfie import (
     extract_selfie_context,
     render_ask_selfie_text,
     selfie_photo_present,
+)
+from .ask_text_reply import (
+    AskTextReplyConfig,
+    AskTextReplyModule,
+    DEFAULT_TEXT_REPLY_CONTEXT_KEY,
+    DEFAULT_TEXT_REPLY_INVALID,
+    DEFAULT_TEXT_REPLY_PROMPT,
+    PendingTextReplyRequest,
+    TextReplyRequestStore,
+    build_text_reply_context,
+    render_ask_text_reply_text,
 )
 from .share_location import (
     DEFAULT_CLOSEST_LOCATION_TOLERANCE_METERS,
@@ -160,6 +172,13 @@ __all__ = [
     "DEFAULT_SELFIE_ORIGINAL_DATE_INVALID",
     "SelfieRequestStore",
     "PendingSelfieRequest",
+    "AskTextReplyConfig",
+    "AskTextReplyModule",
+    "DEFAULT_TEXT_REPLY_CONTEXT_KEY",
+    "DEFAULT_TEXT_REPLY_INVALID",
+    "DEFAULT_TEXT_REPLY_PROMPT",
+    "TextReplyRequestStore",
+    "PendingTextReplyRequest",
     "ShareLocationConfig",
     "ShareLocationModule",
     "LocationRequestStore",
@@ -204,6 +223,8 @@ __all__ = [
     "ForgetUserDataModule",
     "ResetCommandMenuConfig",
     "ResetCommandMenuModule",
+    "SetVariableConfig",
+    "SetVariableModule",
     "DeleteMessageConfig",
     "DeleteTelegramMessageModule",
     "UserInfoConfig",
@@ -232,11 +253,13 @@ __all__ = [
     "build_contact_request_reply_markup",
     "build_location_request_reply_markup",
     "build_remove_keyboard_reply_markup",
+    "build_text_reply_context",
     "extract_contact_context",
     "extract_selfie_context",
     "extract_location_context",
     "location_is_live",
     "render_ask_selfie_text",
+    "render_ask_text_reply_text",
     "render_share_contact_text",
     "render_share_location_text",
     "render_route_text",

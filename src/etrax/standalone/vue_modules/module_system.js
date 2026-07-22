@@ -390,6 +390,7 @@
       location_longitude: source.location_longitude == null ? "" : String(source.location_longitude),
       button_text: source.button_text == null ? "" : String(source.button_text),
       required_username: source.required_username == null ? "" : String(source.required_username),
+      variable_name: source.variable_name == null ? "" : String(source.variable_name),
       failure_text_template: source.failure_text_template == null ? "" : String(source.failure_text_template),
       function_name: source.function_name == null ? "" : String(source.function_name),
       bind_code_prefix: source.bind_code_prefix == null ? "" : String(source.bind_code_prefix),

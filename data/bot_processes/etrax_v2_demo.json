@@ -1,11 +1,17 @@
 {
-  "bot_id": "eTrax Bot V1",
+  "bot_id": "eTrax V2 Demo",
   "command_menu": {
     "callback_modules": {
       "Clock_In": {
+        "items": [
+          "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-in."
+        ],
         "module_type": "set_variable",
         "pipeline": [
           {
+            "items": [
+              "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-in."
+            ],
             "module_type": "set_variable",
             "text_template": "\ud83d\uddfa Please share your LIVE location to clock in.",
             "variable_name": "location_prompt"
@@ -122,98 +128,6 @@
         "text_template": "\ud83d\uddfa Please share your LIVE location to clock in.",
         "variable_name": "location_prompt"
       },
-      "Lang": {
-        "buttons": [
-          {
-            "actual_value": "km",
-            "callback_data": "set_language_km",
-            "row": 1,
-            "text": "Khmer"
-          },
-          {
-            "actual_value": "en",
-            "callback_data": "set_language_en",
-            "row": 1,
-            "text": "English"
-          }
-        ],
-        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
-        "module_type": "inline_button",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "buttons": [
-              {
-                "actual_value": "km",
-                "callback_data": "set_language_km",
-                "row": 1,
-                "text": "Khmer"
-              },
-              {
-                "actual_value": "en",
-                "callback_data": "set_language_en",
-                "row": 1,
-                "text": "English"
-              }
-            ],
-            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
-            "module_type": "inline_button",
-            "parse_mode": null,
-            "remove_inline_buttons_on_click": true,
-            "save_callback_data_to_key": "preferred_language",
-            "text_template": "Choose your language."
-          }
-        ],
-        "remove_inline_buttons_on_click": true,
-        "save_callback_data_to_key": "preferred_language",
-        "text_template": "Choose your language."
-      },
-      "age verify": {
-        "buttons": [
-          {
-            "actual_value": "true",
-            "callback_data": "i_am_18",
-            "row": 1,
-            "text": "\u2705 I am 18+"
-          },
-          {
-            "actual_value": "false",
-            "callback_data": "i_am_not_18",
-            "row": 1,
-            "text": "\u274c I am under 18"
-          }
-        ],
-        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
-        "module_type": "inline_button",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "buttons": [
-              {
-                "actual_value": "true",
-                "callback_data": "i_am_18",
-                "row": 1,
-                "text": "\u2705 I am 18+"
-              },
-              {
-                "actual_value": "false",
-                "callback_data": "i_am_not_18",
-                "row": 1,
-                "text": "\u274c I am under 18"
-              }
-            ],
-            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
-            "module_type": "inline_button",
-            "parse_mode": null,
-            "remove_inline_buttons_on_click": true,
-            "save_callback_data_to_key": "i_am_18",
-            "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
-          }
-        ],
-        "remove_inline_buttons_on_click": true,
-        "save_callback_data_to_key": "i_am_18",
-        "text_template": "\ud83d\udd1e Age Verification Required\r\n\r\nBefore continuing, please confirm that you are 18+.\r\n\r\nThis helps us ensure a safe and appropriate experience for all users.\r\n\r\n\ud83d\udc47 Tap the button below to proceed:"
-      },
       "clock_out_cancel": {
         "module_type": "send_message",
         "parse_mode": null,
@@ -227,9 +141,15 @@
         "text_template": "\u274e Clock-Out process canceled. Thank you!"
       },
       "clock_out_now": {
+        "items": [
+          "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-out."
+        ],
         "module_type": "set_variable",
         "pipeline": [
           {
+            "items": [
+              "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-out."
+            ],
             "module_type": "set_variable",
             "text_template": "\ud83d\uddfa Please share your LIVE location to clock out.",
             "variable_name": "location_prompt"
@@ -268,14 +188,14 @@
           },
           {
             "finish_current_command_text_template": "\u274c Incorrect response!",
-            "invalid_text_template": "Please send a selfie photo.",
+            "invalid_text_template": "{selfie_prompt}",
             "module_type": "ask_selfie",
             "original_capture_invalid_text_template": "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
             "parse_mode": null,
             "require_finish_current_command": true,
             "require_original_capture_date": true,
             "success_text_template": "Thanks, your selfie was received.",
-            "text_template": "\ud83d\udcf7 Please share a selfie to complete clock-in."
+            "text_template": "{selfie_prompt}"
           }
         ],
         "require_finish_current_command": true,
@@ -283,65 +203,49 @@
         "success_text_template": "Thanks, your location was received.",
         "text_template": "{location_prompt}"
       },
-      "i_am_18": {
-        "module_type": "send_message",
+      "set_language": {
+        "buttons": [
+          {
+            "row": 1,
+            "text": "\ud83c\uddf0\ud83c\udded \ud835\uddde\ud835\uddf5\ud835\uddfa\ud835\uddf2\ud835\uddff",
+            "value": "km"
+          },
+          {
+            "row": 1,
+            "text": "\ud83c\uddfa\ud83c\uddf8 \ud835\uddd8\ud835\uddfb\ud835\uddf4\ud835\uddf9\ud835\uddf6\ud835\ude00\ud835\uddf5",
+            "value": "en"
+          }
+        ],
+        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
+        "invalid_text_template": "Please choose from the keyboard.",
+        "module_type": "wait_keyboard_reply",
         "parse_mode": null,
         "pipeline": [
           {
-            "module_type": "send_message",
+            "buttons": [
+              {
+                "row": 1,
+                "text": "\ud83c\uddf0\ud83c\udded \ud835\uddde\ud835\uddf5\ud835\uddfa\ud835\uddf2\ud835\uddff",
+                "value": "km"
+              },
+              {
+                "row": 1,
+                "text": "\ud83c\uddfa\ud83c\uddf8 \ud835\uddd8\ud835\uddfb\ud835\uddf4\ud835\uddf9\ud835\uddf6\ud835\ude00\ud835\uddf5",
+                "value": "en"
+              }
+            ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
+            "invalid_text_template": "Please choose from the keyboard.",
+            "module_type": "wait_keyboard_reply",
             "parse_mode": null,
-            "text_template": "Thank you!"
+            "save_reply_to_key": "preferred_language",
+            "success_text_template": "Language saved: {keyboard_reply_text}.",
+            "text_template": "\u1787\u17d2\u179a\u17be\u179f\u179a\u17be\u179f\u1797\u17b6\u179f\u17b6\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\r\nChoose your language."
           }
         ],
-        "text_template": "Thank you!"
-      },
-      "i_am_not_18": {
-        "module_type": "send_message",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "\ud83d\udeab Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding."
-          }
-        ],
-        "text_template": "\ud83d\udeab Access Restricted\r\n\r\nSorry, you must be at least 18 years old to use this bot.\r\n\r\nYou will not be able to continue or access the features at this time.\r\n\r\nThank you for your understanding."
-      },
-      "set_language_en": {
-        "module_type": "send_message",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "Language saved: English."
-          }
-        ],
-        "text_template": "Language saved: English."
-      },
-      "set_language_km": {
-        "module_type": "send_message",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "Language saved: Khmer."
-          }
-        ],
-        "text_template": "Language saved: Khmer."
-      },
-      "set_language_th": {
-        "module_type": "send_message",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "Language saved: Thai."
-          }
-        ],
-        "text_template": "Language saved: Thai."
+        "save_reply_to_key": "preferred_language",
+        "success_text_template": "Language saved: {keyboard_reply_text}.",
+        "text_template": "\u1787\u17d2\u179a\u17be\u179f\u179a\u17be\u179f\u1797\u17b6\u179f\u17b6\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\r\nChoose your language."
       },
       "share_contact": {
         "button_text": "Share My Contact",
@@ -416,48 +320,15 @@
         ],
         "title": "Current User Information"
       },
-      "lang": {
-        "module_type": "send_message",
-        "parse_mode": null,
+      "language": {
+        "module_type": "callback_module",
         "pipeline": [
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "Command /lang received."
-          },
           {
             "module_type": "callback_module",
-            "target_callback_key": "Lang"
+            "target_callback_key": "set_language"
           }
         ],
-        "text_template": "Command /lang received."
-      },
-      "read_id": {
-        "invalid_text_template": "Please send a clear photo or image file of the ID card.",
-        "module_type": "ask_selfie",
-        "original_capture_invalid_text_template": "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
-        "parse_mode": null,
-        "pipeline": [
-          {
-            "invalid_text_template": "Please send a clear photo or image file of the ID card.",
-            "module_type": "ask_selfie",
-            "original_capture_invalid_text_template": "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
-            "parse_mode": null,
-            "success_text_template": "Thanks, your ID image was received. Reading it now.",
-            "text_template": "Please send a clear, straight image of the full Khmer ID card. For better text quality, send it as a file instead of a compressed Telegram photo."
-          },
-          {
-            "function_name": "scan_identity_document_from_selfie",
-            "module_type": "custom_code"
-          },
-          {
-            "module_type": "send_message",
-            "parse_mode": null,
-            "text_template": "{identity_document_summary}"
-          }
-        ],
-        "success_text_template": "Thanks, your ID image was received. Reading it now.",
-        "text_template": "Please send a clear, straight image of the full Khmer ID card. For better text quality, send it as a file instead of a compressed Telegram photo."
+        "target_callback_key": "set_language"
       },
       "reset": {
         "module_type": "forget_user_data",
@@ -484,6 +355,13 @@
             "welcome_back_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}"
           },
           {
+            "module_type": "callback_module",
+            "skip_if_context_keys": [
+              "preferred_language"
+            ],
+            "target_callback_key": "set_language"
+          },
+          {
             "buttons": [
               {
                 "callback_data": "share_contact",
@@ -504,45 +382,6 @@
               "profile.phone_number"
             ],
             "text_template": "\u178f\u17be\u17a2\u17d2\u1793\u1780\u1785\u1784\u17cb\u1785\u17c2\u1780\u179a\u17c6\u179b\u17c2\u1780\u179b\u17c1\u1781\u1791\u17bc\u179a\u179f\u17d0\u1796\u17d2\u1791\u179a\u1794\u179f\u17cb\u17a2\u17d2\u1793\u1780\u1791\u17c1?\nPlease share your telegram contact profile"
-          },
-          {
-            "buttons": [
-              {
-                "actual_value": "true",
-                "callback_data": "i_am_18",
-                "row": 1,
-                "text": "\u2705 I am 18+"
-              },
-              {
-                "actual_value": "false",
-                "callback_data": "i_am_not_18",
-                "row": 1,
-                "text": "\u274c I am under 18"
-              }
-            ],
-            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
-            "module_type": "inline_button",
-            "parse_mode": "None",
-            "remove_inline_buttons_on_click": true,
-            "save_callback_data_to_key": "i_am_18",
-            "skip_if_context_keys": [
-              "profile.i_am_18"
-            ],
-            "text_template": "\ud83d\udd1e Age Verification Required\n\nBefore continuing, please confirm that you are 18+.\n\nThis helps us ensure a safe and appropriate experience for all users.\n\n\ud83d\udc47 Tap the button below to proceed:"
-          },
-          {
-            "module_type": "callback_module",
-            "run_if_context_keys": [
-              "profile.i_am_18=false"
-            ],
-            "target_callback_key": "i_am_not_18"
-          },
-          {
-            "module_type": "callback_module",
-            "run_if_context_keys": [
-              "profile.i_am_18=true"
-            ],
-            "target_callback_key": "i_am_18"
           }
         ],
         "start_returning_text_template": "\u179f\u17bd\u179f\u17d2\u178f\u17b8 {user_first_name} \u179f\u17d2\u179c\u17b6\u1782\u1798\u1793\u17cd\u178f\u17d2\u179a\u179b\u1794\u17cb\u1798\u1780\u179c\u17b7\u1789\u1796\u17b8 {bot_name}\r\nHi {user_first_name}! Welcome back to {bot_name}",
@@ -553,27 +392,23 @@
     "commands": [
       {
         "command": "reset",
-        "description": "forgot user"
+        "description": "Forgot user (for demo only)"
       },
       {
         "command": "getinfo",
-        "description": "Getinfo"
+        "description": "Getinfo (for demo only)"
+      },
+      {
+        "command": "language",
+        "description": "Language"
       },
       {
         "command": "clock",
         "description": "Clock"
-      },
-      {
-        "command": "lang",
-        "description": "Lang"
-      },
-      {
-        "command": "read_id",
-        "description": "Read id"
       }
     ]
   },
-  "created_at": "2026-05-04T07:41:39.160338+00:00",
+  "created_at": "2026-07-14T02:36:23.762169+00:00",
   "flows": {
     "main": {
       "start_module": null,
@@ -609,8 +444,8 @@
     }
   },
   "token_ref": {
-    "bot_id": "eTrax Bot V1"
+    "bot_id": "eTrax V2 Demo"
   },
-  "updated_at": "2026-07-20T07:50:44.152703+00:00",
+  "updated_at": "2026-07-22T03:20:46.723243+00:00",
   "version": 1
 }

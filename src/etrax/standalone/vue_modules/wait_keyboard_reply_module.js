@@ -142,10 +142,10 @@
         `<div class="module-list-row" v-for="(button, buttonIndex) in currentStepButtons(${ctx})" :key="'wait-kbd-' + buttonIndex">` +
         `<div class="module-list-meta">[[ keyboardButtonLabel(button, buttonIndex) ]] -> [[ button.value || button.actual_value || button.text ]]</div>` +
         `<div class="module-list-actions">` +
-        `<button type="button" @click="editKeyboardButton(${ctx}, buttonIndex)">Edit</button>` +
+        `<button type="button" class="primary" @click="editKeyboardButton(${ctx}, buttonIndex)">Edit</button>` +
         `<button type="button" :disabled="buttonIndex === 0" @click="moveKeyboardButtonUp(${ctx}, buttonIndex)">Up</button>` +
         `<button type="button" :disabled="buttonIndex >= currentStepButtons(${ctx}).length - 1" @click="moveKeyboardButtonDown(${ctx}, buttonIndex)">Down</button>` +
-        `<button type="button" @click="removeKeyboardButton(${ctx}, buttonIndex)">Remove</button>` +
+        `<button type="button" class="danger" @click="removeKeyboardButton(${ctx}, buttonIndex)">Remove</button>` +
         `</div>` +
         `</div>` +
         `</div>` +

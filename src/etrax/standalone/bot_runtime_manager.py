@@ -31,9 +31,11 @@ from etrax.core.telegram import (
     PendingInlineButtonActionRequest,
     PendingKeyboardReplyRequest,
     PendingSelfieRequest,
+    PendingTextReplyRequest,
     PendingContactRequest,
     PendingLocationRequest,
     SelfieRequestStore,
+    TextReplyRequestStore,
 )
 from etrax.core.flow import FlowModule
 from etrax.core.token import BotTokenService
@@ -207,6 +209,40 @@ class _TranslatingTelegramGateway:
             text=translated_text,
             parse_mode=parse_mode,
             reply_markup=translated_reply_markup,
+        )
+
+    def set_my_commands(
+        self,
+        *,
+        bot_token: str,
+        commands: list[dict[str, Any]],
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> dict[str, Any]:
+        chat_id = ""
+        if isinstance(scope, dict) and str(scope.get("type", "")).strip() == "chat":
+            chat_id = str(scope.get("chat_id", "")).strip()
+        translated_commands = commands
+        if chat_id:
+            chat_language = self._language_for_chat(chat_id)
+            if chat_language:
+                translated_commands = [
+                    {
+                        **command,
+                        "description": self._translate_text(
+                            str(command.get("description", "")),
+                            language_code=chat_language,
+                        ),
+                    }
+                    if isinstance(command, dict)
+                    else command
+                    for command in commands
+                ]
+        return self._gateway.set_my_commands(
+            bot_token=bot_token,
+            commands=translated_commands,
+            scope=scope,
+            language_code=language_code,
         )
 
     def _language_for_chat(self, chat_id: str) -> str:
@@ -467,6 +503,33 @@ class _InMemoryKeyboardReplyRequestStore(KeyboardReplyRequestStore):
             return self._values.pop(key, None)
 
 
+class _InMemoryTextReplyRequestStore(TextReplyRequestStore):
+    """Process-local pending free-form text reply request store."""
+
+    def __init__(self) -> None:
+        """Initialize the in-memory pending-text-reply index."""
+        self._values: dict[tuple[str, str, str], PendingTextReplyRequest] = {}
+        self._lock = Lock()
+
+    def set_pending(self, request: PendingTextReplyRequest) -> None:
+        """Store a pending text reply request by bot, chat, and user."""
+        key = (request.bot_id, request.chat_id, request.user_id)
+        with self._lock:
+            self._values[key] = request
+
+    def get_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingTextReplyRequest | None:
+        """Look up a pending text reply request without removing it."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.get(key)
+
+    def pop_pending(self, *, bot_id: str, chat_id: str, user_id: str) -> PendingTextReplyRequest | None:
+        """Remove and return a pending text reply request once it is handled."""
+        key = (bot_id, chat_id, user_id)
+        with self._lock:
+            return self._values.pop(key, None)
+
+
 class _InMemoryInlineButtonActionRequestStore(InlineButtonActionRequestStore):
     """Process-local pending inline-button action store for standalone runtime."""
 
@@ -561,6 +624,7 @@ class BotRuntimeManager:
         self._selfie_request_store = _InMemorySelfieRequestStore()
         self._location_request_store = _InMemoryLocationRequestStore()
         self._keyboard_reply_request_store = _InMemoryKeyboardReplyRequestStore()
+        self._text_reply_request_store = _InMemoryTextReplyRequestStore()
         self._inline_action_request_store = _InMemoryInlineButtonActionRequestStore()
 
     def start(self, bot_id: str) -> tuple[bool, str]:
@@ -781,6 +845,7 @@ class BotRuntimeManager:
                             selfie_request_store=self._selfie_request_store,
                             location_request_store=self._location_request_store,
                             keyboard_reply_request_store=self._keyboard_reply_request_store,
+                            text_reply_request_store=self._text_reply_request_store,
                             inline_action_request_store=self._inline_action_request_store,
                             profile_log_store=self._profile_log_store,
                             processed_callback_query_ids=processed_callback_query_ids,
@@ -950,6 +1015,7 @@ class BotRuntimeManager:
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
+                text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
                 cart_configs=runtime_snapshot.cart_configs,
                 checkout_modules=runtime_snapshot.checkout_modules,
@@ -1089,6 +1155,7 @@ class BotRuntimeManager:
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
+                text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
@@ -1108,6 +1175,7 @@ class BotRuntimeManager:
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
+                text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
@@ -1133,6 +1201,7 @@ class BotRuntimeManager:
                     selfie_request_store=self._selfie_request_store,
                     location_request_store=self._location_request_store,
                     keyboard_reply_request_store=self._keyboard_reply_request_store,
+                    text_reply_request_store=self._text_reply_request_store,
                     inline_action_request_store=self._inline_action_request_store,
                     cart_configs=cart_configs,
                     checkout_modules=checkout_modules,
@@ -1167,6 +1236,7 @@ class BotRuntimeManager:
                 selfie_request_store=self._selfie_request_store,
                 location_request_store=self._location_request_store,
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
+                text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,

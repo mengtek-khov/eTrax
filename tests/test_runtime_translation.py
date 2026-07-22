@@ -21,6 +21,24 @@ class FakeTokenResolver:
 class FakeGateway:
     def __init__(self) -> None:
         self.messages: list[dict[str, Any]] = []
+        self.command_menu_calls: list[dict[str, Any]] = []
+
+    def set_my_commands(
+        self,
+        *,
+        bot_token: str,
+        commands: list[dict[str, Any]],
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "bot_token": bot_token,
+            "commands": [dict(item) for item in commands],
+            "scope": dict(scope) if isinstance(scope, dict) else scope,
+            "language_code": language_code,
+        }
+        self.command_menu_calls.append(payload)
+        return payload
 
     def send_message(
         self,
@@ -151,3 +169,57 @@ def test_translating_gateway_translates_text_and_button_labels(tmp_path: Path) -
     assert gateway.messages[0]["reply_markup"] == {
         "inline_keyboard": [[{"text": "អង់គ្លេស", "callback_data": "set_language_en"}]]
     }
+
+
+def test_translating_gateway_translates_chat_scoped_command_menu(tmp_path: Path) -> None:
+    translations_file = tmp_path / "translations_ui.json"
+    translations_file.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "id": "tr-1",
+                        "bot_id": "support-bot",
+                        "source_text": "Clock",
+                        "translations": {"km": "ម៉ោងធ្វើការ"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    gateway = FakeGateway()
+    wrapped = _TranslatingTelegramGateway(
+        gateway=gateway,  # type: ignore[arg-type]
+        bot_id="support-bot",
+        translations_file=translations_file,
+        profile_log_store=FakeProfileStore(
+            [
+                {
+                    "telegram_user_id": "77",
+                    "chat_ids": ["12345"],
+                    "preferred_language": "km",
+                }
+            ]
+        ),  # type: ignore[arg-type]
+    )
+
+    wrapped.set_my_commands(
+        bot_token="token:support-bot",
+        commands=[{"command": "clock", "description": "Clock"}],
+        scope={"type": "chat", "chat_id": "12345"},
+    )
+    # Global pushes have no chat language and must stay untranslated.
+    wrapped.set_my_commands(
+        bot_token="token:support-bot",
+        commands=[{"command": "clock", "description": "Clock"}],
+    )
+
+    assert gateway.command_menu_calls[0]["commands"] == [
+        {"command": "clock", "description": "ម៉ោងធ្វើការ"}
+    ]
+    assert gateway.command_menu_calls[0]["scope"] == {"type": "chat", "chat_id": "12345"}
+    assert gateway.command_menu_calls[1]["commands"] == [
+        {"command": "clock", "description": "Clock"}
+    ]

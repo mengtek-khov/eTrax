@@ -899,6 +899,105 @@ def test_handle_message_update_replacing_breadcrumb_request_closes_active_profil
     assert updated_profile["location_breadcrumb_sessions"][0]["ended_reason"] == "replaced_by_new_command"
 
 
+def test_handle_message_update_restart_preserves_active_breadcrumb_tracking() -> None:
+    location_request_store = FakeLocationRequestStore()
+    profile_log_store = FakeProfileLogStore(
+        {("support-bot", "77"): {"location_breadcrumb_sessions": []}}
+    )
+    location_request_store.set_pending(
+        PendingLocationRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            button_text="Share My Location",
+            parse_mode=None,
+            prompt_text_template="Please share your live location",
+            success_text_template="Thanks",
+            closest_location_group_text_template=None,
+            invalid_text_template=None,
+            require_live_location=True,
+            require_finish_current_command=True,
+            track_breadcrumb=True,
+            breadcrumb_started=True,
+            breadcrumb_points=[(11.55, 104.92), (11.56, 104.93)],
+            breadcrumb_entries=[
+                {"point_number": 1, "recorded_at": "2026-04-22T10:00:00Z"},
+                {"point_number": 2, "recorded_at": "2026-04-22T10:01:00Z"},
+            ],
+            breadcrumb_total_distance_meters=145.0,
+            breadcrumb_session_started_at=1713779940.0,
+        )
+    )
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/restart",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        start_returning_user=False,
+        location_request_store=location_request_store,
+        profile_log_store=profile_log_store,
+    )
+
+    assert sent == 0
+    pending = location_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77")
+    assert pending is not None
+    assert pending.track_breadcrumb is True
+    assert len(pending.breadcrumb_points) == 2
+    # Restart clears the blocking requirement so new actions can start while tracking continues.
+    assert pending.require_finish_current_command is False
+    updated_profile = profile_log_store.get_profile(bot_id="support-bot", user_id="77")
+    assert updated_profile is not None
+    assert updated_profile["location_breadcrumb_sessions"] == []
+
+
+def test_handle_message_update_restart_clears_unstarted_location_requirements() -> None:
+    location_request_store = FakeLocationRequestStore()
+    # A plain location prompt and a tracking prompt that never started are both
+    # pending requirements that /restart must clear before new actions.
+    for track_breadcrumb in (False, True):
+        location_request_store.set_pending(
+            PendingLocationRequest(
+                bot_id="support-bot",
+                chat_id="12345",
+                user_id="77",
+                button_text="Share My Location",
+                parse_mode=None,
+                prompt_text_template="Please share your location",
+                success_text_template="Thanks",
+                closest_location_group_text_template=None,
+                invalid_text_template=None,
+                require_live_location=track_breadcrumb,
+                require_finish_current_command=True,
+                track_breadcrumb=track_breadcrumb,
+                breadcrumb_started=False,
+            )
+        )
+
+        handle_message_update(
+            {
+                "message": {
+                    "text": "/restart",
+                    "chat": {"id": 12345},
+                    "from": {"id": 77, "first_name": "Alice"},
+                }
+            },
+            bot_id="support-bot",
+            command_modules={},
+            start_returning_user=False,
+            location_request_store=location_request_store,
+        )
+
+        assert (
+            location_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77") is None
+        ), f"track_breadcrumb={track_breadcrumb} should be cleared by /restart"
+
+
 def test_handle_callback_query_update_adds_rich_sender_context() -> None:
     module = CaptureModule()
 
@@ -984,6 +1083,102 @@ def test_handle_callback_query_update_applies_saved_callback_context_and_persist
     profile = profile_store.get_profile(bot_id="support-bot", user_id="88")
     assert profile is not None
     assert profile["selected_option"] == "open_shop"
+
+
+def test_handle_callback_query_update_repushes_chat_menu_when_language_saved() -> None:
+    module = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    profile_store = FakeProfileLogStore({})
+
+    sent = handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-lang",
+                "data": "set_language_km",
+                "from": {
+                    "id": 88,
+                    "first_name": "Bob",
+                },
+                "message": {
+                    "message_id": 43,
+                    "chat": {"id": 67890},
+                    "text": "Choose your language.",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_menu=[
+            {"command": "clock", "description": "Clock"},
+            {"command": "lang", "description": "Language"},
+        ],
+        callback_modules={"set_language_km": [module]},
+        callback_context_updates={"set_language_km": {"preferred_language": "km"}},
+        profile_log_store=profile_store,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    assert sent == 1
+    assert gateway.set_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "commands": [
+                {"command": "clock", "description": "Clock"},
+                {"command": "lang", "description": "Language"},
+            ],
+            "scope": {"type": "chat", "chat_id": "67890"},
+            "language_code": None,
+        }
+    ]
+
+
+def test_handle_callback_query_update_language_push_keeps_active_temporary_menu() -> None:
+    module = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    profile_store = FakeProfileLogStore({})
+    active_menus: dict[str, dict[str, Any]] = {
+        "support-bot:67890": {
+            "source_callback_key": "Clock_In",
+            "commands": [{"command": "clock_out", "description": "Clock out"}],
+        }
+    }
+
+    handle_callback_query_update(
+        {
+            "callback_query": {
+                "id": "cb-lang-2",
+                "data": "set_language_km",
+                "from": {
+                    "id": 88,
+                    "first_name": "Bob",
+                },
+                "message": {
+                    "message_id": 44,
+                    "chat": {"id": 67890},
+                    "text": "Choose your language.",
+                },
+            }
+        },
+        bot_id="support-bot",
+        command_menu=[{"command": "clock", "description": "Clock"}],
+        callback_modules={"set_language_km": [module]},
+        callback_context_updates={"set_language_km": {"preferred_language": "km"}},
+        active_temporary_command_menus_by_chat=active_menus,
+        profile_log_store=profile_store,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+
+    # While a temporary menu is active, the language push must re-send that menu,
+    # not the main one.
+    assert gateway.set_calls == [
+        {
+            "bot_token": "123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+            "commands": [{"command": "clock_out", "description": "Clock out"}],
+            "scope": {"type": "chat", "chat_id": "67890"},
+            "language_code": None,
+        }
+    ]
 
 
 def test_handle_message_update_uses_profile_log_as_contact_fallback() -> None:
@@ -1408,6 +1603,118 @@ def test_handle_message_update_restart_restores_lazily_recovered_temporary_menu(
             "language_code": None,
         }
     ]
+
+
+def _run_restart_with_clock_in_menu(
+    *,
+    restart_row: dict[str, Any] | None,
+    location_request_store: FakeLocationRequestStore | None = None,
+) -> tuple[int, CaptureModule, dict[str, dict[str, Any]], FakeTemporaryCommandMenuStateStore, FakeCommandMenuGateway]:
+    restart_target = CaptureModule()
+    gateway = FakeCommandMenuGateway()
+    state_store = FakeTemporaryCommandMenuStateStore()
+    state_store.set_active_menu(
+        bot_id="support-bot",
+        chat_id="12345",
+        source_callback_key="Clock_In",
+    )
+    active_menus: dict[str, dict[str, Any]] = {}
+    menu_commands = [
+        {"command": "clock_out", "description": "Clock out", "restore_original_menu": False},
+        {"command": "track_location", "description": "Track", "restore_original_menu": False},
+    ]
+    if restart_row is not None:
+        menu_commands.append(restart_row)
+
+    sent = handle_message_update(
+        {
+            "message": {
+                "text": "/restart",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice"},
+            }
+        },
+        bot_id="support-bot",
+        command_menu=[
+            {"command": "start", "description": "Start bot"},
+            {"command": "restart", "description": "Restart bot"},
+        ],
+        command_modules={"restart": [restart_target]},
+        start_returning_user=False,
+        temporary_command_menus={
+            "Clock_In": {
+                "commands": menu_commands,
+                "command_modules": {"clock_out": [CaptureModule()], "track_location": [CaptureModule()]},
+            }
+        },
+        active_temporary_command_menus_by_chat=active_menus,
+        temporary_command_menu_state_store=state_store,
+        location_request_store=location_request_store,
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+    )
+    return sent, restart_target, active_menus, state_store, gateway
+
+
+def test_handle_message_update_restart_keeps_temporary_menu_when_menu_opts_out_of_restore() -> None:
+    sent, restart_target, active_menus, state_store, gateway = _run_restart_with_clock_in_menu(
+        restart_row={"command": "restart", "description": "Restart bot", "restore_original_menu": False},
+    )
+
+    assert sent == 1
+    assert len(restart_target.contexts) == 1
+    # The clock-in menu stays active because its restart row opts out of restoring.
+    assert "support-bot:12345" in active_menus
+    assert state_store.get_active_menu(bot_id="support-bot", chat_id="12345") is not None
+    assert gateway.delete_calls == []
+
+
+def test_handle_message_update_restart_restores_temporary_menu_by_default() -> None:
+    sent, restart_target, active_menus, state_store, gateway = _run_restart_with_clock_in_menu(
+        restart_row=None,
+    )
+
+    assert sent == 1
+    assert len(restart_target.contexts) == 1
+    assert "support-bot:12345" not in active_menus
+    assert state_store.get_active_menu(bot_id="support-bot", chat_id="12345") is None
+    assert len(gateway.delete_calls) == 1
+
+
+def test_handle_message_update_restart_keeps_temporary_menu_while_tracking_breadcrumb() -> None:
+    location_request_store = FakeLocationRequestStore()
+    location_request_store.set_pending(
+        PendingLocationRequest(
+            bot_id="support-bot",
+            chat_id="12345",
+            user_id="77",
+            button_text="Share My Location",
+            parse_mode=None,
+            prompt_text_template="Please share your live location",
+            success_text_template="Thanks",
+            closest_location_group_text_template=None,
+            invalid_text_template=None,
+            require_live_location=True,
+            track_breadcrumb=True,
+            breadcrumb_started=True,
+        )
+    )
+
+    # No restart row on the menu: restoring is the default, but active tracking wins.
+    sent, restart_target, active_menus, state_store, gateway = _run_restart_with_clock_in_menu(
+        restart_row=None,
+        location_request_store=location_request_store,
+    )
+
+    assert sent == 1
+    assert len(restart_target.contexts) == 1
+    # The clock-in binding survives the restart: tracking request and menu stay active.
+    pending = location_request_store.get_pending(bot_id="support-bot", chat_id="12345", user_id="77")
+    assert pending is not None
+    assert pending.track_breadcrumb is True
+    assert "support-bot:12345" in active_menus
+    assert state_store.get_active_menu(bot_id="support-bot", chat_id="12345") is not None
+    assert gateway.delete_calls == []
 
 
 def test_handle_message_update_restart_restores_active_temporary_menu() -> None:

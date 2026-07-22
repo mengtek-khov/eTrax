@@ -12,6 +12,7 @@ from typing import Any, Callable, TypeVar, cast
 from etrax.core.flow import FlowModule
 from etrax.core.telegram import (
     AskSelfieConfig,
+    AskTextReplyConfig,
     BindCodeConfig,
     CartButtonConfig,
     CheckUsernameConfig,
@@ -26,6 +27,7 @@ from etrax.core.telegram import (
     PaywayPaymentConfig,
     ResetCommandMenuConfig,
     RouteConfig,
+    SetVariableConfig,
     SendInlineButtonConfig,
     SendKeyboardButtonConfig,
     SendLocationConfig,
@@ -239,6 +241,7 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
         SendPhotoConfig,
         CustomCodeConfig,
         AskSelfieConfig,
+        AskTextReplyConfig,
         ShareContactConfig,
         ShareLocationConfig,
         CartButtonConfig,
@@ -252,6 +255,7 @@ def _supported_runtime_config_types() -> tuple[type[object], ...]:
         OpenMiniAppConfig,
         ForgetUserDataConfig,
         ResetCommandMenuConfig,
+        SetVariableConfig,
         UserInfoConfig,
     )
 
@@ -324,6 +328,7 @@ def build_runtime_step_module(
     selfie_request_store: object | None = None,
     location_request_store: object | None = None,
     keyboard_reply_request_store: object | None = None,
+    text_reply_request_store: object | None = None,
     inline_action_request_store: object | None = None,
     cart_configs: dict[str, object] | None = None,
     checkout_modules: dict[str, object] | None = None,
@@ -342,6 +347,7 @@ def build_runtime_step_module(
         "selfie_request_store": selfie_request_store,
         "location_request_store": location_request_store,
         "keyboard_reply_request_store": keyboard_reply_request_store,
+        "text_reply_request_store": text_reply_request_store,
         "inline_action_request_store": inline_action_request_store,
         "cart_configs": cart_configs,
         "checkout_modules": checkout_modules,
