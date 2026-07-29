@@ -291,6 +291,18 @@ def _build_handler(
             if parsed.path == "/ui/translations":
                 self._handle_translations_page(parsed)
                 return
+            if parsed.path == "/ui/live-chat":
+                self._handle_live_chat_page(parsed)
+                return
+            if parsed.path == "/livechat/status":
+                self._handle_live_chat_status(parsed)
+                return
+            if parsed.path == "/livechat/messages":
+                self._handle_live_chat_messages(parsed)
+                return
+            if parsed.path == "/livechat/avatar":
+                self._handle_live_chat_avatar(parsed)
+                return
             if parsed.path == "/ui/location-search":
                 params = parse_qs(parsed.query)
                 query = params.get("q", [""])[0]
@@ -344,6 +356,9 @@ def _build_handler(
                 return
             if parsed.path == "/module-ask-selfie.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("ask_selfie_module.js"))
+                return
+            if parsed.path == "/module-live-chat-handoff.js":
+                self._send_javascript(HTTPStatus.OK, _load_vue_module_js("live_chat_handoff_module.js"))
                 return
             if parsed.path == "/module-custom-code.js":
                 self._send_javascript(HTTPStatus.OK, _load_vue_module_js("custom_code_module.js"))
@@ -470,6 +485,12 @@ def _build_handler(
             if parsed.path == "/ui/translations/save":
                 self._handle_translations_save(form)
                 return
+            if parsed.path == "/livechat/reply":
+                self._handle_live_chat_reply(form)
+                return
+            if parsed.path == "/livechat/release":
+                self._handle_live_chat_release(form)
+                return
             if parsed.path == "/ui/templates/translate/save":
                 self._handle_template_translations_save(form)
                 return
@@ -518,6 +539,7 @@ def _build_handler(
                 )
                 custom_code_function_options = load_custom_code_function_names()
                 template_entries = _with_builtin_template_entries(_load_standalone_ui_entries(templates_file))
+                live_chat_count = len(runtime_manager.live_chat_takeover_store.list_active(bot_id=bot_id.strip()))
                 html_payload = _render_config_page(
                     bot_id=bot_id.strip(),
                     config_path=config_path,
@@ -526,6 +548,7 @@ def _build_handler(
                     context_key_options=context_key_options,
                     custom_code_function_options=custom_code_function_options,
                     template_entries=template_entries,
+                    live_chat_count=live_chat_count,
                     message=message,
                     level=level,
                 )
@@ -640,6 +663,127 @@ def _build_handler(
             except (ValueError, RuntimeError, json.JSONDecodeError) as exc:
                 _print_terminal_error("translations-save", str(exc))
                 self._redirect(_with_message(next_url or "/", "error", str(exc)))
+
+        def _handle_live_chat_page(self, parsed) -> None:
+            """Render the per-bot live-chat takeover panel."""
+            params = parse_qs(parsed.query)
+            bot_id = params.get("bot_id", [""])[0].strip()
+            if not bot_id:
+                self._redirect("/?level=error&message=bot_id+is+required+for+Live+Chat")
+                return
+            chat_id = params.get("chat_id", [""])[0].strip()
+            message = params.get("message", [""])[0]
+            level = params.get("level", ["info"])[0]
+            if chat_id:
+                runtime_manager.live_chat_takeover_store.mark_viewed(bot_id=bot_id, chat_id=chat_id)
+            active_chats = runtime_manager.live_chat_takeover_store.list_active(bot_id=bot_id)
+            transcript = (
+                runtime_manager.live_chat_transcript_store.list_messages(bot_id=bot_id, chat_id=chat_id)
+                if chat_id
+                else []
+            )
+            self._send_html(
+                HTTPStatus.OK,
+                _render_live_chat_page(
+                    bot_id=bot_id,
+                    active_chats=active_chats,
+                    selected_chat_id=chat_id,
+                    transcript=transcript,
+                    message=message,
+                    level=level,
+                ),
+            )
+
+        def _handle_live_chat_status(self, parsed) -> None:
+            """Return JSON list of active live-chat takeovers for one bot."""
+            params = parse_qs(parsed.query)
+            bot_id = params.get("bot_id", [""])[0].strip()
+            if not bot_id:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "bot_id is required"})
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "chats": runtime_manager.live_chat_takeover_store.list_active(bot_id=bot_id)},
+            )
+
+        def _handle_live_chat_messages(self, parsed) -> None:
+            """Return JSON transcript for one active live-chat takeover."""
+            params = parse_qs(parsed.query)
+            bot_id = params.get("bot_id", [""])[0].strip()
+            chat_id = params.get("chat_id", [""])[0].strip()
+            if not bot_id or not chat_id:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "bot_id and chat_id are required"})
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "messages": runtime_manager.live_chat_transcript_store.list_messages(
+                        bot_id=bot_id, chat_id=chat_id,
+                    ),
+                },
+            )
+
+        def _handle_live_chat_avatar(self, parsed) -> None:
+            """Proxy a Telegram user's profile photo without exposing the bot token to the browser."""
+            params = parse_qs(parsed.query)
+            bot_id = params.get("bot_id", [""])[0].strip()
+            chat_id = params.get("chat_id", [""])[0].strip()
+            if not bot_id or not chat_id:
+                self._send_text(HTTPStatus.BAD_REQUEST, "bot_id and chat_id are required")
+                return
+            record = runtime_manager.live_chat_takeover_store.get_active(bot_id=bot_id, chat_id=chat_id)
+            avatar_file_id = str(record.get("avatar_file_id", "")).strip() if record else ""
+            token = service.get_token(bot_id)
+            if not avatar_file_id or not token:
+                self._send_text(HTTPStatus.NOT_FOUND, "no avatar available")
+                return
+            try:
+                image_bytes = TelegramBotApiGateway().download_file_bytes(bot_token=token, file_id=avatar_file_id)
+            except RuntimeError:
+                self._send_text(HTTPStatus.BAD_GATEWAY, "could not fetch avatar")
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "private, max-age=300")
+            self.send_header("Content-Length", str(len(image_bytes)))
+            self.end_headers()
+            self.wfile.write(image_bytes)
+
+        def _handle_live_chat_reply(self, form: dict[str, list[str]]) -> None:
+            """Send a human agent's reply into an active live-chat takeover."""
+            bot_id = form.get("bot_id", [""])[0].strip()
+            chat_id = form.get("chat_id", [""])[0].strip()
+            text = form.get("text", [""])[0]
+            next_url = f"/ui/live-chat?bot_id={quote_plus(bot_id)}&chat_id={quote_plus(chat_id)}"
+            try:
+                if not bot_id or not chat_id:
+                    raise ValueError("bot_id and chat_id are required")
+                if not text.strip():
+                    raise ValueError("reply text is required")
+                sent = runtime_manager.send_live_chat_reply(bot_id=bot_id, chat_id=chat_id, text=text)
+                if not sent:
+                    raise ValueError("no active live chat for that chat_id (it may have been released or timed out)")
+                self._redirect(_with_message(next_url, "success", "Reply sent"))
+            except (ValueError, RuntimeError) as exc:
+                _print_terminal_error("live-chat-reply", str(exc))
+                self._redirect(_with_message(next_url, "error", str(exc)))
+
+        def _handle_live_chat_release(self, form: dict[str, list[str]]) -> None:
+            """Release an active live-chat takeover back to bot automation."""
+            bot_id = form.get("bot_id", [""])[0].strip()
+            chat_id = form.get("chat_id", [""])[0].strip()
+            next_url = f"/ui/live-chat?bot_id={quote_plus(bot_id)}"
+            try:
+                if not bot_id or not chat_id:
+                    raise ValueError("bot_id and chat_id are required")
+                released = runtime_manager.release_live_chat(bot_id=bot_id, chat_id=chat_id)
+                if not released:
+                    raise ValueError("no active live chat for that chat_id")
+                self._redirect(_with_message(next_url, "success", f"Released live chat {chat_id}"))
+            except (ValueError, RuntimeError) as exc:
+                _print_terminal_error("live-chat-release", str(exc))
+                self._redirect(_with_message(next_url, "error", str(exc)))
 
         def _handle_template_translations_page(self, parsed) -> None:
             """Render the per-template translation management page."""
@@ -3823,6 +3967,7 @@ def _render_template_config_page(
 	  <script src="/module-ask-text-reply.js?v={asset_version}"></script>
 	  <script src="/module-share-contact.js?v={asset_version}"></script>
 	  <script src="/module-ask-selfie.js?v={asset_version}"></script>
+	  <script src="/module-live-chat-handoff.js?v={asset_version}"></script>
 	  <script src="/module-custom-code.js?v={asset_version}"></script>
 	  <script src="/module-bind-code.js?v={asset_version}"></script>
 	  <script src="/module-check-username.js?v={asset_version}"></script>
@@ -4625,6 +4770,7 @@ def _render_scheduled_tasks_demo_page(
   <script src="/module-ask-text-reply.js?v={asset_version}"></script>
   <script src="/module-share-contact.js?v={asset_version}"></script>
   <script src="/module-ask-selfie.js?v={asset_version}"></script>
+  <script src="/module-live-chat-handoff.js?v={asset_version}"></script>
   <script src="/module-custom-code.js?v={asset_version}"></script>
   <script src="/module-bind-code.js?v={asset_version}"></script>
   <script src="/module-check-username.js?v={asset_version}"></script>
@@ -7176,6 +7322,7 @@ def _render_config_page(
     context_key_options: Iterable[str] = (),
     custom_code_function_options: Iterable[str] = (),
     template_entries: Iterable[dict[str, object]] = (),
+    live_chat_count: int = 0,
     message: str,
     level: str,
 ) -> str:
@@ -7187,6 +7334,9 @@ def _render_config_page(
     command_modules = command_modules_raw if isinstance(command_modules_raw, dict) else {}
     command_menu_enabled = bool(command_menu.get("enabled", True))
     command_menu_enabled_checked = "checked" if command_menu_enabled else ""
+    live_chat_badge_html = (
+        f"<span class='nav-badge'>{live_chat_count}</span>" if live_chat_count > 0 else ""
+    )
     include_start_command = bool(command_menu.get("include_start", True))
     include_start_command_checked = "checked" if include_start_command else ""
     start_command_description = str(command_menu.get("start_description", "")).strip()
@@ -7556,6 +7706,21 @@ def _render_config_page(
       align-items: center;
       flex-wrap: wrap;
     }}
+    .nav-badge {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      margin-left: 6px;
+      border-radius: 999px;
+      background: #d33;
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 700;
+      line-height: 18px;
+    }}
     .hint {{
       margin-top: 4px;
       font-size: 0.86rem;
@@ -7832,6 +7997,7 @@ def _render_config_page(
         <a class="button secondary" href="/ui/translations?bot_id={quote_plus(bot_id)}">Translate</a>
         <a class="button secondary" href="/ui/working-hours">Working Hours</a>
         <a class="button secondary" href="/ui/locations">Locations</a>
+        <a class="button secondary" href="/ui/live-chat?bot_id={quote_plus(bot_id)}">Live Chat{live_chat_badge_html}</a>
         <button
           type="button"
           class="runtime-error-toggle"
@@ -7893,6 +8059,7 @@ def _render_config_page(
   <script src="/module-ask-text-reply.js?v={asset_version}"></script>
   <script src="/module-share-contact.js?v={asset_version}"></script>
   <script src="/module-ask-selfie.js?v={asset_version}"></script>
+  <script src="/module-live-chat-handoff.js?v={asset_version}"></script>
   <script src="/module-custom-code.js?v={asset_version}"></script>
   <script src="/module-bind-code.js?v={asset_version}"></script>
   <script src="/module-check-username.js?v={asset_version}"></script>
@@ -8490,6 +8657,345 @@ def _render_translation_rows_html(rows: list[dict[str, str]]) -> str:
             "</tr>"
         )
     return "".join(rendered)
+
+
+def _live_chat_is_unread(chat: dict[str, object]) -> bool:
+    """Return True when the end user has messaged since the agent last viewed this chat."""
+    last_user_message_at = str(chat.get("last_user_message_at", "")).strip()
+    last_viewed_at = str(chat.get("last_viewed_at", "")).strip()
+    return bool(last_user_message_at) and last_user_message_at > last_viewed_at
+
+
+def _render_live_chat_row(bot_id: str, chat: dict[str, object], selected_chat_id: str) -> str:
+    """Render one chat entry in the live-chat sidebar with name/avatar in place of the raw chat id."""
+    chat_id = str(chat.get("chat_id", ""))
+    display_name = str(chat.get("display_name", "")).strip()
+    label = display_name or chat_id
+    avatar_file_id = str(chat.get("avatar_file_id", "")).strip()
+    initial = html.escape(label[:1].upper() or "?")
+    if avatar_file_id:
+        avatar_html = (
+            "<img class='chat-row-avatar' "
+            f"data-fallback-initial='{initial}' "
+            f"src='/livechat/avatar?bot_id={quote_plus(bot_id)}&chat_id={quote_plus(chat_id)}'>"
+        )
+    else:
+        avatar_html = f"<div class='chat-row-avatar chat-row-avatar-placeholder'>{initial}</div>"
+    unread_dot_html = "<span class='chat-row-unread-dot'></span>" if _live_chat_is_unread(chat) else ""
+    return (
+        "<a class='chat-row{selected}' href='/ui/live-chat?bot_id={bot_id_q}&chat_id={chat_id_q}'>"
+        "<span class='chat-row-avatar-wrap'>{avatar_html}{unread_dot_html}</span>"
+        "<span class='chat-row-text'>"
+        "<span class='chat-row-name'>{name}</span>"
+        "<span class='chat-row-meta'>{chat_id} &middot; started {started_at}</span>"
+        "</span>"
+        "</a>"
+    ).format(
+        selected=" is-selected" if chat_id == selected_chat_id else "",
+        bot_id_q=quote_plus(bot_id),
+        chat_id_q=quote_plus(chat_id),
+        avatar_html=avatar_html,
+        unread_dot_html=unread_dot_html,
+        name=html.escape(label),
+        chat_id=html.escape(chat_id),
+        started_at=html.escape(str(chat.get("started_at", ""))[:19]),
+    )
+
+
+def _format_live_chat_message_time(value: object) -> str:
+    """Extract an HH:MM display time from an ISO 8601 timestamp string."""
+    raw = str(value or "")
+    if "T" not in raw:
+        return raw[:19]
+    return raw.split("T", 1)[1][:5]
+
+
+def _render_transcript_message(entry: dict[str, object]) -> str:
+    """Render one transcript entry as a Telegram/Messenger-style chat bubble."""
+    direction = str(entry.get("direction", "system")).strip() or "system"
+    text = html.escape(str(entry.get("text", "")))
+    at_display = html.escape(_format_live_chat_message_time(entry.get("at", "")))
+    if direction == "system":
+        return (
+            "<div class='msg-divider'>"
+            "<span class='msg-divider-line'></span>"
+            f"<span class='msg-divider-text'>{text}</span>"
+            "<span class='msg-divider-line'></span>"
+            "</div>"
+        )
+    row_class = "msg-row-agent" if direction == "agent" else "msg-row-user"
+    bubble_class = "msg-bubble-agent" if direction == "agent" else "msg-bubble-user"
+    return (
+        f"<div class='msg-row {row_class}'>"
+        f"<div class='msg-bubble {bubble_class}'>"
+        f"<span class='msg-text'>{text}</span>"
+        f"<span class='msg-at'>{at_display}</span>"
+        "</div></div>"
+    )
+
+
+def _render_live_chat_page(
+    *,
+    bot_id: str,
+    active_chats: list[dict[str, object]],
+    selected_chat_id: str,
+    transcript: list[dict[str, object]],
+    message: str,
+    level: str,
+) -> str:
+    """Render the per-bot live-chat takeover panel."""
+    status_html = _render_status_html(message=message, level=level)
+    chat_rows_html = "".join(_render_live_chat_row(bot_id, chat, selected_chat_id) for chat in active_chats) or (
+        "<p class='hint'>No chats are currently waiting for a human agent.</p>"
+    )
+    page_title = f"({len(active_chats)}) Live Chat: {bot_id}" if active_chats else f"Live Chat: {bot_id}"
+
+    transcript_html = "".join(_render_transcript_message(entry) for entry in transcript) or (
+        "<p class='hint'>Select a chat on the left to see its transcript.</p>"
+    )
+
+    transcript_header_html = ""
+    if selected_chat_id:
+        selected_chat = next(
+            (chat for chat in active_chats if str(chat.get("chat_id", "")) == selected_chat_id), None,
+        )
+        selected_name = str(selected_chat.get("display_name", "")).strip() if selected_chat else ""
+        transcript_header_html = (
+            f"<h2 class='transcript-heading'>Chatting with {html.escape(selected_name or selected_chat_id)}</h2>"
+        )
+
+    reply_panel_html = ""
+    if selected_chat_id:
+        reply_panel_html = f"""
+        <form method="post" action="/livechat/reply" class="live-chat-reply-form">
+          <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
+          <input type="hidden" name="chat_id" value="{html.escape(selected_chat_id)}">
+          <textarea name="text" placeholder="Type a reply to send to the user..." required></textarea>
+          <button class="primary" type="submit">Send Reply</button>
+        </form>
+        <form method="post" action="/livechat/release" class="live-chat-release-form">
+          <input type="hidden" name="bot_id" value="{html.escape(bot_id)}">
+          <input type="hidden" name="chat_id" value="{html.escape(selected_chat_id)}">
+          <button class="secondary" type="submit">Release Back To Bot</button>
+        </form>
+        """
+
+    status_url = f"/livechat/status?bot_id={quote_plus(bot_id)}"
+    messages_url = (
+        f"/livechat/messages?bot_id={quote_plus(bot_id)}&chat_id={quote_plus(selected_chat_id)}"
+        if selected_chat_id
+        else ""
+    )
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(page_title)}</title>
+  <style>
+    :root {{
+      --bg: #f5f7fb; --panel: #ffffff; --text: #1e2a39; --muted: #5f6f83;
+      --line: #d6deea; --ok: #0a7a4d; --err: #b42318; --info: #0b63c7;
+      --accent: #0f4ea5; --accent-hover: #0b3d81;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; font-family: "Segoe UI", Tahoma, sans-serif; background: var(--bg); color: var(--text); }}
+    .container {{ width: min(1100px, calc(100% - 32px)); margin: 20px auto; }}
+    .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 16px; }}
+    h1 {{ font-size: 20px; margin: 0 0 12px; }}
+    .hint {{ color: var(--muted); font-size: 13px; }}
+    .layout {{ display: flex; gap: 16px; align-items: flex-start; }}
+    .chat-list {{ width: 260px; flex: none; display: flex; flex-direction: column; gap: 6px; }}
+    .chat-row {{ display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: var(--text); }}
+    .chat-row.is-selected {{ border-color: var(--accent); background: #eef4ff; }}
+    .chat-row-avatar-wrap {{ position: relative; flex: none; display: inline-flex; }}
+    .chat-row-avatar {{ width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none; }}
+    .chat-row-avatar-placeholder {{ display: flex; align-items: center; justify-content: center; background: var(--accent); color: #fff; font-weight: 600; }}
+    .chat-row-unread-dot {{ position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; background: #d33; border: 2px solid var(--panel); }}
+    .chat-row-text {{ display: flex; flex-direction: column; min-width: 0; }}
+    .chat-row-name {{ font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    .chat-row-meta {{ font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    .transcript {{ flex: 1; min-width: 0; }}
+    .transcript-heading {{ font-size: 16px; margin: 0 0 10px; }}
+    .transcript-body {{ display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; margin-bottom: 12px; padding: 12px; background: #e9edf3; border-radius: 12px; }}
+    .msg-row {{ display: flex; }}
+    .msg-row-user {{ justify-content: flex-start; }}
+    .msg-row-agent {{ justify-content: flex-end; }}
+    .msg-divider {{ display: flex; align-items: center; gap: 10px; margin: 10px 2px; }}
+    .msg-divider-line {{ flex: 1; height: 1px; background: var(--line); }}
+    .msg-divider-text {{ font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }}
+    .msg-bubble {{ max-width: 72%; padding: 8px 12px; border-radius: 16px; font-size: 14px; line-height: 1.35; }}
+    .msg-text {{ display: block; white-space: pre-wrap; word-break: break-word; }}
+    .msg-at {{ display: block; font-size: 10px; margin-top: 3px; text-align: right; }}
+    .msg-bubble-user {{ background: #ffffff; color: var(--text); border: 1px solid var(--line); border-bottom-left-radius: 4px; }}
+    .msg-bubble-user .msg-at {{ color: var(--muted); }}
+    .msg-bubble-agent {{ background: #0b93f6; color: #fff; border-bottom-right-radius: 4px; }}
+    .msg-bubble-agent .msg-at {{ color: rgba(255, 255, 255, 0.85); }}
+    textarea {{ width: 100%; min-height: 70px; margin-bottom: 8px; }}
+    .live-chat-reply-form, .live-chat-release-form {{ margin-top: 8px; }}
+    button.primary {{ background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; }}
+    button.secondary {{ background: none; border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; cursor: pointer; }}
+    .status {{ padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }}
+    .status.success {{ background: #e6f7ee; color: var(--ok); }}
+    .status.error {{ background: #fdecea; color: var(--err); }}
+    .status.info {{ background: #eaf2fd; color: var(--info); }}
+    a.button.back {{ color: var(--muted); text-decoration: none; font-size: 13px; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="panel">
+      <h1>Live Chat: {html.escape(bot_id)}</h1>
+      <p class="hint">Chats handed off by the <code>live_chat_handoff</code> module wait here for a human reply.</p>
+      <a class="button back" href="/config?bot_id={quote_plus(bot_id)}">&laquo; Back to Bot Config</a>
+    </div>
+    {status_html}
+    <div class="panel">
+      <div class="layout">
+        <div class="chat-list" id="live-chat-list" data-status-url="{html.escape(status_url)}" data-bot-id="{html.escape(bot_id)}" data-selected-chat-id="{html.escape(selected_chat_id)}">
+          {chat_rows_html}
+        </div>
+        <div class="transcript">
+          {transcript_header_html}
+          <div class="transcript-body" id="live-chat-transcript" data-messages-url="{html.escape(messages_url)}">
+            {transcript_html}
+          </div>
+          {reply_panel_html}
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function() {{
+      function escapeHtml(value) {{
+        return String(value == null ? "" : value).replace(/[&<>"']/g, function(ch) {{
+          return {{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}}[ch];
+        }});
+      }}
+      function isNearBottom(el) {{
+        return el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      }}
+      function scrollToBottom(el) {{
+        el.scrollTop = el.scrollHeight;
+      }}
+      function formatMessageTime(value) {{
+        var raw = String(value || "");
+        var tIndex = raw.indexOf("T");
+        if (tIndex === -1) {{ return raw.slice(0, 19); }}
+        return raw.slice(tIndex + 1, tIndex + 6);
+      }}
+      function renderTranscriptMessage(entry) {{
+        var direction = String(entry.direction || "system");
+        var text = escapeHtml(entry.text || "");
+        var atDisplay = escapeHtml(formatMessageTime(entry.at));
+        if (direction === "system") {{
+          return "<div class='msg-divider'>" +
+            "<span class='msg-divider-line'></span>" +
+            "<span class='msg-divider-text'>" + text + "</span>" +
+            "<span class='msg-divider-line'></span>" +
+            "</div>";
+        }}
+        var rowClass = direction === "agent" ? "msg-row-agent" : "msg-row-user";
+        var bubbleClass = direction === "agent" ? "msg-bubble-agent" : "msg-bubble-user";
+        return "<div class='msg-row " + rowClass + "'>" +
+          "<div class='msg-bubble " + bubbleClass + "'>" +
+          "<span class='msg-text'>" + text + "</span>" +
+          "<span class='msg-at'>" + atDisplay + "</span>" +
+          "</div></div>";
+      }}
+      function refreshTranscript() {{
+        var body = document.getElementById("live-chat-transcript");
+        var url = body && body.getAttribute("data-messages-url");
+        if (!url) {{ return; }}
+        var shouldStickToBottom = isNearBottom(body);
+        fetch(url, {{ headers: {{ "Accept": "application/json" }} }})
+          .then(function(r) {{ return r.ok ? r.json() : null; }})
+          .then(function(payload) {{
+            if (!payload || !payload.ok || !Array.isArray(payload.messages)) {{ return; }}
+            body.innerHTML = payload.messages.map(renderTranscriptMessage).join("") ||
+              "<p class='hint'>No messages yet.</p>";
+            if (shouldStickToBottom) {{
+              scrollToBottom(body);
+            }}
+          }})
+          .catch(function() {{ return; }});
+      }}
+      var initialBody = document.getElementById("live-chat-transcript");
+      if (initialBody) {{
+        scrollToBottom(initialBody);
+      }}
+      var initialChatList = document.getElementById("live-chat-list");
+      if (initialChatList) {{
+        attachAvatarFallbacks(initialChatList);
+      }}
+
+      function initialLetter(label) {{
+        return (label || "?").slice(0, 1).toUpperCase();
+      }}
+      function isChatUnread(chat) {{
+        var lastUserMessageAt = String(chat.last_user_message_at || "");
+        var lastViewedAt = String(chat.last_viewed_at || "");
+        return lastUserMessageAt !== "" && lastUserMessageAt > lastViewedAt;
+      }}
+      function renderChatRow(botId, chat, selectedChatId) {{
+        var chatId = String(chat.chat_id || "");
+        var name = String(chat.display_name || "").trim() || chatId;
+        var avatarFileId = String(chat.avatar_file_id || "").trim();
+        var initial = escapeHtml(initialLetter(name));
+        var avatarUrl = "/livechat/avatar?bot_id=" + encodeURIComponent(botId) + "&chat_id=" + encodeURIComponent(chatId);
+        var avatarHtml = avatarFileId
+          ? "<img class='chat-row-avatar' data-fallback-initial='" + initial + "' src='" + avatarUrl + "'>"
+          : "<div class='chat-row-avatar chat-row-avatar-placeholder'>" + initial + "</div>";
+        var unreadDotHtml = isChatUnread(chat) ? "<span class='chat-row-unread-dot'></span>" : "";
+        var selectedClass = chatId === selectedChatId ? " is-selected" : "";
+        var startedAt = escapeHtml(String(chat.started_at || "").slice(0, 19));
+        return "<a class='chat-row" + selectedClass + "' href='/ui/live-chat?bot_id=" + encodeURIComponent(botId) + "&chat_id=" + encodeURIComponent(chatId) + "'>" +
+          "<span class='chat-row-avatar-wrap'>" + avatarHtml + unreadDotHtml + "</span>" +
+          "<span class='chat-row-text'>" +
+          "<span class='chat-row-name'>" + escapeHtml(name) + "</span>" +
+          "<span class='chat-row-meta'>" + escapeHtml(chatId) + " &middot; started " + startedAt + "</span>" +
+          "</span></a>";
+      }}
+      function attachAvatarFallbacks(container) {{
+        var imgs = container.querySelectorAll("img.chat-row-avatar[data-fallback-initial]");
+        imgs.forEach(function(img) {{
+          img.addEventListener("error", function() {{
+            var placeholder = document.createElement("div");
+            placeholder.className = "chat-row-avatar chat-row-avatar-placeholder";
+            placeholder.textContent = img.getAttribute("data-fallback-initial") || "?";
+            img.replaceWith(placeholder);
+          }});
+        }});
+      }}
+      function updateTitleCount(count) {{
+        var baseTitle = document.title.replace(/^\\([0-9]+\\)\\s*/, "");
+        document.title = count > 0 ? "(" + count + ") " + baseTitle : baseTitle;
+      }}
+      function refreshChatList() {{
+        var listEl = document.getElementById("live-chat-list");
+        var url = listEl && listEl.getAttribute("data-status-url");
+        if (!url) {{ return; }}
+        var botId = listEl.getAttribute("data-bot-id") || "";
+        var selectedChatId = listEl.getAttribute("data-selected-chat-id") || "";
+        fetch(url, {{ headers: {{ "Accept": "application/json" }} }})
+          .then(function(r) {{ return r.ok ? r.json() : null; }})
+          .then(function(payload) {{
+            if (!payload || !payload.ok || !Array.isArray(payload.chats)) {{ return; }}
+            listEl.innerHTML = payload.chats.map(function(chat) {{
+              return renderChatRow(botId, chat, selectedChatId);
+            }}).join("") || "<p class='hint'>No chats are currently waiting for a human agent.</p>";
+            attachAvatarFallbacks(listEl);
+            updateTitleCount(payload.chats.length);
+          }})
+          .catch(function() {{ return; }});
+      }}
+      window.setInterval(refreshChatList, 5000);
+      window.setInterval(refreshTranscript, 5000);
+    }})();
+  </script>
+</body>
+</html>"""
 
 
 def _render_status_html(*, message: str, level: str) -> str:
@@ -10555,6 +11061,13 @@ def _build_module_step(
             finish_current_command_text=finish_current_command_text,
         )
 
+    if normalized_module_type == "live_chat_handoff":
+        raise ValueError(
+            f"command /{command_name}: live_chat_handoff must be added as a chain step "
+            "(Advanced/JSON chain steps) or configured directly in the bot config JSON; "
+            "it is not supported as a primary step in this editor"
+        )
+
     if normalized_module_type == "custom_code":
         return _build_custom_code_step(
             context_label=f"command /{command_name}",
@@ -10993,6 +11506,13 @@ def _build_callback_module_step(
             finish_current_command_text=finish_current_command_text,
         )
 
+    if normalized_module_type == "live_chat_handoff":
+        raise ValueError(
+            f"callback '{callback_key}': live_chat_handoff must be added as a chain step "
+            "(Advanced/JSON chain steps) or configured directly in the bot config JSON; "
+            "it is not supported as a primary step in this editor"
+        )
+
     if normalized_module_type == "custom_code":
         return _build_custom_code_step(
             context_label=f"callback '{callback_key}'",
@@ -11206,6 +11726,31 @@ def _build_ask_selfie_step(
     if normalized_original_invalid_text:
         step["original_capture_invalid_text_template"] = normalized_original_invalid_text
     _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
+    return step
+
+
+def _build_live_chat_handoff_step(
+    *,
+    text_template: str,
+    parse_mode_value: str | None,
+    admin_chat_id: str,
+    timeout_minutes: object = "",
+    admin_notify_template: str = "",
+) -> dict[str, object]:
+    """Build a normalized live_chat_handoff step payload."""
+    normalized_admin_chat_id = str(admin_chat_id or "").strip()
+    if not normalized_admin_chat_id:
+        raise ValueError("live_chat_handoff requires an admin_chat_id")
+    step: dict[str, object] = {
+        "module_type": "live_chat_handoff",
+        "text_template": text_template.strip(),
+        "parse_mode": parse_mode_value,
+        "admin_chat_id": normalized_admin_chat_id,
+        "timeout_minutes": _positive_int_text(timeout_minutes, default=30),
+    }
+    normalized_admin_notify_template = str(admin_notify_template or "").strip()
+    if normalized_admin_notify_template:
+        step["admin_notify_template"] = normalized_admin_notify_template
     return step
 
 
@@ -11716,6 +12261,8 @@ def _extract_command_module_form_values(
         text_default = "Please share your contact using the button below."
     elif module_type == "ask_selfie":
         text_default = "Please send a selfie photo."
+    elif module_type == "live_chat_handoff":
+        text_default = "You're being connected with a support agent. Please wait here for their reply."
     elif module_type == "custom_code":
         text_default = ""
     elif module_type == "bind_code":
@@ -11753,12 +12300,14 @@ def _extract_command_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", module.get("failure_text_template", text_default))).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "set_variable", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "live_chat_handoff", "wait_keyboard_reply", "custom_code", "bind_code", "set_variable", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
     if module_type == "ask_selfie" and not text_template:
         text_template = "Please send a selfie photo."
+    if module_type == "live_chat_handoff" and not text_template:
+        text_template = "You're being connected with a support agent. Please wait here for their reply."
     if module_type == "wait_keyboard_reply" and not text_template:
         text_template = "Please choose one option."
     if module_type == "check_username" and not text_template:
@@ -12002,6 +12551,8 @@ def _extract_callback_module_form_values(
         text_default = "Please share your contact using the button below."
     elif module_type == "ask_selfie":
         text_default = "Please send a selfie photo."
+    elif module_type == "live_chat_handoff":
+        text_default = "You're being connected with a support agent. Please wait here for their reply."
     elif module_type == "custom_code":
         text_default = ""
     elif module_type == "bind_code":
@@ -12039,12 +12590,14 @@ def _extract_callback_module_form_values(
     else:
         text_default = default_text_template
     text_template = str(module.get("text_template", module.get("failure_text_template", text_default))).strip()
-    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "wait_keyboard_reply", "custom_code", "bind_code", "set_variable", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
+    if not text_template and module_type not in {"send_photo", "send_location", "delete_message", "share_contact", "ask_selfie", "live_chat_handoff", "wait_keyboard_reply", "custom_code", "bind_code", "set_variable", "check_username", "share_location", "route", "checkout", "payway_payment", "open_mini_app", "callback_module", "command_module", "inline_button_module", "forget_user_data", "reset_command_menu", "restore_command_menu", "reset_original_command_menu", "userinfo", "user_info"}:
         text_template = default_text_template
     if module_type == "share_contact" and not text_template:
         text_template = "Please share your contact using the button below."
     if module_type == "ask_selfie" and not text_template:
         text_template = "Please send a selfie photo."
+    if module_type == "live_chat_handoff" and not text_template:
+        text_template = "You're being connected with a support agent. Please wait here for their reply."
     if module_type == "wait_keyboard_reply" and not text_template:
         text_template = "Please choose one option."
     if module_type == "check_username" and not text_template:
@@ -13306,6 +13859,24 @@ def _parse_ask_selfie_chain_step(
     )
 
 
+def _parse_live_chat_handoff_chain_step(
+    *,
+    text_template: str,
+    parse_mode: str,
+    admin_chat_id: object = "",
+    timeout_minutes: object = "",
+    admin_notify_template: object = "",
+) -> dict[str, object]:
+    """Build a normalized live_chat_handoff chain step."""
+    return _build_live_chat_handoff_step(
+        text_template=text_template,
+        parse_mode_value=parse_mode or None,
+        admin_chat_id=str(admin_chat_id or ""),
+        timeout_minutes=timeout_minutes,
+        admin_notify_template=str(admin_notify_template or ""),
+    )
+
+
 def _parse_ask_text_reply_chain_step(
     *,
     text_template: str,
@@ -13728,6 +14299,17 @@ def _parse_route_chain_steps(
                     )
                 )
                 continue
+            if module_type == "live_chat_handoff":
+                steps.append(
+                    _parse_live_chat_handoff_chain_step(
+                        text_template=str(serialized.get("text_template", "")),
+                        parse_mode=parse_mode,
+                        admin_chat_id=serialized.get("admin_chat_id", ""),
+                        timeout_minutes=serialized.get("timeout_minutes", ""),
+                        admin_notify_template=serialized.get("admin_notify_template", ""),
+                    )
+                )
+                continue
             if module_type == "ask_text_reply":
                 steps.append(
                     _parse_ask_text_reply_chain_step(
@@ -13973,7 +14555,7 @@ def _parse_route_chain_steps(
                 )
                 continue
             raise ValueError(
-                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., bind_code|..., set_variable|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
+                f"{route_label} chain step {idx}: unknown type '{serialized.get('module_type', '')}', use send_message|..., send_photo|..., send_location|..., delete_message|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., live_chat_handoff|..., custom_code|..., bind_code|..., set_variable|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
             )
 
         parts = [part.strip() for part in line.split("|")]
@@ -14135,6 +14717,16 @@ def _parse_route_chain_steps(
                     parse_mode=parse_mode,
                     success_text_template=parts[2] if len(parts) >= 3 else "",
                     invalid_text_template=parts[3] if len(parts) >= 4 else "",
+                )
+            )
+            continue
+        if module_type == "live_chat_handoff":
+            steps.append(
+                _parse_live_chat_handoff_chain_step(
+                    text_template=parts[1] if len(parts) >= 2 else "",
+                    parse_mode=parts[4] if len(parts) >= 5 else "",
+                    admin_chat_id=parts[2] if len(parts) >= 3 else "",
+                    timeout_minutes=parts[3] if len(parts) >= 4 else "",
                 )
             )
             continue
@@ -14372,7 +14964,7 @@ def _parse_route_chain_steps(
             )
             continue
         raise ValueError(
-            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
+            f"{route_label} chain step {idx}: unknown type '{parts[0]}', use send_message|..., send_photo|..., send_location|..., menu|..., inline_button|..., keyboard_button|..., wait_keyboard_reply|..., ask_text_reply|..., callback_module|..., inline_button_module|..., share_contact|..., ask_selfie|..., live_chat_handoff|..., custom_code|..., share_location|..., route|..., checkout|..., payway_payment|..., open_mini_app|..., cart_button|..., forget_user_data|..., reset_command_menu|..., or userinfo|..."
         )
     return steps
 
@@ -14560,6 +15152,16 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["finish_current_command_text_template"] = str(
                     step.get("finish_current_command_text_template", "")
                 ).strip()
+        elif module_type == "live_chat_handoff":
+            payload = {
+                "module_type": "live_chat_handoff",
+                "text_template": str(step.get("text_template", "")),
+                "parse_mode": parse_mode,
+                "admin_chat_id": str(step.get("admin_chat_id", "")),
+                "timeout_minutes": _positive_int_text(step.get("timeout_minutes", 30), default=30),
+            }
+            if str(step.get("admin_notify_template", "")).strip():
+                payload["admin_notify_template"] = str(step.get("admin_notify_template", "")).strip()
         elif module_type == "ask_text_reply":
             payload = {
                 "module_type": "ask_text_reply",

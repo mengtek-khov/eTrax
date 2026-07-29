@@ -3,14 +3,11 @@
   "command_menu": {
     "callback_modules": {
       "Clock_In": {
-        "items": [
-          "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-in."
-        ],
         "module_type": "set_variable",
         "pipeline": [
           {
             "items": [
-              "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-in."
+              "selfie_prompt = \ud83d\udcf8 Please send a selfie to confirm your clock in."
             ],
             "module_type": "set_variable",
             "text_template": "\ud83d\uddfa Please share your LIVE location to clock in.",
@@ -125,6 +122,9 @@
             "restore_original_menu": false
           }
         ],
+        "items": [
+          "selfie_prompt = \ud83d\udcf8 Please send a selfie to confirm your clock in."
+        ],
         "text_template": "\ud83d\uddfa Please share your LIVE location to clock in.",
         "variable_name": "location_prompt"
       },
@@ -141,14 +141,11 @@
         "text_template": "\u274e Clock-Out process canceled. Thank you!"
       },
       "clock_out_now": {
-        "items": [
-          "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-out."
-        ],
         "module_type": "set_variable",
         "pipeline": [
           {
             "items": [
-              "selfie_prompt = \ud83d\udcf7 Please share a selfie to complete clock-out."
+              "selfie_prompt = \ud83d\udcf8 Please send a selfie to confirm your clock out."
             ],
             "module_type": "set_variable",
             "text_template": "\ud83d\uddfa Please share your LIVE location to clock out.",
@@ -166,6 +163,9 @@
           {
             "module_type": "reset_command_menu"
           }
+        ],
+        "items": [
+          "selfie_prompt = \ud83d\udcf8 Please send a selfie to confirm your clock out."
         ],
         "text_template": "\ud83d\uddfa Please share your LIVE location to clock out.",
         "variable_name": "location_prompt"
@@ -272,6 +272,22 @@
       }
     },
     "command_modules": {
+      "agent": {
+        "admin_chat_id": "",
+        "module_type": "live_chat_handoff",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "admin_chat_id": "",
+            "module_type": "live_chat_handoff",
+            "parse_mode": null,
+            "text_template": "You're being connected with a support agent. Please wait here for their reply.",
+            "timeout_minutes": 30
+          }
+        ],
+        "text_template": "You're being connected with a support agent. Please wait here for their reply.",
+        "timeout_minutes": 30
+      },
       "clock": {
         "buttons": [
           {
@@ -391,20 +407,24 @@
     },
     "commands": [
       {
-        "command": "reset",
-        "description": "Forgot user (for demo only)"
+        "command": "agent",
+        "description": "Talk to a human agent"
       },
       {
-        "command": "getinfo",
-        "description": "Getinfo (for demo only)"
+        "command": "clock",
+        "description": "Clock"
       },
       {
         "command": "language",
         "description": "Language"
       },
       {
-        "command": "clock",
-        "description": "Clock"
+        "command": "getinfo",
+        "description": "Getinfo (for demo only)"
+      },
+      {
+        "command": "reset",
+        "description": "Forgot user (for demo only)"
       }
     ]
   },
@@ -446,6 +466,6 @@
   "token_ref": {
     "bot_id": "eTrax V2 Demo"
   },
-  "updated_at": "2026-07-22T03:20:46.723243+00:00",
+  "updated_at": "2026-07-24T07:32:14.333224+00:00",
   "version": 1
 }

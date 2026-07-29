@@ -12,6 +12,7 @@ from etrax.core.telegram import (
     CheckoutCartConfig,
     DeleteMessageConfig,
     ForgetUserDataConfig,
+    LiveChatHandoffConfig,
     LoadCallbackConfig,
     LoadCommandConfig,
     LoadInlineButtonConfig,
@@ -42,6 +43,7 @@ RuntimeStepConfig = (
     | LoadInlineButtonConfig
     | CustomCodeConfig
     | AskSelfieConfig
+    | LiveChatHandoffConfig
     | ShareContactConfig
     | ShareLocationConfig
     | SendInlineButtonConfig

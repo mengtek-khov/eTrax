@@ -260,7 +260,7 @@ class TelegramBotApiGateway:
         except error.URLError as exc:
             raise RuntimeError(f"telegram file download network error: {exc.reason}") from exc
 
-    def get_user_profile_photo_url(
+    def get_user_profile_photo_file_id(
         self,
         *,
         bot_token: str,
@@ -284,6 +284,15 @@ class TelegramBotApiGateway:
         if not isinstance(chosen_size, dict):
             return None
         file_id = str(chosen_size.get("file_id", "")).strip()
+        return file_id or None
+
+    def get_user_profile_photo_url(
+        self,
+        *,
+        bot_token: str,
+        user_id: str,
+    ) -> str | None:
+        file_id = self.get_user_profile_photo_file_id(bot_token=bot_token, user_id=user_id)
         if not file_id:
             return None
 

@@ -17,6 +17,8 @@ from typing import Any, Callable
 from etrax.adapters.local.bot_process_scaffold_store import JsonBotProcessScaffoldStore
 from etrax.adapters.local.json_cart_state_store import JsonCartStateStore
 from etrax.adapters.local.json_bound_code_store import JsonBoundCodeStore
+from etrax.adapters.local.json_live_chat_takeover_store import JsonLiveChatTakeoverStore
+from etrax.adapters.local.json_live_chat_transcript_store import JsonLiveChatTranscriptStore
 from etrax.adapters.local.json_temporary_command_menu_state_store import JsonTemporaryCommandMenuStateStore
 from etrax.adapters.local.json_user_profile_log_store import JsonUserProfileLogStore
 from etrax.adapters.telegram import TelegramBotApiGateway
@@ -27,6 +29,8 @@ from etrax.core.telegram import (
     ContactRequestStore,
     InlineButtonActionRequestStore,
     KeyboardReplyRequestStore,
+    LiveChatTakeoverStore,
+    LiveChatTranscriptStore,
     LocationRequestStore,
     PendingInlineButtonActionRequest,
     PendingKeyboardReplyRequest,
@@ -573,6 +577,8 @@ class BotRuntimeManager:
         cart_state_file: Path | None = None,
         profile_log_file: Path | None = None,
         temporary_command_menu_state_file: Path | None = None,
+        live_chat_takeover_state_file: Path | None = None,
+        live_chat_transcript_file: Path | None = None,
         schedules_file: Path | None = None,
         working_hours_file: Path | None = None,
         schedule_state_file: Path | None = None,
@@ -580,11 +586,14 @@ class BotRuntimeManager:
         cart_state_store: object | None = None,
         profile_log_store: UserProfileLogStore | None = None,
         temporary_command_menu_state_store: TemporaryCommandMenuStateStore | None = None,
+        live_chat_takeover_store: LiveChatTakeoverStore | None = None,
+        live_chat_transcript_store: LiveChatTranscriptStore | None = None,
         scaffold_store: BotProcessScaffoldStore | None = None,
         poll_timeout_seconds: int = 25,
         poll_interval_seconds: float = 0.5,
         schedule_check_interval_seconds: float = 15.0,
         schedule_max_lag_seconds: int = 300,
+        live_chat_sweep_interval_seconds: float = 30.0,
         schedule_now_factory: Callable[[], datetime] | None = None,
         gateway_factory: Callable[[], TelegramBotApiGateway] | None = None,
     ) -> None:
@@ -604,6 +613,12 @@ class BotRuntimeManager:
         self._temporary_command_menu_state_store = temporary_command_menu_state_store or JsonTemporaryCommandMenuStateStore(
             temporary_command_menu_state_file or state_file.with_name("temporary_command_menus.json")
         )
+        self._live_chat_takeover_store = live_chat_takeover_store or JsonLiveChatTakeoverStore(
+            live_chat_takeover_state_file or state_file.with_name("live_chat_takeovers.json")
+        )
+        self._live_chat_transcript_store = live_chat_transcript_store or JsonLiveChatTranscriptStore(
+            live_chat_transcript_file or state_file.with_name("live_chat_messages.json")
+        )
         self._scaffold_store = scaffold_store or JsonBotProcessScaffoldStore(bot_config_dir)
         self._schedules_file = schedules_file or state_file.with_name("schedules_ui.json")
         self._working_hours_file = working_hours_file or state_file.with_name("working_hours_ui.json")
@@ -613,6 +628,7 @@ class BotRuntimeManager:
         self._poll_interval_seconds = poll_interval_seconds
         self._schedule_check_interval_seconds = max(0.0, float(schedule_check_interval_seconds))
         self._schedule_max_lag_seconds = max(0, int(schedule_max_lag_seconds))
+        self._live_chat_sweep_interval_seconds = max(0.0, float(live_chat_sweep_interval_seconds))
         self._schedule_now_factory = schedule_now_factory or (lambda: datetime.now(timezone.utc))
         self._gateway_factory = gateway_factory or (
             lambda: TelegramBotApiGateway(timeout_seconds=max(15, poll_timeout_seconds + 5))
@@ -626,6 +642,16 @@ class BotRuntimeManager:
         self._keyboard_reply_request_store = _InMemoryKeyboardReplyRequestStore()
         self._text_reply_request_store = _InMemoryTextReplyRequestStore()
         self._inline_action_request_store = _InMemoryInlineButtonActionRequestStore()
+
+    @property
+    def live_chat_takeover_store(self) -> LiveChatTakeoverStore:
+        """Return the shared live-chat takeover state store."""
+        return self._live_chat_takeover_store
+
+    @property
+    def live_chat_transcript_store(self) -> LiveChatTranscriptStore:
+        """Return the shared live-chat transcript store."""
+        return self._live_chat_transcript_store
 
     def start(self, bot_id: str) -> tuple[bool, str]:
         """Start long polling for one bot if it is not already running."""
@@ -699,6 +725,90 @@ class BotRuntimeManager:
         for bot_id in bot_ids:
             self.stop(bot_id)
 
+    def send_live_chat_reply(self, *, bot_id: str, chat_id: str, text: str) -> bool:
+        """Send a human agent's reply into an active live-chat takeover."""
+        normalized_bot_id = str(bot_id).strip()
+        normalized_chat_id = str(chat_id).strip()
+        normalized_text = str(text)
+        if not normalized_bot_id or not normalized_chat_id or not normalized_text.strip():
+            return False
+        record = self._live_chat_takeover_store.get_active(bot_id=normalized_bot_id, chat_id=normalized_chat_id)
+        if record is None:
+            return False
+        token = self._token_service.get_token(normalized_bot_id)
+        if token is None:
+            return False
+        gateway = self._gateway_factory()
+        gateway.send_message(
+            bot_token=token, chat_id=normalized_chat_id, text=normalized_text, parse_mode=None, reply_markup=None,
+        )
+        self._live_chat_transcript_store.append(
+            bot_id=normalized_bot_id, chat_id=normalized_chat_id, direction="agent", text=normalized_text,
+        )
+        self._live_chat_takeover_store.touch(bot_id=normalized_bot_id, chat_id=normalized_chat_id)
+        self._live_chat_takeover_store.mark_viewed(bot_id=normalized_bot_id, chat_id=normalized_chat_id)
+        return True
+
+    def release_live_chat(self, *, bot_id: str, chat_id: str, notify_user: bool = True) -> bool:
+        """Release an active live-chat takeover back to bot automation."""
+        normalized_bot_id = str(bot_id).strip()
+        normalized_chat_id = str(chat_id).strip()
+        if not normalized_bot_id or not normalized_chat_id:
+            return False
+        record = self._live_chat_takeover_store.release(bot_id=normalized_bot_id, chat_id=normalized_chat_id)
+        if record is None:
+            return False
+        if notify_user:
+            token = self._token_service.get_token(normalized_bot_id)
+            if token is not None:
+                gateway = self._gateway_factory()
+                release_text = "The live chat session has ended. You're back with the automated assistant."
+                gateway.send_message(
+                    bot_token=token, chat_id=normalized_chat_id, text=release_text, parse_mode=None, reply_markup=None,
+                )
+                self._live_chat_transcript_store.append(
+                    bot_id=normalized_bot_id, chat_id=normalized_chat_id, direction="system", text=release_text,
+                )
+        return True
+
+    def _sweep_expired_live_chat_takeovers(
+        self, *, bot_id: str, gateway: TelegramBotApiGateway, bot_token: str,
+    ) -> int:
+        """Auto-release live-chat takeovers past their expiry and notify both sides."""
+        sent_count = 0
+        now = datetime.now(timezone.utc)
+        for record in self._live_chat_takeover_store.list_active(bot_id=bot_id):
+            chat_id = str(record.get("chat_id", "")).strip()
+            expires_at_text = str(record.get("expires_at", "")).strip()
+            if not chat_id or not expires_at_text:
+                continue
+            try:
+                expires_at = datetime.fromisoformat(expires_at_text)
+            except ValueError:
+                continue
+            if expires_at > now:
+                continue
+            released = self._live_chat_takeover_store.release(bot_id=bot_id, chat_id=chat_id)
+            if released is None:
+                continue
+            timeout_text = "The live chat session timed out. You're back with the automated assistant."
+            gateway.send_message(
+                bot_token=bot_token, chat_id=chat_id, text=timeout_text, parse_mode=None, reply_markup=None,
+            )
+            self._live_chat_transcript_store.append(bot_id=bot_id, chat_id=chat_id, direction="system", text=timeout_text)
+            sent_count += 1
+            admin_chat_id = str(released.get("admin_chat_id", "")).strip()
+            if admin_chat_id:
+                gateway.send_message(
+                    bot_token=bot_token,
+                    chat_id=admin_chat_id,
+                    text=f"Live chat with {chat_id} timed out and was returned to the bot.",
+                    parse_mode=None,
+                    reply_markup=None,
+                )
+                sent_count += 1
+        return sent_count
+
     def status_by_bot_id(self, bot_id: str) -> dict[str, object]:
         """Return runtime status and counters for one bot."""
         normalized_bot_id = bot_id.strip()
@@ -738,6 +848,7 @@ class BotRuntimeManager:
         polling_token_lock: _PollingTokenLock | None = None
         polling_token_value = ""
         last_schedule_check_epoch = 0.0
+        last_live_chat_sweep_epoch = 0.0
 
         try:
             while not controller.stop_event.is_set():
@@ -795,6 +906,14 @@ class BotRuntimeManager:
                             controller.messages_sent += scheduled_sent_count
                         last_schedule_check_epoch = current_epoch
 
+                    if current_epoch - last_live_chat_sweep_epoch >= self._live_chat_sweep_interval_seconds:
+                        swept_sent_count = self._sweep_expired_live_chat_takeovers(
+                            bot_id=bot_id, gateway=gateway, bot_token=token,
+                        )
+                        if swept_sent_count > 0:
+                            controller.messages_sent += swept_sent_count
+                        last_live_chat_sweep_epoch = current_epoch
+
                     updates = gateway.get_updates(
                         bot_token=token,
                         offset=offset,
@@ -843,6 +962,8 @@ class BotRuntimeManager:
                             bot_token=token,
                             contact_request_store=self._contact_request_store,
                             selfie_request_store=self._selfie_request_store,
+                            live_chat_takeover_store=self._live_chat_takeover_store,
+                            live_chat_transcript_store=self._live_chat_transcript_store,
                             location_request_store=self._location_request_store,
                             keyboard_reply_request_store=self._keyboard_reply_request_store,
                             text_reply_request_store=self._text_reply_request_store,
@@ -1017,6 +1138,8 @@ class BotRuntimeManager:
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
                 text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
+                live_chat_takeover_store=self._live_chat_takeover_store,
+                live_chat_transcript_store=self._live_chat_transcript_store,
                 cart_configs=runtime_snapshot.cart_configs,
                 checkout_modules=runtime_snapshot.checkout_modules,
             )
@@ -1157,6 +1280,8 @@ class BotRuntimeManager:
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
                 text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
+                live_chat_takeover_store=self._live_chat_takeover_store,
+                live_chat_transcript_store=self._live_chat_transcript_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
                 text_template_resolver=text_template_resolver,
@@ -1177,6 +1302,8 @@ class BotRuntimeManager:
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
                 text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
+                live_chat_takeover_store=self._live_chat_takeover_store,
+                live_chat_transcript_store=self._live_chat_transcript_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
                 text_template_resolver=text_template_resolver,
@@ -1203,6 +1330,8 @@ class BotRuntimeManager:
                     keyboard_reply_request_store=self._keyboard_reply_request_store,
                     text_reply_request_store=self._text_reply_request_store,
                     inline_action_request_store=self._inline_action_request_store,
+                    live_chat_takeover_store=self._live_chat_takeover_store,
+                    live_chat_transcript_store=self._live_chat_transcript_store,
                     cart_configs=cart_configs,
                     checkout_modules=checkout_modules,
                     text_template_resolver=text_template_resolver,
@@ -1238,6 +1367,8 @@ class BotRuntimeManager:
                 keyboard_reply_request_store=self._keyboard_reply_request_store,
                 text_reply_request_store=self._text_reply_request_store,
                 inline_action_request_store=self._inline_action_request_store,
+                live_chat_takeover_store=self._live_chat_takeover_store,
+                live_chat_transcript_store=self._live_chat_transcript_store,
                 cart_configs=cart_configs,
                 checkout_modules=checkout_modules,
                 text_template_resolver=text_template_resolver,

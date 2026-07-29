@@ -13,3 +13,5 @@ data/tokens.json
 data/profile_log.json
 data/cart_state.json
 data/update_offsets.json
+data/live_chat_takeovers.json
+data/live_chat_messages.json

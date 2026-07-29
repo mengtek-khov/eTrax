@@ -18,6 +18,8 @@ from etrax.core.telegram import (
     END_BREADCRUMB_CALLBACK_DATA,
     InlineButtonActionRequestStore,
     KeyboardReplyRequestStore,
+    LiveChatTakeoverStore,
+    LiveChatTranscriptStore,
     LocationRequestStore,
     SelfieRequestStore,
     SendTelegramInlineButtonModule,
@@ -78,6 +80,8 @@ def handle_update(
     profile_log_store: UserProfileLogStore | None = None,
     processed_callback_query_ids: dict[str, float] | None = None,
     locations_file: Path | None = None,
+    live_chat_takeover_store: LiveChatTakeoverStore | None = None,
+    live_chat_transcript_store: LiveChatTranscriptStore | None = None,
 ) -> int:
     """Route one Telegram update through profile logging, cart, checkout, and pipeline handlers."""
     if _message_update_sender_is_bot(update):
@@ -89,6 +93,17 @@ def handle_update(
         profile_log_store=profile_log_store,
     )
     log_user_profile(update, bot_id=bot_id, profile_log_store=profile_log_store)
+
+    live_chat_gate_sent_count = _handle_live_chat_message_gate(
+        update,
+        bot_id=bot_id,
+        gateway=gateway,
+        bot_token=bot_token,
+        live_chat_takeover_store=live_chat_takeover_store,
+        live_chat_transcript_store=live_chat_transcript_store,
+    )
+    if live_chat_gate_sent_count is not None:
+        return live_chat_gate_sent_count
 
     callback_query = update.get("callback_query")
     if isinstance(callback_query, dict):
@@ -106,6 +121,10 @@ def handle_update(
         sender = callback_query.get("from", {})
         chat_id = str(chat.get("id", "")).strip() if isinstance(chat, dict) else ""
         user_id = str(sender.get("id", "")).strip() if isinstance(sender, dict) else ""
+        if live_chat_takeover_store is not None and live_chat_takeover_store.get_active(
+            bot_id=bot_id, chat_id=chat_id,
+        ) is not None:
+            return 0
         callback_transition_sent = _prepare_callback_transition(
             bot_id=bot_id,
             chat_id=chat_id,
@@ -235,6 +254,201 @@ def handle_update(
         inline_action_request_store=inline_action_request_store,
         profile_log_store=profile_log_store,
     )
+
+
+def _handle_live_chat_message_gate(
+    update: dict[str, Any],
+    *,
+    bot_id: str,
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    live_chat_takeover_store: LiveChatTakeoverStore | None,
+    live_chat_transcript_store: LiveChatTranscriptStore | None,
+) -> int | None:
+    """Intercept admin reply/release commands and relay messages for taken-over chats."""
+    if live_chat_takeover_store is None:
+        return None
+    message = update.get("message")
+    if not isinstance(message, dict):
+        return None
+    chat = message.get("chat", {})
+    chat_id = str(chat.get("id", "")).strip() if isinstance(chat, dict) else ""
+    if not chat_id:
+        return None
+
+    text = str(message.get("text", "")).strip()
+    admin_sent_count = _handle_live_chat_admin_command(
+        text,
+        sender_chat_id=chat_id,
+        bot_id=bot_id,
+        gateway=gateway,
+        bot_token=bot_token,
+        live_chat_takeover_store=live_chat_takeover_store,
+        live_chat_transcript_store=live_chat_transcript_store,
+    )
+    if admin_sent_count is not None:
+        return admin_sent_count
+
+    record = live_chat_takeover_store.get_active(bot_id=bot_id, chat_id=chat_id)
+    if record is None:
+        return None
+    return _relay_message_to_admin(
+        message,
+        bot_id=bot_id,
+        chat_id=chat_id,
+        record=record,
+        gateway=gateway,
+        bot_token=bot_token,
+        live_chat_takeover_store=live_chat_takeover_store,
+        live_chat_transcript_store=live_chat_transcript_store,
+    )
+
+
+def _handle_live_chat_admin_command(
+    text: str,
+    *,
+    sender_chat_id: str,
+    bot_id: str,
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    live_chat_takeover_store: LiveChatTakeoverStore,
+    live_chat_transcript_store: LiveChatTranscriptStore | None,
+) -> int | None:
+    """Parse and execute `/reply <chat_id> <text>` and `/release <chat_id>` admin commands."""
+    if not (text.startswith("/reply") or text.startswith("/release")):
+        return None
+    parts = text.split(maxsplit=2)
+    command = parts[0].split("@", 1)[0].lower()
+
+    if command == "/release" and len(parts) >= 2:
+        target_chat_id = parts[1].strip()
+        record = live_chat_takeover_store.get_active(bot_id=bot_id, chat_id=target_chat_id)
+        if record is None or str(record.get("admin_chat_id", "")).strip() != sender_chat_id:
+            return None
+        live_chat_takeover_store.release(bot_id=bot_id, chat_id=target_chat_id)
+        release_text = "The live chat session has ended. You're back with the automated assistant."
+        delivery_error = None
+        try:
+            gateway.send_message(
+                bot_token=bot_token, chat_id=target_chat_id, text=release_text, parse_mode=None, reply_markup=None,
+            )
+        except Exception as exc:
+            delivery_error = str(exc)
+        if live_chat_transcript_store is not None:
+            live_chat_transcript_store.append(
+                bot_id=bot_id, chat_id=target_chat_id, direction="system", text=release_text,
+            )
+        confirmation_text = f"Live chat with {target_chat_id} ended."
+        if delivery_error:
+            confirmation_text += f" (could not notify the user: {delivery_error})"
+        try:
+            gateway.send_message(
+                bot_token=bot_token, chat_id=sender_chat_id, text=confirmation_text, parse_mode=None, reply_markup=None,
+            )
+        except Exception:
+            pass
+        return 2
+
+    if command == "/reply" and len(parts) >= 3:
+        target_chat_id = parts[1].strip()
+        reply_text = parts[2]
+        record = live_chat_takeover_store.get_active(bot_id=bot_id, chat_id=target_chat_id)
+        if record is None or str(record.get("admin_chat_id", "")).strip() != sender_chat_id:
+            return None
+        try:
+            gateway.send_message(
+                bot_token=bot_token, chat_id=target_chat_id, text=reply_text, parse_mode=None, reply_markup=None,
+            )
+        except Exception as exc:
+            try:
+                gateway.send_message(
+                    bot_token=bot_token,
+                    chat_id=sender_chat_id,
+                    text=f"Could not deliver reply to {target_chat_id}: {exc}",
+                    parse_mode=None,
+                    reply_markup=None,
+                )
+            except Exception:
+                pass
+            return 1
+        if live_chat_transcript_store is not None:
+            live_chat_transcript_store.append(
+                bot_id=bot_id, chat_id=target_chat_id, direction="agent", text=reply_text,
+            )
+        live_chat_takeover_store.touch(bot_id=bot_id, chat_id=target_chat_id)
+        live_chat_takeover_store.mark_viewed(bot_id=bot_id, chat_id=target_chat_id)
+        return 1
+
+    return None
+
+
+def _relay_message_to_admin(
+    message: dict[str, Any],
+    *,
+    bot_id: str,
+    chat_id: str,
+    record: dict[str, Any],
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    live_chat_takeover_store: LiveChatTakeoverStore,
+    live_chat_transcript_store: LiveChatTranscriptStore | None,
+) -> int:
+    """Record a taken-over chat's message and forward it to the assigned admin chat, if any."""
+    admin_chat_id = str(record.get("admin_chat_id", "")).strip()
+
+    text = str(message.get("text", "")).strip()
+    photo = message.get("photo")
+    valid_photos = [
+        entry for entry in photo if isinstance(entry, dict) and str(entry.get("file_id", "")).strip()
+    ] if isinstance(photo, list) else []
+    if not valid_photos and not text:
+        return 0
+
+    # Record the incoming message first so it always shows up in the web UI transcript,
+    # even with no admin chat configured or if the admin chat is unreachable.
+    if live_chat_transcript_store is not None:
+        if valid_photos:
+            caption = str(message.get("caption", "")).strip()
+            live_chat_transcript_store.append(
+                bot_id=bot_id, chat_id=chat_id, direction="user", text=f"[photo] {caption}".strip(),
+            )
+        else:
+            live_chat_transcript_store.append(bot_id=bot_id, chat_id=chat_id, direction="user", text=text)
+    live_chat_takeover_store.mark_user_message(bot_id=bot_id, chat_id=chat_id)
+
+    if not admin_chat_id:
+        return 1
+
+    try:
+        if valid_photos:
+            file_id = str(valid_photos[-1].get("file_id", "")).strip()
+            caption = str(message.get("caption", "")).strip()
+            gateway.send_photo(
+                bot_token=bot_token,
+                chat_id=admin_chat_id,
+                photo=file_id,
+                caption=f"[{chat_id}] {caption}".strip(),
+                parse_mode=None,
+                reply_markup=None,
+            )
+        else:
+            gateway.send_message(
+                bot_token=bot_token,
+                chat_id=admin_chat_id,
+                text=f"[{chat_id}] {text}",
+                parse_mode=None,
+                reply_markup=None,
+            )
+    except Exception as exc:
+        if live_chat_transcript_store is not None:
+            live_chat_transcript_store.append(
+                bot_id=bot_id,
+                chat_id=chat_id,
+                direction="system",
+                text=f"Could not relay message to admin chat {admin_chat_id}: {exc}",
+            )
+
+    return 1
 
 
 def _callback_query_was_processed(

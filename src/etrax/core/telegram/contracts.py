@@ -158,6 +158,14 @@ class TelegramMessageGateway(Protocol):
     ) -> str | None:
         """Return the current user's Telegram profile-photo URL when available."""
 
+    def get_user_profile_photo_file_id(
+        self,
+        *,
+        bot_token: str,
+        user_id: str,
+    ) -> str | None:
+        """Return the current user's Telegram profile-photo file id when available."""
+
     def download_file_bytes(
         self,
         *,
