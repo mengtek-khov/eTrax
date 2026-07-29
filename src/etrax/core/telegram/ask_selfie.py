@@ -33,6 +33,7 @@ class AskSelfieConfig:
     original_capture_invalid_text_template: str | None = DEFAULT_SELFIE_ORIGINAL_DATE_INVALID
     require_finish_current_command: bool = False
     finish_current_command_text_template: str | None = None
+    scan_barcode_qr: bool = False
     context_bot_id_key: str = "bot_id"
     context_chat_id_key: str = "chat_id"
     context_user_id_key: str = "user_id"
@@ -57,6 +58,7 @@ class PendingSelfieRequest:
     original_capture_invalid_text_template: str | None = DEFAULT_SELFIE_ORIGINAL_DATE_INVALID
     require_finish_current_command: bool = False
     finish_current_command_text_template: str | None = None
+    scan_barcode_qr: bool = False
     context_snapshot: dict[str, Any] = field(default_factory=dict)
     continuation_modules: tuple[FlowModule, ...] = ()
 
@@ -146,6 +148,7 @@ class AskSelfieModule:
                 context_result_key=self._config.context_result_key,
                 require_finish_current_command=bool(self._config.require_finish_current_command),
                 finish_current_command_text_template=self._config.finish_current_command_text_template,
+                scan_barcode_qr=bool(self._config.scan_barcode_qr),
                 context_snapshot={**render_context, **result_context},
                 continuation_modules=self._continuation_modules,
             )

@@ -1182,6 +1182,7 @@ def test_resolve_command_send_configs_supports_ask_selfie_steps() -> None:
                     "original_capture_max_age_minutes": 60,
                     "require_original_capture_same_day": True,
                     "original_capture_invalid_text_template": "Take a fresh selfie.",
+                    "scan_barcode_qr": True,
                 }
             },
         }
@@ -1199,6 +1200,7 @@ def test_resolve_command_send_configs_supports_ask_selfie_steps() -> None:
     assert selfie_pipeline[0].original_capture_max_age_minutes == 60
     assert selfie_pipeline[0].require_original_capture_same_day is True
     assert selfie_pipeline[0].original_capture_invalid_text_template == "Take a fresh selfie."
+    assert selfie_pipeline[0].scan_barcode_qr is True
 
 
 def test_resolve_command_send_configs_supports_custom_code_steps() -> None:
@@ -2088,6 +2090,149 @@ def test_handle_update_validates_selfie_and_runs_continuation() -> None:
         "original_capture_date_iso": "",
         "photo_count": 2,
     }
+
+
+def test_handle_update_scans_barcode_qr_when_enabled() -> None:
+    gateway = FakeCallbackGateway()
+    gateway.file_bytes_by_id["barcode-selfie-id"] = b"not-a-real-image"
+    store = FakeSelfieRequestStore()
+    continuation = FakeRuntimeModule()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie holding your badge QR code.",
+            success_text_template="Saved {selfie_file_id}",
+            scan_barcode_qr=True,
+        ),
+        continuation_modules=[continuation],
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 902,
+                "date": 1704067200,
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+                "photo": [
+                    {
+                        "file_id": "barcode-selfie-id",
+                        "file_unique_id": "barcode-selfie-unique",
+                        "width": 800,
+                        "height": 600,
+                        "file_size": 12345,
+                    },
+                ],
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    selfie_context = continuation.calls[0]
+    result = selfie_context["ask_selfie_result"]
+    assert result["barcode_qr_status"] in {
+        "ok",
+        "not_found",
+        "scan_failed",
+        "barcode_backend_unavailable",
+        "empty_image",
+    }
+    assert isinstance(result["barcode_value"], str)
+    assert isinstance(result["barcode_type"], str)
+    assert result["barcode_qr_values"] == [] or all(isinstance(value, str) for value in result["barcode_qr_values"])
+    assert result["barcode_qr_types"] == [] or all(isinstance(value, str) for value in result["barcode_qr_types"])
+    assert result["barcode_qr_count"] == len(result["barcode_qr_values"])
+
+
+def test_handle_update_selfie_result_omits_barcode_fields_by_default() -> None:
+    gateway = FakeCallbackGateway()
+    store = FakeSelfieRequestStore()
+    continuation = FakeRuntimeModule()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie.",
+            success_text_template="Saved {selfie_file_id}",
+        ),
+        continuation_modules=[continuation],
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 903,
+                "date": 1704067200,
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+                "photo": [
+                    {
+                        "file_id": "plain-selfie-id",
+                        "file_unique_id": "plain-selfie-unique",
+                        "width": 800,
+                        "height": 600,
+                        "file_size": 12345,
+                    },
+                ],
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    result = continuation.calls[0]["ask_selfie_result"]
+    assert "barcode_qr_status" not in result
+    assert "barcode_value" not in result
 
 
 def test_handle_update_accepts_selfie_document_with_fresh_original_capture_date() -> None:

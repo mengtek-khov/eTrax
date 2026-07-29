@@ -13,6 +13,7 @@ dependencies = ["cryptography>=42.0"]
 [project.optional-dependencies]
 frappe = ["frappe>=15"]
 dev = ["pytest>=8.0"]
+barcode = ["pyzbar>=0.1.9", "Pillow>=10.0"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

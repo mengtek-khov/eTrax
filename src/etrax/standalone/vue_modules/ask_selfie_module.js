@@ -6,6 +6,25 @@
     return;
   }
 
+  const barcodeQuickTokens = [
+    "{selfie_barcode_value}",
+    "{selfie_barcode_type}",
+    "{selfie_barcode_qr_count}",
+  ];
+
+  function renderQuickTokenToolbar(ctx, field, tokens) {
+    return (
+      `<div class="template-toolbar">` +
+      tokens
+        .map(
+          (token) =>
+            `<button type="button" class="secondary" @click="applyTemplateSnippet(${ctx}, '${field}', '${token}', '', $event)">${token}</button>`
+        )
+        .join("") +
+      `</div>`
+    );
+  }
+
   moduleSystem.register({
     type: "ask_selfie",
     label: "ask_selfie",
@@ -27,6 +46,7 @@
         original_capture_invalid_text_template: "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
         require_finish_current_command: false,
         finish_current_command_text_template: "",
+        scan_barcode_qr: false,
       };
     },
     parsePrimary(source) {
@@ -55,6 +75,7 @@
         finish_current_command_text_template: source.finish_current_command_text_template
           ? String(source.finish_current_command_text_template)
           : "",
+        scan_barcode_qr: Boolean(source.scan_barcode_qr),
       };
     },
     parseChain(parts) {
@@ -73,6 +94,7 @@
         original_capture_invalid_text_template: "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
         require_finish_current_command: false,
         finish_current_command_text_template: "",
+        scan_barcode_qr: false,
         title: "Main Menu",
         items: [],
         buttons: [],
@@ -96,7 +118,8 @@
       const requireSameDay = step.require_original_capture_same_day === undefined
         ? true
         : Boolean(step.require_original_capture_same_day);
-      if (step.require_finish_current_command || finishText || requireOriginalDate || originalDateInvalidText || originalMaxAge !== 60 || !requireSameDay) {
+      const scanBarcodeQr = Boolean(step.scan_barcode_qr);
+      if (step.require_finish_current_command || finishText || requireOriginalDate || originalDateInvalidText || originalMaxAge !== 60 || !requireSameDay || scanBarcodeQr) {
         return JSON.stringify({
           module_type: "ask_selfie",
           text_template: prompt,
@@ -109,6 +132,7 @@
           original_capture_invalid_text_template: originalDateInvalidText,
           require_finish_current_command: Boolean(step.require_finish_current_command),
           finish_current_command_text_template: finishText,
+          scan_barcode_qr: scanBarcodeQr,
         });
       }
       return payload;
@@ -127,6 +151,18 @@
         `placeholder="Ask the user to send a selfie photo" ` +
         `:value="currentStepField(${ctx}, 'text_template')" ` +
         `@input="updateCurrentStepField(${ctx}, 'text_template', $event.target.value)"></textarea>` +
+        `<div v-if="isStepType(${ctx}, 'ask_selfie')">` +
+        `<label>Barcode / QR Scanning</label>` +
+        `<p class="hint">Choose whether to decode a barcode or QR code from the selfie image after it is received.</p>` +
+        `<div class="share-location-mode-grid">` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': !currentStepChecked(${ctx}, 'scan_barcode_qr') }]"><input type="radio" :checked="!currentStepChecked(${ctx}, 'scan_barcode_qr')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'scan_barcode_qr', false); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">No Scan</span><span class="share-location-mode-note">Just capture the selfie photo as usual.</span></span></label>` +
+        `<label :class="['checkbox', 'compact', 'share-location-mode', { 'is-selected': currentStepChecked(${ctx}, 'scan_barcode_qr') }]"><input type="radio" :checked="currentStepChecked(${ctx}, 'scan_barcode_qr')" @change="if ($event.target.checked) { updateCurrentStepToggle(${ctx}, 'scan_barcode_qr', true); }"><span class="share-location-mode-copy"><span class="share-location-mode-title">Scan Barcode / QR From Image</span><span class="share-location-mode-note">Best-effort: decodes any barcode or QR code found in the photo. Does not block the flow if none is found.</span></span></label>` +
+        `</div>` +
+        `</div>` +
+        `<div class="template-editor" v-if="isStepType(${ctx}, 'ask_selfie') && currentStepChecked(${ctx}, 'scan_barcode_qr')">` +
+        `<p class="hint">Available keys include <code>{selfie_barcode_value}</code>, <code>{selfie_barcode_type}</code>, and <code>{selfie_barcode_qr_count}</code>. Insert into Success Text:</p>` +
+        renderQuickTokenToolbar(ctx, "success_text_template", barcodeQuickTokens) +
+        `</div>` +
         `<label v-if="isStepType(${ctx}, 'ask_selfie')">Success Text</label>` +
         `<textarea v-if="isStepType(${ctx}, 'ask_selfie')" ` +
         `placeholder="Shown after the user sends a selfie photo" ` +

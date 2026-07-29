@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from etrax.adapters.telegram import TelegramBotApiGateway
+from etrax.core.barcode_scan import scan_barcode_qr_image
 from etrax.core.flow import FlowModule
 from etrax.core.image_metadata import validate_jpeg_original_capture_date
 from etrax.core.telegram import (
@@ -45,6 +46,7 @@ def resolve_ask_selfie_step_config(
         in {"1", "true", "yes", "on"},
         finish_current_command_text_template=str(step.get("finish_current_command_text_template", "")).strip()
         or None,
+        scan_barcode_qr=str(step.get("scan_barcode_qr", "")).strip().lower() in {"1", "true", "yes", "on"},
     )
 
 
@@ -173,6 +175,9 @@ def handle_selfie_message_update(
         if validation_count:
             return validation_count
 
+    if bool(getattr(pending_request, "scan_barcode_qr", False)):
+        _apply_barcode_qr_scan(context, gateway=gateway, bot_token=bot_token)
+
     context[pending_request.context_result_key] = {
         "bot_id": bot_id,
         "chat_id": chat_id,
@@ -188,6 +193,17 @@ def handle_selfie_message_update(
         "original_capture_date_iso": context.get("selfie_original_capture_date_iso", ""),
         "photo_count": context.get("selfie_photo_count", 0),
     }
+    if bool(getattr(pending_request, "scan_barcode_qr", False)):
+        context[pending_request.context_result_key].update(
+            {
+                "barcode_qr_status": context.get("selfie_barcode_qr_status", ""),
+                "barcode_value": context.get("selfie_barcode_value", ""),
+                "barcode_type": context.get("selfie_barcode_type", ""),
+                "barcode_qr_values": context.get("selfie_barcode_qr_values", []),
+                "barcode_qr_types": context.get("selfie_barcode_qr_types", []),
+                "barcode_qr_count": context.get("selfie_barcode_qr_count", 0),
+            }
+        )
 
     selfie_request_store.pop_pending(bot_id=bot_id, chat_id=chat_id, user_id=user_id)
 
@@ -326,6 +342,27 @@ def _validate_original_capture_date(
         reply_markup=None,
     )
     return 1
+
+
+def _apply_barcode_qr_scan(
+    context: dict[str, Any],
+    *,
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+) -> None:
+    file_id = str(context.get("selfie_file_id", "")).strip()
+    try:
+        image_bytes = gateway.download_file_bytes(bot_token=bot_token, file_id=file_id) if file_id else b""
+    except Exception:
+        image_bytes = b""
+
+    scan_result = scan_barcode_qr_image(image_bytes)
+    context["selfie_barcode_qr_status"] = scan_result.status
+    context["selfie_barcode_value"] = scan_result.primary_value
+    context["selfie_barcode_type"] = scan_result.primary_type
+    context["selfie_barcode_qr_values"] = [code.value for code in scan_result.codes]
+    context["selfie_barcode_qr_types"] = [code.type for code in scan_result.codes]
+    context["selfie_barcode_qr_count"] = len(scan_result.codes)
 
 
 def _positive_int(value: object, *, default: int) -> int:

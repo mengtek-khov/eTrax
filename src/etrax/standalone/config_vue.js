@@ -535,15 +535,19 @@
 	    <div class="command-entry" v-for="(entry, commandIndex) in commandEntries" :key="'cmd-' + entry._entry_id">
       <div class="pipeline-title-row">
         <p class="command-panel-title">[[ commandPanelTitle(entry.command) ]]</p>
-        <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(entry.editor)">[[ editorCollapsed(entry.editor) ? 'Expand' : 'Collapse' ]]</button>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <div class="module-list-actions" v-if="!isSinglePipelineMode">
+            <button type="button" :disabled="commandIndex === 0" @click="moveCommandUp(commandIndex)">Up</button>
+            <button type="button" :disabled="commandIndex >= commandEntries.length - 1" @click="moveCommandDown(commandIndex)">Down</button>
+          </div>
+          <button type="button" class="secondary collapse-toggle" @click="toggleEditorCollapsed(entry.editor)">[[ editorCollapsed(entry.editor) ? 'Expand' : 'Collapse' ]]</button>
+        </div>
       </div>
       <div v-if="!editorCollapsed(entry.editor)">
       <div :class="isSinglePipelineMode ? 'command-row no-action' : 'command-row'">
         <input placeholder="/help" v-model="entry.command" :readonly="isSinglePipelineMode">
         <input placeholder="Get help" v-model="entry.description" :readonly="isSinglePipelineMode">
         <div class="module-list-actions" v-if="!isSinglePipelineMode">
-          <button type="button" :disabled="commandIndex === 0" @click="moveCommandUp(commandIndex)">Up</button>
-          <button type="button" :disabled="commandIndex >= commandEntries.length - 1" @click="moveCommandDown(commandIndex)">Down</button>
           <button type="button" class="danger" @click="removeCommand(commandIndex)">Remove</button>
         </div>
       </div>
