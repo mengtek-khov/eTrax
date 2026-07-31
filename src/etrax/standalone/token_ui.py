@@ -1352,6 +1352,8 @@ def _build_handler(
             command_original_capture_invalid_texts = form.get(
                 "command_original_capture_invalid_text_template", []
             )
+            command_scan_modes = form.get("command_scan_mode", [])
+            command_scan_pattern_types = form.get("command_scan_pattern_type", [])
             command_callback_target_keys = form.get("command_callback_target_key", [])
             command_command_target_keys = form.get("command_command_target_key", [])
             command_photo_urls = form.get("command_photo_url", [])
@@ -1437,6 +1439,8 @@ def _build_handler(
             callback_original_capture_invalid_texts = form.get(
                 "callback_original_capture_invalid_text_template", []
             )
+            callback_scan_modes = form.get("callback_scan_mode", [])
+            callback_scan_pattern_types = form.get("callback_scan_pattern_type", [])
             callback_callback_target_keys = form.get("callback_callback_target_key", [])
             callback_command_target_keys = form.get("callback_command_target_key", [])
             callback_photo_urls = form.get("callback_photo_url", [])
@@ -1527,6 +1531,8 @@ def _build_handler(
             start_original_capture_invalid_text = form.get(
                 "start_original_capture_invalid_text_template", [""]
             )[0].strip()
+            start_scan_mode = form.get("start_scan_mode", [""])[0].strip()
+            start_scan_pattern_type = form.get("start_scan_pattern_type", [""])[0].strip()
             start_callback_target_key = form.get("start_callback_target_key", [""])[0].strip()
             start_command_target_key = form.get("start_command_target_key", [""])[0].strip()
             start_photo_url = form.get("start_photo_url", [""])[0].strip()
@@ -1632,6 +1638,8 @@ def _build_handler(
                     command_original_capture_max_age_minutes=command_original_capture_max_age_minutes,
                     command_require_original_capture_same_days=command_require_original_capture_same_days,
                     command_original_capture_invalid_texts=command_original_capture_invalid_texts,
+                    command_scan_modes=command_scan_modes,
+                    command_scan_pattern_types=command_scan_pattern_types,
                     command_callback_target_keys=command_callback_target_keys,
                     command_command_target_keys=command_command_target_keys,
                     command_photo_urls=command_photo_urls,
@@ -1715,6 +1723,8 @@ def _build_handler(
                         original_capture_max_age_minutes=start_original_capture_max_age_minutes,
                         require_original_capture_same_day=start_require_original_capture_same_day,
                         original_capture_invalid_text=start_original_capture_invalid_text,
+                        scan_mode=start_scan_mode,
+                        scan_pattern_type=start_scan_pattern_type,
                         callback_target_key=start_callback_target_key,
                         command_target_key=start_command_target_key,
                         photo_url=start_photo_url,
@@ -1798,6 +1808,8 @@ def _build_handler(
                     callback_original_capture_max_age_minutes=callback_original_capture_max_age_minutes,
                     callback_require_original_capture_same_days=callback_require_original_capture_same_days,
                     callback_original_capture_invalid_texts=callback_original_capture_invalid_texts,
+                    callback_scan_modes=callback_scan_modes,
+                    callback_scan_pattern_types=callback_scan_pattern_types,
                     callback_callback_target_keys=callback_callback_target_keys,
                     callback_command_target_keys=callback_command_target_keys,
                     callback_photo_urls=callback_photo_urls,
@@ -9421,6 +9433,8 @@ def _build_command_modules_from_form(
     command_original_capture_max_age_minutes: list[str],
     command_require_original_capture_same_days: list[str],
     command_original_capture_invalid_texts: list[str],
+    command_scan_modes: list[str],
+    command_scan_pattern_types: list[str],
     command_callback_target_keys: list[str],
     command_command_target_keys: list[str],
     command_photo_urls: list[str],
@@ -9503,6 +9517,8 @@ def _build_command_modules_from_form(
         len(command_original_capture_max_age_minutes),
         len(command_require_original_capture_same_days),
         len(command_original_capture_invalid_texts),
+        len(command_scan_modes),
+        len(command_scan_pattern_types),
         len(command_callback_target_keys),
         len(command_command_target_keys),
         len(command_photo_urls),
@@ -9621,6 +9637,12 @@ def _build_command_modules_from_form(
             command_original_capture_invalid_texts[idx].strip()
             if idx < len(command_original_capture_invalid_texts)
             else ""
+        )
+        scan_mode = (
+            command_scan_modes[idx].strip() if idx < len(command_scan_modes) else ""
+        )
+        scan_pattern_type = (
+            command_scan_pattern_types[idx].strip() if idx < len(command_scan_pattern_types) else ""
         )
         callback_target_key = command_callback_target_keys[idx].strip() if idx < len(command_callback_target_keys) else ""
         command_target_key = command_command_target_keys[idx].strip() if idx < len(command_command_target_keys) else ""
@@ -9786,6 +9808,8 @@ def _build_command_modules_from_form(
             original_capture_max_age_minutes=original_capture_max_age_minutes,
             require_original_capture_same_day=require_original_capture_same_day,
             original_capture_invalid_text=original_capture_invalid_text,
+            scan_mode=scan_mode,
+            scan_pattern_type=scan_pattern_type,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
@@ -9869,6 +9893,8 @@ def _build_callback_modules_from_form(
     callback_original_capture_max_age_minutes: list[str],
     callback_require_original_capture_same_days: list[str],
     callback_original_capture_invalid_texts: list[str],
+    callback_scan_modes: list[str],
+    callback_scan_pattern_types: list[str],
     callback_callback_target_keys: list[str],
     callback_command_target_keys: list[str],
     callback_photo_urls: list[str],
@@ -9952,6 +9978,8 @@ def _build_callback_modules_from_form(
         len(callback_original_capture_max_age_minutes),
         len(callback_require_original_capture_same_days),
         len(callback_original_capture_invalid_texts),
+        len(callback_scan_modes),
+        len(callback_scan_pattern_types),
         len(callback_callback_target_keys),
         len(callback_command_target_keys),
         len(callback_photo_urls),
@@ -10070,6 +10098,12 @@ def _build_callback_modules_from_form(
             callback_original_capture_invalid_texts[idx].strip()
             if idx < len(callback_original_capture_invalid_texts)
             else ""
+        )
+        scan_mode = (
+            callback_scan_modes[idx].strip() if idx < len(callback_scan_modes) else ""
+        )
+        scan_pattern_type = (
+            callback_scan_pattern_types[idx].strip() if idx < len(callback_scan_pattern_types) else ""
         )
         callback_target_key = callback_callback_target_keys[idx].strip() if idx < len(callback_callback_target_keys) else ""
         command_target_key = callback_command_target_keys[idx].strip() if idx < len(callback_command_target_keys) else ""
@@ -10240,6 +10274,8 @@ def _build_callback_modules_from_form(
             original_capture_max_age_minutes=original_capture_max_age_minutes,
             require_original_capture_same_day=require_original_capture_same_day,
             original_capture_invalid_text=original_capture_invalid_text,
+            scan_mode=scan_mode,
+            scan_pattern_type=scan_pattern_type,
             callback_target_key=callback_target_key,
             command_target_key=command_target_key,
             photo_url=photo_url,
@@ -10457,6 +10493,8 @@ def _build_command_module_entry(
     original_capture_max_age_minutes: str = "",
     require_original_capture_same_day: str = "1",
     original_capture_invalid_text: str = "",
+    scan_mode: str = "",
+    scan_pattern_type: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -10542,6 +10580,8 @@ def _build_command_module_entry(
         original_capture_max_age_minutes=original_capture_max_age_minutes,
         require_original_capture_same_day=require_original_capture_same_day,
         original_capture_invalid_text=original_capture_invalid_text,
+        scan_mode=scan_mode,
+        scan_pattern_type=scan_pattern_type,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
@@ -10627,6 +10667,8 @@ def _build_callback_module_entry(
     original_capture_max_age_minutes: str = "",
     require_original_capture_same_day: str = "1",
     original_capture_invalid_text: str = "",
+    scan_mode: str = "",
+    scan_pattern_type: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -10711,6 +10753,8 @@ def _build_callback_module_entry(
         original_capture_max_age_minutes=original_capture_max_age_minutes,
         require_original_capture_same_day=require_original_capture_same_day,
         original_capture_invalid_text=original_capture_invalid_text,
+        scan_mode=scan_mode,
+        scan_pattern_type=scan_pattern_type,
         callback_target_key=callback_target_key,
         command_target_key=command_target_key,
         photo_url=photo_url,
@@ -10804,6 +10848,8 @@ def _build_module_step(
     original_capture_max_age_minutes: str = "",
     require_original_capture_same_day: str = "1",
     original_capture_invalid_text: str = "",
+    scan_mode: str = "",
+    scan_pattern_type: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -11057,6 +11103,8 @@ def _build_module_step(
             original_capture_max_age_minutes=original_capture_max_age_minutes,
             require_original_capture_same_day=require_original_capture_same_day,
             original_capture_invalid_text=original_capture_invalid_text,
+            scan_mode=scan_mode,
+            scan_pattern_type=scan_pattern_type,
             require_finish_current_command=require_finish_current_command_text,
             finish_current_command_text=finish_current_command_text,
         )
@@ -11249,6 +11297,8 @@ def _build_callback_module_step(
     original_capture_max_age_minutes: str = "",
     require_original_capture_same_day: str = "1",
     original_capture_invalid_text: str = "",
+    scan_mode: str = "",
+    scan_pattern_type: str = "",
     callback_target_key: str,
     command_target_key: str,
     photo_url: str,
@@ -11502,6 +11552,8 @@ def _build_callback_module_step(
             original_capture_max_age_minutes=original_capture_max_age_minutes,
             require_original_capture_same_day=require_original_capture_same_day,
             original_capture_invalid_text=original_capture_invalid_text,
+            scan_mode=scan_mode,
+            scan_pattern_type=scan_pattern_type,
             require_finish_current_command=require_finish_current_command_text,
             finish_current_command_text=finish_current_command_text,
         )
@@ -11704,6 +11756,8 @@ def _build_ask_selfie_step(
     original_capture_max_age_minutes: object = "",
     require_original_capture_same_day: object = "1",
     original_capture_invalid_text: object = "",
+    scan_mode: object = "",
+    scan_pattern_type: object = "",
     require_finish_current_command: object = "",
     finish_current_command_text: object = "",
 ) -> dict[str, object]:
@@ -11725,6 +11779,13 @@ def _build_ask_selfie_step(
     normalized_original_invalid_text = str(original_capture_invalid_text or "").strip()
     if normalized_original_invalid_text:
         step["original_capture_invalid_text_template"] = normalized_original_invalid_text
+    normalized_scan_mode = str(scan_mode or "").strip().lower()
+    if normalized_scan_mode in {"barcode_qr", "pattern", "mrz"}:
+        step["scan_mode"] = normalized_scan_mode
+        if normalized_scan_mode == "pattern":
+            normalized_pattern_type = str(scan_pattern_type or "").strip()
+            if normalized_pattern_type:
+                step["scan_pattern_type"] = normalized_pattern_type
     _attach_require_finish_current_command(step, require_finish_current_command, finish_current_command_text)
     return step
 
@@ -12380,6 +12441,10 @@ def _extract_command_module_form_values(
         else "1"
     )
     original_capture_invalid_text = str(module.get("original_capture_invalid_text_template", "")).strip()
+    scan_mode = str(module.get("scan_mode", "")).strip().lower()
+    if scan_mode not in {"barcode_qr", "pattern", "mrz"}:
+        scan_mode = "none"
+    scan_pattern_type = str(module.get("scan_pattern_type", "")).strip() or "phone_number"
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
     find_closest_saved_location = "1" if bool(module.get("find_closest_saved_location", False)) else ""
     match_closest_saved_location = "1" if bool(module.get("match_closest_saved_location", False)) else ""
@@ -12485,6 +12550,8 @@ def _extract_command_module_form_values(
         "original_capture_max_age_minutes": original_capture_max_age_minutes,
         "require_original_capture_same_day": require_original_capture_same_day,
         "original_capture_invalid_text_template": original_capture_invalid_text,
+        "scan_mode": scan_mode,
+        "scan_pattern_type": scan_pattern_type,
         "require_live_location": require_live_location,
         "find_closest_saved_location": find_closest_saved_location,
         "match_closest_saved_location": match_closest_saved_location,
@@ -12667,6 +12734,10 @@ def _extract_callback_module_form_values(
         else "1"
     )
     original_capture_invalid_text = str(module.get("original_capture_invalid_text_template", "")).strip()
+    scan_mode = str(module.get("scan_mode", "")).strip().lower()
+    if scan_mode not in {"barcode_qr", "pattern", "mrz"}:
+        scan_mode = "none"
+    scan_pattern_type = str(module.get("scan_pattern_type", "")).strip() or "phone_number"
     require_live_location = "1" if bool(module.get("require_live_location", False)) else ""
     find_closest_saved_location = "1" if bool(module.get("find_closest_saved_location", False)) else ""
     match_closest_saved_location = "1" if bool(module.get("match_closest_saved_location", False)) else ""
@@ -12771,6 +12842,8 @@ def _extract_callback_module_form_values(
         "original_capture_max_age_minutes": original_capture_max_age_minutes,
         "require_original_capture_same_day": require_original_capture_same_day,
         "original_capture_invalid_text_template": original_capture_invalid_text,
+        "scan_mode": scan_mode,
+        "scan_pattern_type": scan_pattern_type,
         "require_live_location": require_live_location,
         "find_closest_saved_location": find_closest_saved_location,
         "match_closest_saved_location": match_closest_saved_location,
@@ -12880,6 +12953,8 @@ def _extract_command_rows(raw: object, *, command_modules: dict[str, object]) ->
                     "original_capture_invalid_text_template": module_values[
                         "original_capture_invalid_text_template"
                     ],
+                    "scan_mode": module_values["scan_mode"],
+                    "scan_pattern_type": module_values["scan_pattern_type"],
                     "require_live_location": module_values["require_live_location"],
                     "find_closest_saved_location": module_values["find_closest_saved_location"],
                     "match_closest_saved_location": module_values["match_closest_saved_location"],
@@ -13055,6 +13130,8 @@ def _extract_callback_rows(raw: object) -> list[dict[str, object]]:
                 "original_capture_invalid_text_template": module_values[
                     "original_capture_invalid_text_template"
                 ],
+                "scan_mode": module_values["scan_mode"],
+                "scan_pattern_type": module_values["scan_pattern_type"],
                 "require_live_location": module_values["require_live_location"],
                 "find_closest_saved_location": module_values["find_closest_saved_location"],
                 "match_closest_saved_location": module_values["match_closest_saved_location"],
@@ -13840,6 +13917,8 @@ def _parse_ask_selfie_chain_step(
     original_capture_max_age_minutes: object = "",
     require_original_capture_same_day: object = "1",
     original_capture_invalid_text_template: object = "",
+    scan_mode: object = "",
+    scan_pattern_type: object = "",
     require_finish_current_command: object = "",
     finish_current_command_text: object = "",
 ) -> dict[str, object]:
@@ -13854,6 +13933,8 @@ def _parse_ask_selfie_chain_step(
         original_capture_max_age_minutes=original_capture_max_age_minutes,
         require_original_capture_same_day=require_original_capture_same_day,
         original_capture_invalid_text=original_capture_invalid_text_template,
+        scan_mode=scan_mode,
+        scan_pattern_type=scan_pattern_type,
         require_finish_current_command=require_finish_current_command,
         finish_current_command_text=finish_current_command_text,
     )
@@ -14294,6 +14375,8 @@ def _parse_route_chain_steps(
                         original_capture_invalid_text_template=serialized.get(
                             "original_capture_invalid_text_template", ""
                         ),
+                        scan_mode=serialized.get("scan_mode", ""),
+                        scan_pattern_type=serialized.get("scan_pattern_type", ""),
                         require_finish_current_command=serialized.get("require_finish_current_command", ""),
                         finish_current_command_text=serialized.get("finish_current_command_text_template", ""),
                     )
@@ -15146,6 +15229,11 @@ def _pipeline_to_chain_steps(raw_pipeline: object) -> str:
                 payload["original_capture_invalid_text_template"] = str(
                     step.get("original_capture_invalid_text_template", "")
                 ).strip()
+            scan_mode_value = str(step.get("scan_mode", "")).strip().lower()
+            if scan_mode_value in {"barcode_qr", "pattern", "mrz"}:
+                payload["scan_mode"] = scan_mode_value
+                if scan_mode_value == "pattern" and str(step.get("scan_pattern_type", "")).strip():
+                    payload["scan_pattern_type"] = str(step.get("scan_pattern_type", "")).strip()
             if bool(step.get("require_finish_current_command", False)):
                 payload["require_finish_current_command"] = True
             if str(step.get("finish_current_command_text_template", "")).strip():

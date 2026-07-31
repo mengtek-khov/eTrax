@@ -7,6 +7,8 @@ from typing import Any, Callable
 from etrax.adapters.telegram import TelegramBotApiGateway
 from etrax.core.barcode_scan import scan_barcode_qr_image
 from etrax.core.flow import FlowModule
+from etrax.core.identity_document import scan_identity_document_image
+from etrax.core.pattern_scan import DEFAULT_PATTERN_TYPE, scan_pattern_image
 from etrax.core.image_metadata import validate_jpeg_original_capture_date
 from etrax.core.telegram import (
     AskSelfieConfig,
@@ -20,6 +22,13 @@ from etrax.core.telegram import (
 from etrax.core.token import BotTokenService
 
 from .utils import normalize_parse_mode
+
+SCAN_MODES = {"none", "barcode_qr", "pattern", "mrz"}
+
+
+def _resolve_scan_mode(step: dict[str, Any]) -> str:
+    mode = str(step.get("scan_mode", "")).strip().lower()
+    return mode if mode in SCAN_MODES else "none"
 
 
 def resolve_ask_selfie_step_config(
@@ -46,7 +55,8 @@ def resolve_ask_selfie_step_config(
         in {"1", "true", "yes", "on"},
         finish_current_command_text_template=str(step.get("finish_current_command_text_template", "")).strip()
         or None,
-        scan_barcode_qr=str(step.get("scan_barcode_qr", "")).strip().lower() in {"1", "true", "yes", "on"},
+        scan_mode=_resolve_scan_mode(step),
+        scan_pattern_type=str(step.get("scan_pattern_type", "")).strip() or DEFAULT_PATTERN_TYPE,
     )
 
 
@@ -175,8 +185,18 @@ def handle_selfie_message_update(
         if validation_count:
             return validation_count
 
-    if bool(getattr(pending_request, "scan_barcode_qr", False)):
+    scan_mode = str(getattr(pending_request, "scan_mode", "") or "none")
+    if scan_mode == "barcode_qr":
         _apply_barcode_qr_scan(context, gateway=gateway, bot_token=bot_token)
+    elif scan_mode == "pattern":
+        _apply_pattern_scan(
+            context,
+            gateway=gateway,
+            bot_token=bot_token,
+            pattern_type=str(getattr(pending_request, "scan_pattern_type", "") or DEFAULT_PATTERN_TYPE),
+        )
+    elif scan_mode == "mrz":
+        _apply_mrz_scan(context, gateway=gateway, bot_token=bot_token)
 
     context[pending_request.context_result_key] = {
         "bot_id": bot_id,
@@ -193,7 +213,7 @@ def handle_selfie_message_update(
         "original_capture_date_iso": context.get("selfie_original_capture_date_iso", ""),
         "photo_count": context.get("selfie_photo_count", 0),
     }
-    if bool(getattr(pending_request, "scan_barcode_qr", False)):
+    if scan_mode == "barcode_qr":
         context[pending_request.context_result_key].update(
             {
                 "barcode_qr_status": context.get("selfie_barcode_qr_status", ""),
@@ -202,6 +222,30 @@ def handle_selfie_message_update(
                 "barcode_qr_values": context.get("selfie_barcode_qr_values", []),
                 "barcode_qr_types": context.get("selfie_barcode_qr_types", []),
                 "barcode_qr_count": context.get("selfie_barcode_qr_count", 0),
+            }
+        )
+    elif scan_mode == "pattern":
+        context[pending_request.context_result_key].update(
+            {
+                "pattern_status": context.get("selfie_pattern_status", ""),
+                "pattern_type": context.get("selfie_pattern_type", ""),
+                "pattern_value": context.get("selfie_pattern_value", ""),
+                "pattern_values": context.get("selfie_pattern_values", []),
+                "pattern_count": context.get("selfie_pattern_count", 0),
+            }
+        )
+    elif scan_mode == "mrz":
+        context[pending_request.context_result_key].update(
+            {
+                "mrz_status": context.get("selfie_mrz_status", ""),
+                "mrz_document_type": context.get("selfie_mrz_document_type", ""),
+                "mrz_document_number": context.get("selfie_mrz_document_number", ""),
+                "mrz_surname": context.get("selfie_mrz_surname", ""),
+                "mrz_given_names": context.get("selfie_mrz_given_names", ""),
+                "mrz_nationality": context.get("selfie_mrz_nationality", ""),
+                "mrz_birth_date": context.get("selfie_mrz_birth_date", ""),
+                "mrz_sex": context.get("selfie_mrz_sex", ""),
+                "mrz_expiry_date": context.get("selfie_mrz_expiry_date", ""),
             }
         )
 
@@ -363,6 +407,61 @@ def _apply_barcode_qr_scan(
     context["selfie_barcode_qr_values"] = [code.value for code in scan_result.codes]
     context["selfie_barcode_qr_types"] = [code.type for code in scan_result.codes]
     context["selfie_barcode_qr_count"] = len(scan_result.codes)
+
+
+def _apply_pattern_scan(
+    context: dict[str, Any],
+    *,
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+    pattern_type: str,
+) -> None:
+    file_id = str(context.get("selfie_file_id", "")).strip()
+    try:
+        image_bytes = gateway.download_file_bytes(bot_token=bot_token, file_id=file_id) if file_id else b""
+    except Exception:
+        image_bytes = b""
+
+    scan_result = scan_pattern_image(image_bytes, pattern_type=pattern_type)
+    context["selfie_pattern_status"] = scan_result.status
+    context["selfie_pattern_type"] = scan_result.pattern_type
+    context["selfie_pattern_value"] = scan_result.primary_value
+    context["selfie_pattern_values"] = list(scan_result.matches)
+    context["selfie_pattern_count"] = len(scan_result.matches)
+
+
+_MRZ_OCR_FAILURE_WARNINGS = {"ocr_backend_unavailable", "ocr_language_data_unavailable", "ocr_failed", "scan_failed"}
+
+
+def _apply_mrz_scan(
+    context: dict[str, Any],
+    *,
+    gateway: TelegramBotApiGateway,
+    bot_token: str,
+) -> None:
+    file_id = str(context.get("selfie_file_id", "")).strip()
+    try:
+        image_bytes = gateway.download_file_bytes(bot_token=bot_token, file_id=file_id) if file_id else b""
+    except Exception:
+        image_bytes = b""
+
+    scan_result = scan_identity_document_image(image_bytes)
+    if "empty_image" in scan_result.warnings:
+        status = "empty_image"
+    elif scan_result.fields:
+        status = "ok"
+    else:
+        status = next((w for w in scan_result.warnings if w in _MRZ_OCR_FAILURE_WARNINGS), "not_found")
+
+    context["selfie_mrz_status"] = status
+    context["selfie_mrz_document_type"] = scan_result.document_type
+    context["selfie_mrz_document_number"] = scan_result.fields.get("document_number", "")
+    context["selfie_mrz_surname"] = scan_result.fields.get("surname", "")
+    context["selfie_mrz_given_names"] = scan_result.fields.get("given_names", "")
+    context["selfie_mrz_nationality"] = scan_result.fields.get("nationality", "")
+    context["selfie_mrz_birth_date"] = scan_result.fields.get("birth_date", "")
+    context["selfie_mrz_sex"] = scan_result.fields.get("sex", "")
+    context["selfie_mrz_expiry_date"] = scan_result.fields.get("expiry_date", "")
 
 
 def _positive_int(value: object, *, default: int) -> int:

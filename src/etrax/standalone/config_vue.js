@@ -469,6 +469,8 @@
   <input type="hidden" name="start_original_capture_max_age_minutes" :value="startPrimary.original_capture_max_age_minutes || ''">
   <input type="hidden" name="start_require_original_capture_same_day" :value="startPrimary.require_original_capture_same_day === false ? '' : '1'">
   <input type="hidden" name="start_original_capture_invalid_text_template" :value="startPrimary.original_capture_invalid_text_template || ''">
+  <input type="hidden" name="start_scan_mode" :value="startPrimary.scan_mode || 'none'">
+  <input type="hidden" name="start_scan_pattern_type" :value="startPrimary.scan_pattern_type || 'phone_number'">
   <input type="hidden" name="start_callback_target_key" :value="startPrimary.target_callback_key">
   <input type="hidden" name="start_command_target_key" :value="startPrimary.target_command_key">
   <input type="hidden" name="start_photo_url" :value="startPrimary.photo_url">
@@ -613,6 +615,8 @@
 	      <input type="hidden" name="command_original_capture_max_age_minutes" :value="primaryStep(entry.editor).original_capture_max_age_minutes || ''">
 	      <input type="hidden" name="command_require_original_capture_same_day" :value="primaryStep(entry.editor).require_original_capture_same_day === false ? '' : '1'">
 	      <input type="hidden" name="command_original_capture_invalid_text_template" :value="primaryStep(entry.editor).original_capture_invalid_text_template || ''">
+	      <input type="hidden" name="command_scan_mode" :value="primaryStep(entry.editor).scan_mode || 'none'">
+	      <input type="hidden" name="command_scan_pattern_type" :value="primaryStep(entry.editor).scan_pattern_type || 'phone_number'">
 	      <input type="hidden" name="command_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="command_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 		      <input type="hidden" name="command_photo_url" :value="primaryStep(entry.editor).photo_url">
@@ -841,6 +845,8 @@
       <input type="hidden" name="callback_original_capture_max_age_minutes" :value="primaryStep(entry.editor).original_capture_max_age_minutes || ''">
       <input type="hidden" name="callback_require_original_capture_same_day" :value="primaryStep(entry.editor).require_original_capture_same_day === false ? '' : '1'">
       <input type="hidden" name="callback_original_capture_invalid_text_template" :value="primaryStep(entry.editor).original_capture_invalid_text_template || ''">
+      <input type="hidden" name="callback_scan_mode" :value="primaryStep(entry.editor).scan_mode || 'none'">
+      <input type="hidden" name="callback_scan_pattern_type" :value="primaryStep(entry.editor).scan_pattern_type || 'phone_number'">
       <input type="hidden" name="callback_callback_target_key" :value="primaryStep(entry.editor).target_callback_key">
 		      <input type="hidden" name="callback_command_target_key" :value="primaryStep(entry.editor).target_command_key">
 		      <input type="hidden" name="callback_photo_url" :value="primaryStep(entry.editor).photo_url">
@@ -2178,6 +2184,8 @@
             original_capture_max_age_minutes: primary.original_capture_max_age_minutes || "",
             require_original_capture_same_day: primary.require_original_capture_same_day === false ? "" : "1",
             original_capture_invalid_text_template: primary.original_capture_invalid_text_template || "",
+            scan_mode: primary.scan_mode || "none",
+            scan_pattern_type: primary.scan_pattern_type || "phone_number",
             callback_target_key: primary.target_callback_key,
             command_target_key: primary.target_command_key,
             photo_url: primary.photo_url,

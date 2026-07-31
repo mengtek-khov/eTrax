@@ -5,12 +5,5 @@
       "chat_id": "1088085236",
       "source_callback_key": "Clock_In"
     }
-  },
-  "eTrax V2 Demo": {
-    "483083398": {
-      "bot_id": "eTrax V2 Demo",
-      "chat_id": "483083398",
-      "source_callback_key": "Clock_In"
-    }
   }
 }

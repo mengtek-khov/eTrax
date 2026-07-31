@@ -3,11 +3,11 @@ from __future__ import annotations
 """Identity document OCR parsing helpers for ID cards and passports."""
 
 import re
-import os
 from dataclasses import asdict, dataclass, field
 from datetime import date
-from pathlib import Path
 from typing import Callable
+
+from ._ocr_backend import generic_ocr_image_variants, run_tesseract_ocr
 
 
 OcrImageReader = Callable[[bytes], str]
@@ -77,6 +77,12 @@ def scan_identity_document_image(
             document_type="unknown",
             raw_text="",
             warnings=(str(exc),),
+        )
+    except Exception:
+        return IdentityDocumentScanResult(
+            document_type="unknown",
+            raw_text="",
+            warnings=("scan_failed",),
         )
     return scan_identity_document_text(ocr_text)
 
@@ -316,117 +322,15 @@ def _collapse_spaces(value: str) -> str:
 
 
 def _read_ocr_text_with_optional_tesseract(image_bytes: bytes) -> str:
-    try:
-        import io
-
-        from PIL import Image
-        import pytesseract
-    except ImportError as exc:
-        raise RuntimeError("ocr_backend_unavailable") from exc
-
-    _configure_optional_tesseract(pytesseract)
-    try:
-        with Image.open(io.BytesIO(image_bytes)) as image:
-            candidates = _identity_document_ocr_images(image)
-            texts = [
-                str(
-                    pytesseract.image_to_string(
-                        candidate,
-                        lang="khm+eng",
-                        config=f"{_tesseract_ocr_config()} --psm {page_segmentation_mode}".strip(),
-                    )
-                    or ""
-                )
-                for candidate, page_segmentation_mode in candidates
-            ]
-            return max(texts, key=_ocr_text_quality, default="")
-    except pytesseract.TesseractNotFoundError as exc:
-        raise RuntimeError("ocr_backend_unavailable") from exc
-    except pytesseract.TesseractError as exc:
-        lowered_error = str(exc).lower()
-        if "failed loading language" in lowered_error or "couldn't load any languages" in lowered_error:
-            raise RuntimeError("ocr_language_data_unavailable") from exc
-        raise RuntimeError("ocr_failed") from exc
-
-
-def _configure_optional_tesseract(pytesseract_module: object) -> None:
-    executable = getattr(pytesseract_module.pytesseract, "tesseract_cmd", "")
-    if executable and Path(str(executable)).exists():
-        _configure_tesseract_tessdata()
-        return
-    for candidate in _tesseract_command_candidates():
-        if candidate.exists():
-            pytesseract_module.pytesseract.tesseract_cmd = str(candidate)
-            _configure_tesseract_tessdata()
-            return
-    _configure_tesseract_tessdata()
-
-
-def _tesseract_command_candidates() -> tuple[Path, ...]:
-    project_root = Path(__file__).resolve().parents[3]
-    return (
-        project_root / "tools" / "Tesseract-OCR" / "tesseract.exe",
-        Path("tools") / "Tesseract-OCR" / "tesseract.exe",
-        Path("C:/Program Files/Tesseract-OCR/tesseract.exe"),
-        Path("C:/Program Files (x86)/Tesseract-OCR/tesseract.exe"),
-    )
-
-
-def _tesseract_ocr_config() -> str:
-    return ""
-
-
-def _identity_document_ocr_images(image: object) -> tuple[tuple[object, int], ...]:
-    from PIL import Image as PillowImage
-    from PIL import ImageEnhance, ImageFilter, ImageOps
-
-    source = ImageOps.exif_transpose(image).convert("RGB")
-    max_dimension = max(source.size)
-    scale = max(1.0, min(3.0, 2200 / max_dimension)) if max_dimension else 1.0
-    if scale > 1.0:
-        source = source.resize(
-            (round(source.width * scale), round(source.height * scale)),
-            resample=PillowImage.Resampling.LANCZOS,
-        )
-
-    grayscale = ImageOps.grayscale(source)
-    autocontrast = ImageOps.autocontrast(grayscale, cutoff=1)
-    sharpened = ImageEnhance.Sharpness(autocontrast).enhance(1.8)
-    sharpened = ImageEnhance.Contrast(sharpened).enhance(1.35)
-    threshold = sharpened.point(lambda value: 255 if value > 165 else 0)
-    denoised = sharpened.filter(ImageFilter.MedianFilter(size=3))
-    return (
-        (source, 6),
-        (denoised, 6),
-        (threshold, 11),
-    )
+    texts = run_tesseract_ocr(image_bytes, lang="khm+eng", image_variants=generic_ocr_image_variants)
+    return max(texts, key=_ocr_text_quality, default="")
 
 
 def _ocr_text_quality(text: str) -> tuple[int, int, int]:
     normalized = _normalize_ocr_text(text)
     result = scan_identity_document_text(normalized)
-    khmer_characters = sum("\u1780" <= character <= "\u17ff" for character in normalized)
+    khmer_characters = sum("ក" <= character <= "៿" for character in normalized)
     return (len(result.fields), khmer_characters, len(normalized))
-
-
-def _configure_tesseract_tessdata() -> None:
-    existing_prefix = os.environ.get("TESSDATA_PREFIX", "")
-    if existing_prefix and Path(existing_prefix).exists():
-        return
-    for tessdata_dir in _tesseract_tessdata_candidates():
-        if (tessdata_dir / "eng.traineddata").exists():
-            os.environ["TESSDATA_PREFIX"] = str(tessdata_dir)
-            return
-
-
-def _tesseract_tessdata_candidates() -> tuple[Path, ...]:
-    project_root = Path(__file__).resolve().parents[3]
-    return (
-        project_root / "tools" / "Tesseract-OCR" / "tessdata",
-        Path("tools") / "Tesseract-OCR" / "tessdata",
-        Path("C:/Program Files/Tesseract-OCR/tessdata"),
-        Path("C:/Program Files (x86)/Tesseract-OCR/tessdata"),
-    )
 
 
 __all__ = [

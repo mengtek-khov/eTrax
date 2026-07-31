@@ -17,6 +17,7 @@
             "text": "\u274cOops I'm not 18"
           }
         ],
+        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
         "module_type": "inline_button",
         "parse_mode": null,
         "pipeline": [
@@ -35,6 +36,7 @@
                 "text": "\u274cOops I'm not 18"
               }
             ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
             "module_type": "inline_button",
             "parse_mode": null,
             "remove_inline_buttons_on_click": true,
@@ -266,6 +268,7 @@
             "text": "Clock In"
           }
         ],
+        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
         "module_type": "keyboard_button",
         "parse_mode": null,
         "pipeline": [
@@ -276,6 +279,7 @@
                 "text": "Clock In"
               }
             ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
             "module_type": "keyboard_button",
             "parse_mode": null,
             "text_template": "Choose an option."
@@ -305,6 +309,7 @@
           {
             "invalid_text_template": "Please send a selfie photo.",
             "module_type": "ask_selfie",
+            "original_capture_invalid_text_template": "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
             "parse_mode": null,
             "success_text_template": "Thanks, your selfie was received.",
             "text_template": "Please send a selfie photo."
@@ -328,6 +333,28 @@
             "text_template": "Your Data has been removed please click /start to use this system again"
           }
         ]
+      },
+      "scanqr": {
+        "invalid_text_template": "Please send a selfie photo.",
+        "module_type": "ask_selfie",
+        "original_capture_invalid_text_template": "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
+        "parse_mode": null,
+        "pipeline": [
+          {
+            "invalid_text_template": "Please send a selfie photo.",
+            "module_type": "ask_selfie",
+            "original_capture_invalid_text_template": "Please send a selfie taken today within the last hour. If Telegram removes the original date, send the image as a file.",
+            "parse_mode": null,
+            "scan_mode": "pattern",
+            "scan_pattern_type": "phone_number",
+            "success_text_template": "here is you code result . {selfie_barcode_value} {selfie_barcode_type} {selfie_barcode_qr_count}",
+            "text_template": "Please send a selfie photo."
+          }
+        ],
+        "scan_mode": "pattern",
+        "scan_pattern_type": "phone_number",
+        "success_text_template": "here is you code result . {selfie_barcode_value} {selfie_barcode_type} {selfie_barcode_qr_count}",
+        "text_template": "Please send a selfie photo."
       },
       "start": {
         "module_type": "send_message",
@@ -353,6 +380,7 @@
                 "text": "Remind me later"
               }
             ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
             "module_type": "inline_button",
             "parse_mode": "None",
             "remove_inline_buttons_on_click": true,
@@ -419,6 +447,7 @@
             "text": "btn 2"
           }
         ],
+        "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
         "module_type": "inline_button",
         "parse_mode": null,
         "pipeline": [
@@ -435,6 +464,7 @@
                 "text": "btn 2"
               }
             ],
+            "click_timestamp_format": "%Y-%m-%d %H:%M:%S",
             "module_type": "inline_button",
             "parse_mode": null,
             "remove_inline_buttons_on_click": true,
@@ -465,6 +495,10 @@
       {
         "command": "testdeletemessage",
         "description": "Testdeletemessage"
+      },
+      {
+        "command": "scanqr",
+        "description": "Scanqr"
       }
     ]
   },
@@ -506,6 +540,6 @@
   "token_ref": {
     "bot_id": "Testing 2"
   },
-  "updated_at": "2026-05-04T03:02:44.151903+00:00",
+  "updated_at": "2026-07-31T08:33:04.591377+00:00",
   "version": 1
 }

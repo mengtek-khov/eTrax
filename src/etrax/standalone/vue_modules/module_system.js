@@ -333,6 +333,9 @@
         ? true
         : normalizeCheckboxValue(source.require_original_capture_same_day);
     const requireFinishCurrentCommand = normalizeCheckboxValue(source.require_finish_current_command);
+    const scanModeCandidate = source.scan_mode == null ? "none" : String(source.scan_mode);
+    const scanMode = ["none", "barcode_qr", "pattern", "mrz"].indexOf(scanModeCandidate) === -1 ? "none" : scanModeCandidate;
+    const scanPatternType = source.scan_pattern_type == null ? "phone_number" : String(source.scan_pattern_type);
     let buttons = normalizeInlineButtons(source.buttons || []);
     if (moduleType === "keyboard_button") {
       buttons = normalizeKeyboardButtons(source.buttons || []);
@@ -380,6 +383,8 @@
         source.finish_current_command_text_template == null
           ? ""
           : String(source.finish_current_command_text_template),
+      scan_mode: scanMode,
+      scan_pattern_type: scanPatternType,
       target_callback_key: source.target_callback_key == null ? "" : String(source.target_callback_key),
       target_command_key: source.target_command_key == null ? "" : String(source.target_command_key),
       photo_url: source.photo_url == null ? "" : String(source.photo_url),

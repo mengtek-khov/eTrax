@@ -1182,7 +1182,7 @@ def test_resolve_command_send_configs_supports_ask_selfie_steps() -> None:
                     "original_capture_max_age_minutes": 60,
                     "require_original_capture_same_day": True,
                     "original_capture_invalid_text_template": "Take a fresh selfie.",
-                    "scan_barcode_qr": True,
+                    "scan_mode": "barcode_qr",
                 }
             },
         }
@@ -1200,7 +1200,7 @@ def test_resolve_command_send_configs_supports_ask_selfie_steps() -> None:
     assert selfie_pipeline[0].original_capture_max_age_minutes == 60
     assert selfie_pipeline[0].require_original_capture_same_day is True
     assert selfie_pipeline[0].original_capture_invalid_text_template == "Take a fresh selfie."
-    assert selfie_pipeline[0].scan_barcode_qr is True
+    assert selfie_pipeline[0].scan_mode == "barcode_qr"
 
 
 def test_resolve_command_send_configs_supports_custom_code_steps() -> None:
@@ -2105,7 +2105,7 @@ def test_handle_update_scans_barcode_qr_when_enabled() -> None:
             bot_id="support-bot",
             text_template="Send a selfie holding your badge QR code.",
             success_text_template="Saved {selfie_file_id}",
-            scan_barcode_qr=True,
+            scan_mode="barcode_qr",
         ),
         continuation_modules=[continuation],
     )
@@ -2168,6 +2168,168 @@ def test_handle_update_scans_barcode_qr_when_enabled() -> None:
     assert result["barcode_qr_values"] == [] or all(isinstance(value, str) for value in result["barcode_qr_values"])
     assert result["barcode_qr_types"] == [] or all(isinstance(value, str) for value in result["barcode_qr_types"])
     assert result["barcode_qr_count"] == len(result["barcode_qr_values"])
+
+
+def test_handle_update_scans_pattern_when_enabled() -> None:
+    gateway = FakeCallbackGateway()
+    gateway.file_bytes_by_id["phone-selfie-id"] = b"not-a-real-image"
+    store = FakeSelfieRequestStore()
+    continuation = FakeRuntimeModule()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie holding a paper with your phone number.",
+            success_text_template="Saved {selfie_file_id}",
+            scan_mode="pattern",
+            scan_pattern_type="phone_number",
+        ),
+        continuation_modules=[continuation],
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 904,
+                "date": 1704067200,
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+                "photo": [
+                    {
+                        "file_id": "phone-selfie-id",
+                        "file_unique_id": "phone-selfie-unique",
+                        "width": 800,
+                        "height": 600,
+                        "file_size": 12345,
+                    },
+                ],
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    selfie_context = continuation.calls[0]
+    result = selfie_context["ask_selfie_result"]
+    assert result["pattern_status"] in {
+        "ok",
+        "not_found",
+        "scan_failed",
+        "ocr_backend_unavailable",
+        "ocr_language_data_unavailable",
+        "empty_image",
+    }
+    assert result["pattern_type"] == "phone_number"
+    assert isinstance(result["pattern_value"], str)
+    assert result["pattern_values"] == [] or all(isinstance(value, str) for value in result["pattern_values"])
+    assert result["pattern_count"] == len(result["pattern_values"])
+
+
+def test_handle_update_scans_mrz_when_enabled() -> None:
+    gateway = FakeCallbackGateway()
+    gateway.file_bytes_by_id["passport-selfie-id"] = b"not-a-real-image"
+    store = FakeSelfieRequestStore()
+    continuation = FakeRuntimeModule()
+    selfie_module = AskSelfieModule(
+        token_resolver=FakeTokenResolver({"support-bot": "123456:ABCDEFGHIJKLMNOPQRSTUVWX"}),
+        gateway=gateway,
+        selfie_request_store=store,
+        config=AskSelfieConfig(
+            bot_id="support-bot",
+            text_template="Send a selfie holding your passport photo page.",
+            success_text_template="Saved {selfie_file_id}",
+            scan_mode="mrz",
+        ),
+        continuation_modules=[continuation],
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "text": "/verify_selfie",
+                "chat": {"id": 12345},
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+            }
+        },
+        bot_id="support-bot",
+        command_modules={"verify_selfie": [selfie_module]},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    _handle_update(
+        {
+            "message": {
+                "chat": {"id": 12345},
+                "message_id": 905,
+                "date": 1704067200,
+                "from": {"id": 77, "first_name": "Alice", "username": "alice_user"},
+                "photo": [
+                    {
+                        "file_id": "passport-selfie-id",
+                        "file_unique_id": "passport-selfie-unique",
+                        "width": 800,
+                        "height": 600,
+                        "file_size": 12345,
+                    },
+                ],
+            }
+        },
+        bot_id="support-bot",
+        command_modules={},
+        callback_modules={},
+        cart_modules={},
+        gateway=gateway,
+        bot_token="123456:ABCDEFGHIJKLMNOPQRSTUVWX",
+        selfie_request_store=store,
+    )
+
+    selfie_context = continuation.calls[0]
+    result = selfie_context["ask_selfie_result"]
+    assert result["mrz_status"] in {
+        "ok",
+        "not_found",
+        "ocr_backend_unavailable",
+        "ocr_language_data_unavailable",
+        "ocr_failed",
+        "scan_failed",
+        "empty_image",
+    }
+    assert isinstance(result["mrz_document_type"], str)
+    assert isinstance(result["mrz_document_number"], str)
+    assert isinstance(result["mrz_surname"], str)
+    assert isinstance(result["mrz_given_names"], str)
+    assert isinstance(result["mrz_nationality"], str)
+    assert isinstance(result["mrz_birth_date"], str)
+    assert isinstance(result["mrz_sex"], str)
+    assert isinstance(result["mrz_expiry_date"], str)
 
 
 def test_handle_update_selfie_result_omits_barcode_fields_by_default() -> None:
@@ -2233,6 +2395,10 @@ def test_handle_update_selfie_result_omits_barcode_fields_by_default() -> None:
     result = continuation.calls[0]["ask_selfie_result"]
     assert "barcode_qr_status" not in result
     assert "barcode_value" not in result
+    assert "pattern_status" not in result
+    assert "pattern_value" not in result
+    assert "mrz_status" not in result
+    assert "mrz_document_number" not in result
 
 
 def test_handle_update_accepts_selfie_document_with_fresh_original_capture_date() -> None:

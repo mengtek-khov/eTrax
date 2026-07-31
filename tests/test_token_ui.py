@@ -2652,6 +2652,8 @@ def test_pipeline_to_chain_steps_round_trips_ask_selfie_step() -> None:
             "parse_mode": "HTML",
             "success_text_template": "Saved {selfie_file_id}",
             "invalid_text_template": "Please send a selfie photo.",
+            "scan_mode": "pattern",
+            "scan_pattern_type": "email",
         },
     ]
 
@@ -2665,6 +2667,8 @@ def test_pipeline_to_chain_steps_round_trips_ask_selfie_step() -> None:
             "parse_mode": "HTML",
             "success_text_template": "Saved {selfie_file_id}",
             "invalid_text_template": "Please send a selfie photo.",
+            "scan_mode": "pattern",
+            "scan_pattern_type": "email",
         }
     ]
 
@@ -3039,6 +3043,8 @@ def test_build_command_module_entry_persists_ask_selfie_templates() -> None:
         original_capture_max_age_minutes="60",
         require_original_capture_same_day="1",
         original_capture_invalid_text="Send a fresh selfie as a file.",
+        scan_mode="pattern",
+        scan_pattern_type="email",
         checkout_empty_text="",
         checkout_pay_button_text="",
         checkout_pay_callback_data="",
@@ -3067,8 +3073,12 @@ def test_build_command_module_entry_persists_ask_selfie_templates() -> None:
     assert entry["invalid_text_template"] == "Please send a selfie photo."
     assert entry["require_original_capture_date"] is True
     assert entry["original_capture_invalid_text_template"] == "Send a fresh selfie as a file."
+    assert entry["scan_mode"] == "pattern"
+    assert entry["scan_pattern_type"] == "email"
     assert entry["pipeline"][0]["module_type"] == "ask_selfie"
     assert entry["pipeline"][0]["require_original_capture_date"] is True
+    assert entry["pipeline"][0]["scan_mode"] == "pattern"
+    assert entry["pipeline"][0]["scan_pattern_type"] == "email"
 
 
 def test_build_callback_module_entry_persists_ask_selfie_original_date_config() -> None:
@@ -3095,6 +3105,8 @@ def test_build_callback_module_entry_persists_ask_selfie_original_date_config() 
         original_capture_max_age_minutes="60",
         require_original_capture_same_day="1",
         original_capture_invalid_text="Send a fresh selfie as a file.",
+        scan_mode="pattern",
+        scan_pattern_type="id_number",
         checkout_empty_text="",
         checkout_pay_button_text="",
         checkout_pay_callback_data="",
@@ -3121,7 +3133,11 @@ def test_build_callback_module_entry_persists_ask_selfie_original_date_config() 
     assert entry["module_type"] == "ask_selfie"
     assert entry["require_original_capture_date"] is True
     assert entry["original_capture_invalid_text_template"] == "Send a fresh selfie as a file."
+    assert entry["scan_mode"] == "pattern"
+    assert entry["scan_pattern_type"] == "id_number"
     assert entry["pipeline"][0]["require_original_capture_date"] is True
+    assert entry["pipeline"][0]["scan_mode"] == "pattern"
+    assert entry["pipeline"][0]["scan_pattern_type"] == "id_number"
 
 
 def test_build_command_module_entry_persists_custom_code_function() -> None:
@@ -3752,6 +3768,8 @@ def test_extract_command_module_form_values_supports_ask_selfie() -> None:
             "original_capture_max_age_minutes": 45,
             "require_original_capture_same_day": False,
             "original_capture_invalid_text_template": "Send a fresh selfie.",
+            "scan_mode": "pattern",
+            "scan_pattern_type": "email",
         },
         default_text_template="Command /verify_selfie received.",
         default_menu_title="Verify Selfie Menu",
@@ -3766,6 +3784,8 @@ def test_extract_command_module_form_values_supports_ask_selfie() -> None:
     assert values["original_capture_max_age_minutes"] == "45"
     assert values["require_original_capture_same_day"] == ""
     assert values["original_capture_invalid_text_template"] == "Send a fresh selfie."
+    assert values["scan_mode"] == "pattern"
+    assert values["scan_pattern_type"] == "email"
 
 
 def test_extract_command_rows_keeps_ask_selfie_original_date_flags() -> None:
@@ -3781,6 +3801,8 @@ def test_extract_command_rows_keeps_ask_selfie_original_date_flags() -> None:
                 "original_capture_max_age_minutes": 45,
                 "require_original_capture_same_day": False,
                 "original_capture_invalid_text_template": "Send a fresh selfie.",
+                "scan_mode": "pattern",
+                "scan_pattern_type": "email",
                 "require_finish_current_command": True,
                 "finish_current_command_text_template": "Finish selfie first.",
                 "pipeline": [
@@ -3793,6 +3815,8 @@ def test_extract_command_rows_keeps_ask_selfie_original_date_flags() -> None:
                         "original_capture_max_age_minutes": 45,
                         "require_original_capture_same_day": False,
                         "original_capture_invalid_text_template": "Send a fresh selfie.",
+                        "scan_mode": "pattern",
+                        "scan_pattern_type": "email",
                         "require_finish_current_command": True,
                         "finish_current_command_text_template": "Finish selfie first.",
                     }
@@ -3805,6 +3829,8 @@ def test_extract_command_rows_keeps_ask_selfie_original_date_flags() -> None:
     assert rows[0]["original_capture_max_age_minutes"] == "45"
     assert rows[0]["require_original_capture_same_day"] == ""
     assert rows[0]["original_capture_invalid_text_template"] == "Send a fresh selfie."
+    assert rows[0]["scan_mode"] == "pattern"
+    assert rows[0]["scan_pattern_type"] == "email"
     assert rows[0]["require_finish_current_command"] == "1"
 
 
@@ -3820,6 +3846,8 @@ def test_extract_callback_rows_keeps_ask_selfie_original_date_flags() -> None:
                 "original_capture_max_age_minutes": 45,
                 "require_original_capture_same_day": False,
                 "original_capture_invalid_text_template": "Send a fresh selfie.",
+                "scan_mode": "pattern",
+                "scan_pattern_type": "id_number",
                 "require_finish_current_command": True,
                 "finish_current_command_text_template": "Finish selfie first.",
                 "pipeline": [
@@ -3832,6 +3860,8 @@ def test_extract_callback_rows_keeps_ask_selfie_original_date_flags() -> None:
                         "original_capture_max_age_minutes": 45,
                         "require_original_capture_same_day": False,
                         "original_capture_invalid_text_template": "Send a fresh selfie.",
+                        "scan_mode": "pattern",
+                        "scan_pattern_type": "id_number",
                         "require_finish_current_command": True,
                         "finish_current_command_text_template": "Finish selfie first.",
                     }
@@ -3845,6 +3875,8 @@ def test_extract_callback_rows_keeps_ask_selfie_original_date_flags() -> None:
     assert rows[0]["original_capture_max_age_minutes"] == "45"
     assert rows[0]["require_original_capture_same_day"] == ""
     assert rows[0]["original_capture_invalid_text_template"] == "Send a fresh selfie."
+    assert rows[0]["scan_mode"] == "pattern"
+    assert rows[0]["scan_pattern_type"] == "id_number"
     assert rows[0]["require_finish_current_command"] == "1"
 
 

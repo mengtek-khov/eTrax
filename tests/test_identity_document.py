@@ -89,6 +89,14 @@ def test_scan_identity_document_image_uses_injected_ocr_reader() -> None:
     assert result.fields["nationality"] == "KHM"
 
 
+def test_scan_identity_document_image_returns_scan_failed_for_unreadable_bytes() -> None:
+    result = scan_identity_document_image(b"not-a-real-image")
+
+    assert result.document_type == "unknown"
+    assert result.fields == {}
+    assert result.warnings == ("scan_failed",)
+
+
 def test_custom_code_scan_identity_document_from_ocr_text_returns_context_updates() -> None:
     functions = StandaloneCustomCodeFunctions()
 
